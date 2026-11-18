@@ -17,9 +17,13 @@ end
 # Issue #286: ORWPCE read + wiring RPCs on RpmsRpc::ClinicalEvent (no writes).
 #
 # When note IEN is a positive integer, ORWPCE GET VISIT, HASVISIT, and PCE4NOTE take
-# the visit from ^TIU(8925,note,0) piece 3 and ignore DFN on the broker. ClinicalEvent
-# must not enforce a cross-patient DFN guard for visit_for_note, has_visit?, visit_status,
-# or pce_for_note on that path (document in the module comment for builders).
+# the visit from ^TIU(8925,note,0) piece 3 and ignore DFN on the broker. So on that
+# path ClinicalEvent enforces the patient scope itself (issue #531): visit_for_note,
+# has_visit?, visit_status, and pce_for_note first read the note's patient with
+# TIU GET ALERT INFO (under OR CPRS GUI CHART) and send the ORWPCE RPC only when it
+# is the DFN passed. Any other answer raises ClinicalEvent::NotePatientMismatchError
+# and sends no ORWPCE RPC. Note 0 looks the visit up by DFN on the server and makes
+# no ownership read. note_visit_string takes no DFN and is unscoped.
 class ClinicalEventTest < Minitest::Test
   include OrwpceReadHelpers
 
@@ -27,6 +31,7 @@ class ClinicalEventTest < Minitest::Test
 
   NOTE_IEN = "3"
   DFN = "4"
+  GUARDED_METHODS = %i[visit_for_note has_visit? visit_status pce_for_note].freeze
   VISIT_STRING = ""
   LOCATION = "6"
   VISIT_DATETIME = "3260312.09"
@@ -51,6 +56,13 @@ class ClinicalEventTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = client }
   end
 
+  # A capture of a positive note names its patient in inputs[1]. Note 0 has
+  # no note to own, and the same note seeded twice is the same seed.
+  def seed_capture_note_owner(mock, capture)
+    note, dfn, = capture.fetch("inputs")
+    seed_note_owner(mock, note, dfn) if note.to_i.positive?
+  end
+
   # -- broker parameter order (from capture inputs) ---------------------------
 
   def test_visit_for_note_sends_orwpce_get_visit_params_from_capture
@@ -58,7 +70,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_for_note(NOTE_IEN, DFN, VISIT_STRING)
 
-    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, VISIT_STRING ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE GET VISIT", NOTE_IEN, DFN, VISIT_STRING ]
   end
 
   def test_has_visit_sends_orwpce_hasvisit_params_from_capture
@@ -66,7 +78,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ]
   end
 
   def test_has_visit_lookup_by_location_sends_orwpce_hasvisit_params_from_capture
@@ -94,7 +106,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_status(NOTE_IEN, DFN, "", "")
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ]
   end
 
   def test_visit_status_lookup_by_location_sends_orwpce_hasvisit_params_from_capture
@@ -118,7 +130,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.pce_for_note(NOTE_IEN, DFN, VISIT_STRING)
 
-    assert_equal [ [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, VISIT_STRING ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, VISIT_STRING ]
   end
 
   def test_immunization_types_without_date_sends_no_params
@@ -290,7 +302,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_for_note(NOTE_IEN, DFN, "")
 
-    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ]
   end
 
   def test_visit_for_note_positive_note_sends_empty_string_not_nil_for_nil_visit_string
@@ -298,8 +310,8 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_for_note(NOTE_IEN, DFN, nil)
 
-    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ] ], client.calls
-    refute client.calls.first[3].nil?, "visit_string param must be empty string, not nil"
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ]
+    refute orwpce_calls(client).first[3].nil?, "visit_string param must be empty string, not nil"
   end
 
   def test_pce_for_note_positive_note_sends_empty_string_not_nil_for_nil_visit_string
@@ -307,8 +319,8 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.pce_for_note(NOTE_IEN, DFN, nil)
 
-    assert_equal [ [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, "" ] ], client.calls
-    refute client.calls.first[3].nil?
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, "" ]
+    refute orwpce_calls(client).first[3].nil?
   end
 
   def test_has_visit_positive_note_sends_empty_strings_not_nil_for_nil_location_and_datetime
@@ -316,9 +328,9 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.has_visit?(NOTE_IEN, DFN, nil, nil)
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
-    refute client.calls.first[3].nil?
-    refute client.calls.first[4].nil?
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ]
+    refute orwpce_calls(client).first[3].nil?
+    refute orwpce_calls(client).first[4].nil?
   end
 
   def test_visit_status_positive_note_sends_empty_strings_not_nil_for_nil_location_and_datetime
@@ -326,9 +338,9 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_status(NOTE_IEN, DFN, nil, nil)
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
-    refute client.calls.first[3].nil?
-    refute client.calls.first[4].nil?
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ]
+    refute orwpce_calls(client).first[3].nil?
+    refute orwpce_calls(client).first[4].nil?
   end
 
   def test_visit_for_note_positive_note_sends_well_formed_visit_string
@@ -336,7 +348,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.visit_for_note(NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING)
 
-    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE GET VISIT", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ]
   end
 
   def test_has_visit_positive_note_rejects_malformed_location_or_datetime
@@ -357,7 +369,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ]
   end
 
   def test_has_visit_positive_note_sends_well_formed_location_and_datetime
@@ -365,7 +377,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.has_visit?(NOTE_IEN, DFN, "3", "3260902.0255")
 
-    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "3", "3260902.0255" ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "3", "3260902.0255" ]
   end
 
   def test_pce_for_note_positive_note_rejects_malformed_visit_string
@@ -382,7 +394,7 @@ class ClinicalEventTest < Minitest::Test
     use(client)
     clinical_event.pce_for_note(NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING)
 
-    assert_equal [ [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ] ], client.calls
+    assert_guarded_calls client, NOTE_IEN, [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ]
   end
 
   def test_immunization_types_with_blank_date_sends_empty_string
@@ -442,6 +454,7 @@ class ClinicalEventTest < Minitest::Test
         m.seed_collection(:pce_education_topics, [ { ien: "5991", name: "SYNTH" } ])
         m.seed_collection(:pce_health_factor_types, [ { ien: "25", name: "SYNTH" } ])
         m.seed_keyed_collection(:pce_for_note, NOTE_IEN, [ { record_type: "HDR", visit_string: "x" } ])
+        seed_note_owner(m, NOTE_IEN, DFN) if GUARDED_METHODS.include?(method)
       end
       clinical_event.public_send(method, *args)
 
@@ -456,7 +469,7 @@ class ClinicalEventTest < Minitest::Test
   def test_required_rpcs_lists_every_in_scope_orwpce_read_under_clinical_event
     doc = JSON.parse(File.read(REQUIRED_RPCS_PATH))
     listed = doc.fetch("modules").fetch(MODULE_NAME)
-    missing = IN_SCOPE_RPCS - listed
+    missing = REQUIRED_RPCS - listed
     assert_empty missing, "required_rpcs.json must list:\n#{missing.join("\n")}"
   end
 
@@ -475,14 +488,14 @@ class ClinicalEventTest < Minitest::Test
   end
 
   def test_visit_for_note_makes_no_call_when_orwpce_get_visit_is_not_served
-    client = RecordingClient.new(served: IN_SCOPE_RPCS - [ "ORWPCE GET VISIT" ])
+    client = RecordingClient.new(served: REQUIRED_RPCS - [ "ORWPCE GET VISIT" ])
     use(client)
     assert_nil clinical_event.visit_for_note(NOTE_IEN, DFN, VISIT_STRING)
-    assert_empty client.calls
+    assert_empty orwpce_calls(client)
   end
 
   def test_exam_types_returns_empty_when_orwpce_get_exam_type_is_not_served
-    client = RecordingClient.new(served: IN_SCOPE_RPCS - [ "ORWPCE GET EXAM TYPE" ])
+    client = RecordingClient.new(served: REQUIRED_RPCS - [ "ORWPCE GET EXAM TYPE" ])
     use(client)
     assert_equal [], clinical_event.exam_types
     assert_empty client.calls
@@ -506,6 +519,7 @@ class ClinicalEventTest < Minitest::Test
     cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").first
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      seed_capture_note_owner(m, cap)
     end
     assert_equal 4, clinical_event.visit_for_note(*cap.fetch("inputs"))
   end
@@ -517,6 +531,7 @@ class ClinicalEventTest < Minitest::Test
     refute_nil cap
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      seed_capture_note_owner(m, cap)
     end
     assert_nil clinical_event.visit_for_note(*cap.fetch("inputs"))
   end
@@ -539,6 +554,7 @@ class ClinicalEventTest < Minitest::Test
 
       RpmsRpc.mock! do |m|
         m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+        seed_capture_note_owner(m, cap)
       end
       assert clinical_event.has_visit?(*cap.fetch("inputs")), cap.fetch("context")
     end
@@ -548,6 +564,7 @@ class ClinicalEventTest < Minitest::Test
     cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").first
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      seed_capture_note_owner(m, cap)
     end
     assert_equal :stand_alone, clinical_event.visit_status(*cap.fetch("inputs"))
   end
@@ -559,6 +576,7 @@ class ClinicalEventTest < Minitest::Test
     refute_nil cap
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      seed_capture_note_owner(m, cap)
     end
     assert_equal :none, clinical_event.visit_status(*cap.fetch("inputs"))
     refute clinical_event.has_visit?(*cap.fetch("inputs"))
@@ -569,6 +587,7 @@ class ClinicalEventTest < Minitest::Test
     # appointment-linked, so "1" is exercised synthetically.
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_has_visit, [ NOTE_IEN, DFN, "", "" ], "1")
+      seed_note_owner(m, NOTE_IEN, DFN)
     end
     assert clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
     assert_equal :appointment, clinical_event.visit_status(NOTE_IEN, DFN, "", "")
@@ -587,6 +606,7 @@ class ClinicalEventTest < Minitest::Test
     cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").first
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_for_note, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      seed_capture_note_owner(m, cap)
     end
     bundle = clinical_event.pce_for_note(*cap.fetch("inputs"))
     header = bundle.fetch(:header)
@@ -617,7 +637,9 @@ class ClinicalEventTest < Minitest::Test
 
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_for_note, pce_cap.fetch("inputs"), cia_data_body(pce_cap.fetch("raw_return")))
+      seed_capture_note_owner(m, pce_cap)
       m.seed_scalar(:pce_get_visit, visit_cap.fetch("inputs"), cia_data_body(visit_cap.fetch("raw_return")))
+      seed_capture_note_owner(m, visit_cap)
     end
 
     header = clinical_event.pce_for_note(*pce_cap.fetch("inputs")).fetch(:header)

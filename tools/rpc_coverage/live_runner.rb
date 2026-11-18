@@ -19,7 +19,9 @@
 #      PERSONA (optional expectation, least_privilege or programmer: the run is labelled by who signed on, #397),
 #      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
 #      EVIDENCE_DIR (<rpms-diffs>/rpc-coverage/live: the run merges into <BACKEND>.json, or <BACKEND>.programmer.json
-#      for a programmer) or EVIDENCE (an explicit file to merge into)
+#      for a programmer) or EVIDENCE (an explicit file to merge into),
+#      CASES (optional: a file to write one JSON line per case to: the case, its verdict, its error, the persona and
+#      each RPC it sent with the reply kind; the openrpms release gate builds its per-RPC record from it)
 require "json"
 require "date"
 require "time"
@@ -249,6 +251,7 @@ cases = {
   # reference data
   "Symptom.defaults" => -> { RpmsRpc::Symptom.defaults },
   "Symptom.search(\"COUGH\")" => -> { RpmsRpc::Symptom.search("COUGH") },
+  "Allergen.search(\"PENIC\")" => -> { RpmsRpc::Allergen.search("PENIC") },
   "Problem.lex_search(\"DIABETES\")" => -> { RpmsRpc::Problem.lex_search("DIABETES") },
   "ImmunizationRefusal.reasons" => -> { RpmsRpc::ImmunizationRefusal.reasons },
   "Tribal.tribes" => -> { RpmsRpc::Tribal.tribes },
@@ -265,7 +268,7 @@ cases["BehavioralHealth.visit_information"] = -> { RpmsRpc::BehavioralHealth.vis
 cases["ProgressNote.fetch_text"] = -> { RpmsRpc::ProgressNote.fetch_text(ctx[:note]) } if ctx[:note]
 cases["Order.result"] = -> { RpmsRpc::Order.result(d, ctx[:order]) } if ctx[:order]
 cases["Order.result_history"] = -> { RpmsRpc::Order.result_history(d, ctx[:order]) } if ctx[:order]
-cases["Problem.details"] = -> { RpmsRpc::Problem.details(ctx[:problem]) } if ctx[:problem]
+cases["Problem.details"] = -> { RpmsRpc::Problem.details(d, ctx[:problem]) } if ctx[:problem]
 cases["Problem.audit_history"] = -> { RpmsRpc::Problem.audit_history(ctx[:problem]) } if ctx[:problem]
 cases["NoteTemplate.items"] = -> { RpmsRpc::NoteTemplate.items(ctx[:template]) } if ctx[:template]
 cases["NoteTemplate.boilerplate"] = -> { RpmsRpc::NoteTemplate.boilerplate(ctx[:template]) } if ctx[:template]
@@ -307,9 +310,16 @@ evidence = RpcCoverage.merge_run(evidence, run_meta, outcomes)
 problems = RpcCoverage.evidence_problems(evidence, secrets: [ ACCESS, VERIFY ], persona: PERSONA)
 abort("!! refusing to write evidence: #{problems.join('; ')}") unless problems.empty?
 File.write(EVIDENCE, JSON.pretty_generate(evidence) + "\n")
+unless ENV["CASES"].to_s.empty?
+  File.write(ENV["CASES"], results.map { |r|
+    JSON.generate({ "case" => r[:case], "verdict" => r[:verdict], "error" => r[:error], "persona" => PERSONA,
+                    "rpcs" => r[:wire].map { |w| { "rpc" => w[:rpc].to_s, "reply" => w[:reply].to_s } } }) + "\n"
+  }.join)
+end
 
 puts
 puts "cases: #{results.size}  #{tally.sort.map { |k, v| "#{k}=#{v}" }.join('  ')}"
 puts "sign-ons: #{$signons} (1 + one per dropped session)"
 puts "distinct RPCs sent: #{outcomes.size}  (answered: #{outcomes.count { |_, o| o['outcome'] == 'ok' }}, errored: #{outcomes.count { |_, o| o['outcome'] == 'error' }})"
 puts "merged into #{EVIDENCE} (#{evidence['rpcs'].size} RPCs across #{evidence['runs'].size} run(s))"
+puts "cases written to #{ENV['CASES']}" unless ENV["CASES"].to_s.empty?

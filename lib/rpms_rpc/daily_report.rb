@@ -24,7 +24,12 @@ module RpmsRpc
     SIGN_ON_KEYS = %w[RPMS_ACCESS RPMS_VERIFY PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].freeze
     LIVE_PERSONAS = %w[PROV123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
-    IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
+    # The id each suite's log is filed and linked under (#757). Not the
+    # persona name: the demo access codes equal the persona names, so
+    # redaction would rewrite a name-keyed link and leave the file behind.
+    UNIT_SUITE_ID = "rake-test"
+    LIVE_SUITE_IDS = { "PROV123" => "rake-test-live-provider", "SYS123" => "rake-test-live-operator" }.freeze
+    IMAGE_REPOSITORY = "ghcr.io/lakeraven/openrpms"
     OPS_RELEASES = "repos/lakeraven/openrpms/releases"
     CONTAINER_PORT = 9100
     # The image's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609).
@@ -93,6 +98,11 @@ module RpmsRpc
       File.expand_path("../rpms-diffs", root)
     end
 
+    # A suite's output, beside the report: <report>.<suite id>.log.
+    def suite_log_path(report_path, suite_id)
+      "#{report_path.delete_suffix('.md')}.#{suite_id}.log"
+    end
+
     def default_report_path(rpms_diffs_dir:, date:, build:)
       sanitized = build.to_s.gsub(/[^A-Za-z0-9._-]/, "_")
       File.join(rpms_diffs_dir, "rpc-coverage/daily", "#{date}-#{sanitized}.md")
@@ -154,8 +164,8 @@ module RpmsRpc
         lines << "Build tested differs from pinned release."
       end
       lines << ""
-      lines << "| suite | runs | passed | failures | errors | skips | skip issues | wall |"
-      lines << "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |"
+      lines << "| suite | runs | passed | failures | errors | skips | skip issues | wall | output |"
+      lines << "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |"
       input.suites.each { |suite| lines << suite_row(suite) }
       failures = input.suites.flat_map { |suite| Array(suite[:first_failures]) }
       unless failures.empty?
@@ -213,7 +223,12 @@ module RpmsRpc
       wall = format("%.1fs", suite[:wall_seconds].to_f)
       "| #{escape_markdown(suite[:name])} | #{count_cell(suite[:runs])} | #{count_cell(suite[:passed])} | " \
         "#{count_cell(suite[:failures])} | #{count_cell(suite[:errors])} | #{count_cell(suite[:skips])} | " \
-        "#{issues_cell}| #{wall} |"
+        "#{issues_cell}| #{wall} | #{log_cell(suite[:log_file])} |"
+    end
+
+    # The file name comes from the suite id, not from text a suite printed.
+    def log_cell(log_file)
+      log_file.nil? ? "" : "[log](#{log_file})"
     end
 
     def count_cell(value)
@@ -556,7 +571,7 @@ module RpmsRpc
       end
 
       def collect_suites(host, port, bmx_port)
-        suites = [ run_command("rake test", %w[rake test], unit_env(host, port)) ]
+        suites = [ run_command("rake test", %w[rake test], unit_env(host, port), id: UNIT_SUITE_ID) ]
         LIVE_PERSONAS.each { |persona| suites << live_suite(host, port, bmx_port, persona) }
         suites
       end
@@ -568,7 +583,8 @@ module RpmsRpc
         end
 
         access, verify = pair
-        run_command("rake test:live (#{persona})", %w[rake test:live], live_env(host, port, bmx_port, persona, access, verify))
+        run_command("rake test:live (#{persona})", %w[rake test:live], live_env(host, port, bmx_port, persona, access, verify),
+                    id: LIVE_SUITE_IDS.fetch(persona))
       end
 
       def sign_on_pair(persona)
@@ -587,7 +603,7 @@ module RpmsRpc
         }
       end
 
-      def run_command(name, argv, env)
+      def run_command(name, argv, env, id:)
         started = @clock.now
         result = @runner.run(argv, env: env, chdir: @root)
         wall = @clock.now - started
@@ -597,6 +613,8 @@ module RpmsRpc
         errored = summary.errored? || !result[:success]
         {
           name: name,
+          id: id,
+          output: DailyReport.redact("#{stdout}#{scrub(result[:stderr])}", @env),
           runs: summary.runs,
           passed: summary.passed,
           failures: summary.failures,
@@ -646,6 +664,8 @@ module RpmsRpc
       end
 
       def write_report(build, latest, suites)
+        path = DailyReport.default_report_path(rpms_diffs_dir: @rpms_diffs_dir, date: @reported_on, build: build)
+        suites = suites.map { |suite| write_suite_log(path, suite) }
         input = RenderInput.new(
           date: @reported_on,
           build_tested: build,
@@ -655,7 +675,6 @@ module RpmsRpc
           suites: suites,
           coverage: report_coverage
         )
-        path = DailyReport.default_report_path(rpms_diffs_dir: @rpms_diffs_dir, date: @reported_on, build: build)
         body = DailyReport.redact(DailyReport.render(input), @env)
         body = "#{body.chomp}\n\nwrote #{path}\n"
         body = DailyReport.redact(body, @env)
@@ -663,6 +682,16 @@ module RpmsRpc
         @last_report_body = body
         @writer.write(path, body)
         @summary_writer&.write(path, body)
+      end
+
+      # Keeps the suite's redacted output beside the report and names the
+      # file for the row's link. A suite that never ran has no output.
+      def write_suite_log(report_path, suite)
+        return suite if suite[:output].nil?
+
+        log_path = DailyReport.suite_log_path(report_path, suite.fetch(:id))
+        @writer.write(log_path, suite[:output])
+        suite.merge(log_file: File.basename(log_path))
       end
 
       def unit_env(host, port)

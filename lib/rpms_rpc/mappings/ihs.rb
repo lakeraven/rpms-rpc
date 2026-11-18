@@ -86,6 +86,54 @@ module RpmsRpc
       m.scalar :validated_value
     end
 
+    # BEHOVM LIST — LIST^BEHOVM(DATA,DFN,START,END,VITS,VSTR,METRIC,PTST,FSDATA)
+    # (BEHOVM.m:6): the latest measurement of each vital on BEHOVM VITAL
+    # LIST (QUERY^BEHOVM with RMAX 1), LISTX's row (BEHOVM.m:12-17):
+    #   V MEASUREMENT IEN ^ NAME ^ ABBR ^ DATE/TIME ^ VALUE UNITS ^
+    #   OTHER-SYSTEM VALUE UNITS ^ QUALIFIERS
+    # Read by Vital.latest_by_type.
+    DataMapper.define(:vital_latest_by_type) do |m|
+      m.rpc "BEHOVM LIST"
+      m.context VUECENTRIC
+      m.field 0, :measurement_ien, :integer
+    end
+
+    # BEHOVM GRID — GRID^BEHOVM(DATA,DFN,START,END,RMAX,VITS,VSTR,METRIC,SD,
+    # FSDATA,PTST) (BEHOVM.m:40): header VITALS^DATES^RESULTS, the vital rows
+    # (VCTL^VTYP^NAME^ABBR^UNITS^LOW^HIGH^PCTILE RPC^HAS QUALIFIERS^SD,
+    # QUERY^BEHOVM), the date rows (N^DATE) and the result rows (DATE N^
+    # VITAL N^VALUE^FLAG^VIEN^QUALIFIERS, GRIDX BEHOVM.m:48-54). Read by
+    # Vital.grid; the same layout BEHOVM TEMPLATE answers.
+    DataMapper.define(:vital_grid) do |m|
+      m.rpc "BEHOVM GRID"
+      m.context VUECENTRIC
+      m.field 0, :count, :integer
+    end
+
+    # BEHORXFN GETRXS — GETRXS^BEHORXFN(DATA,DFN,DAYS): the medication
+    # profile from OCL^PSOORRL over the last DAYS (default 365), one header
+    # per medication then its lines (ADDOUT):
+    #   ~TYPE ^ OCL PIECES 1-12 ^ CHRONIC ^ START ^ RX # ^ PROVIDER ^ REASON ^
+    #     DEA ^ LOCATION ^ INDICATION ^ DAW ^ NON-VA ^ NDC ^ RXNORM ^ STATE ^
+    #     E-PHARMACY ^ DOSE SIG ^ PICKUP
+    #   instruction lines, and "t"-prefixed comment and reason lines
+    # Read by Medication.profile.
+    DataMapper.define(:medication_profile) do |m|
+      m.rpc "BEHORXFN GETRXS"
+      m.context VUECENTRIC
+      m.text_blob :profile_text
+    end
+
+    # BEHOLRCV LIST — LIST^BEHOLRCV(DATA,DFN) -> LIST^ORQOR1 for display
+    # group LAB from T-(BEHOLRCV DATE RANGE) to T:
+    #   ORDER IEN ^ ORDER TEXT (60) ^ START ^ STATUS NAME
+    # "^No orders found." when none. Read by Lab.cover_sheet_orders.
+    DataMapper.define(:lab_cover_sheet_orders) do |m|
+      m.rpc "BEHOLRCV LIST"
+      m.context VUECENTRIC
+      m.field 0, :order_id
+    end
+
     # BEHOVM SAVE — bulk vital save (scalar)
     # Returns "0" for success; non-zero/non-empty for error.
     DataMapper.define(:vital_save) do |m|
@@ -456,6 +504,228 @@ module RpmsRpc
       m.field 12, :snomed_ct
     end
 
+    # ========================================================================
+    # PCC V-FILE READS (BGOVEXAM GET, BGOVHF GET, BGOVPED GET, BGOVPOV GET)
+    # ========================================================================
+    # The reads VueCentric's BGO components list a patient's or a visit's
+    # entries with. Dates come as MM/DD/YYYY (FMTDATE^BGOUTL); the APIs
+    # turn them into Dates.
+
+    # BGOVEXAM GET — GET^BGOVEXAM(RET,DFN) (BGOVEXAM.m:14). Exam rows
+    # (BGOVEXAM.m:6-9, built at GET+28):
+    #   E ^ EXAM NAME ^ VISIT DATE ^ RESULT ^ COMMENT ^ PROVIDER NAME ^
+    #   FACILITY NAME ^ PROVIDER IEN ^ LOCATION IEN ^ EXAM IEN ^ V EXAM IEN ^
+    #   VISIT IEN ^ VISIT CATEGORY ^ VISIT LOCKED ^ EVENT DATE
+    # then refusal rows led by "R" (REFGET^BGOUTL2, BGOVEXAM.m:11-13).
+    DataMapper.define(:patient_exams) do |m|
+      m.rpc "BGOVEXAM GET"
+      m.context VUECENTRIC
+      m.field 0,  :kind
+      m.field 1,  :exam
+      m.field 2,  :visit_date, :slash_date
+      m.field 3,  :result
+      m.field 4,  :comment
+      m.field 5,  :provider_name
+      m.field 6,  :facility
+      m.field 7,  :provider_ien,     :integer
+      m.field 8,  :location_ien,     :integer
+      m.field 9,  :exam_ien,         :integer
+      m.field 10, :ien,              :integer
+      m.field 11, :visit_ien,        :integer
+      m.field 12, :service_category
+      m.field 13, :visit_locked,     :boolean
+      m.field 14, :event_date, :slash_date
+    end
+
+    # BGOVHF GET — GET^BGOVHF(RET,INP) (BGOVHF.m:8). INP = DFN ^ LEARN ONLY
+    # ^ V HEALTH FACTOR IEN. Row (BGOVHF.m:6-7, built at GET+33):
+    #   CATEGORY ^ HEALTH FACTOR ^ VISIT DATE ^ SEVERITY ^ QUANTITY ^
+    #   VISIT IEN ^ V HEALTH FACTOR IEN ^ HEALTH FACTOR IEN ^ COMMENT ^
+    #   VISIT LOCKED ^ EVENT DATE ^ START DATE ^ END DATE ^ DATED TYPE
+    DataMapper.define(:patient_health_factors) do |m|
+      m.rpc "BGOVHF GET"
+      m.context VUECENTRIC
+      m.field 0,  :category
+      m.field 1,  :factor
+      m.field 2,  :visit_date, :slash_date
+      m.field 3,  :severity
+      m.field 4,  :quantity
+      m.field 5,  :visit_ien,        :integer
+      m.field 6,  :ien,              :integer
+      m.field 7,  :factor_ien,       :integer
+      m.field 8,  :comment
+      m.field 9,  :visit_locked,     :boolean
+      m.field 10, :event_date, :slash_date
+      m.field 11, :start_date, :slash_date
+      m.field 12, :end_date, :slash_date
+    end
+
+    # BGOVPED GET — GET^BGOVPED(RET,INP) (BGOVPED.m:11). INP = DFN ^ VISIT
+    # IEN (optional). Newest first, at most BGO PAT EDU MAX ENTRIES (200).
+    # Row (BGOVPED.m:7-10):
+    #   TOPIC ^ VISIT DATE ^ LEVEL ^ PROVIDER NAME ^ GROUP/INDIVIDUAL ^
+    #   LENGTH ^ CPT ^ COMMENT ^ TOPIC CATEGORY ^ BEHAVIOR ^ OBJECTIVE MET ^
+    #   VISIT LOCKED ^ LOCATION NAME ^ V PATIENT ED IEN ^ VISIT IEN ^
+    #   TOPIC IEN ^ LOCATION IEN ^ PROVIDER IEN ^ VISIT CATEGORY ^ ICD TEXT ^
+    #   COMMENTS ^ ICD IEN ^ CPT IEN ^ READINESS TO LEARN ^ ICD CODE ^
+    #   ENTRY DATE
+    DataMapper.define(:patient_education) do |m|
+      m.rpc "BGOVPED GET"
+      m.context VUECENTRIC
+      m.field 0,  :topic
+      m.field 1,  :visit_date, :slash_date
+      m.field 2,  :level
+      m.field 3,  :provider_name
+      m.field 4,  :group_or_individual
+      m.field 5,  :minutes
+      m.field 6,  :cpt
+      m.field 7,  :comment
+      m.field 8,  :topic_category
+      m.field 9,  :behavior
+      m.field 10, :objective_met
+      m.field 11, :visit_locked,     :boolean
+      m.field 12, :location
+      m.field 13, :ien,              :integer
+      m.field 14, :visit_ien,        :integer
+      m.field 15, :topic_ien,        :integer
+      m.field 16, :location_ien,     :integer
+      m.field 17, :provider_ien,     :integer
+      m.field 18, :service_category
+      m.field 19, :icd_text
+      m.field 23, :readiness_to_learn
+      m.field 24, :icd_code
+      m.field 25, :entered_date, :slash_date
+    end
+
+    # BGOVPOV GET — GET^BGOVPOV(RET,INP) (BGOVPOV.m:106). INP = VISIT IEN ^
+    # V POV IEN (optional) ^ FORMAT; FORMAT 0 (sent empty) is the detailed
+    # row (BGOVPOV.m:100-105):
+    #   IEN ^ VISIT DATE ^ FACILITY ^ FACILITY NAME ^ ICD ^ EPISODICITY ^
+    #   NARRATIVE ^ MODIFIER ^ ONSET ^ STAGE ^ REVISIT ^ CAUSE ^ INJURY DATE ^
+    #   EXTERNAL CAUSE ^ PLACE OF INJURY ^ PRIMARY ^ PROVIDER ^ VISIT IEN ^
+    #   LOCKED ^ ASTHMA CONTROL ^ SNOMED CT ^ PROVIDER TEXT ^ QUALIFIERS ^
+    #   PROBLEM ^ E-CODE ^ ICD NAME ^ ICD IEN ^ NORMAL/ABNORMAL ^ LATERALITY
+    DataMapper.define(:visit_povs) do |m|
+      m.rpc "BGOVPOV GET"
+      m.context VUECENTRIC
+      m.field 0,  :ien,              :integer
+      m.field 1,  :visit_date, :slash_date
+      m.field 2,  :facility_code
+      m.field 3,  :facility
+      m.field 4,  :icd_code
+      m.field 5,  :episodicity
+      m.field 6,  :narrative
+      m.field 7,  :modifier
+      m.field 8,  :onset_date, :slash_date
+      m.field 9,  :stage
+      m.field 10, :revisit
+      m.field 11, :cause
+      m.field 12, :injury_date, :slash_date
+      m.field 13, :external_cause
+      m.field 14, :place_of_injury
+      m.field 15, :primary_or_secondary
+      m.field 16, :provider_name
+      m.field 17, :visit_ien,        :integer
+      m.field 18, :visit_locked,     :boolean
+      m.field 19, :asthma_control
+      m.field 20, :snomed_ct
+      m.field 21, :provider_text
+      m.field 22, :qualifiers
+      m.field 23, :problem_ien
+      m.field 24, :e_code
+      m.field 25, :icd_name
+      m.field 26, :icd_ien,          :integer
+      m.field 27, :normal_abnormal
+      m.field 28, :laterality
+    end
+
+    # BEHOENCX GETPRV — GETPRV^BEHOENCX(DATA,DFN,VSTR,PRI) (BEHOENCX.m:303):
+    # the providers on a visit, from V PROVIDER's AD cross-reference
+    # (GETPRV2^BEHOENCX). VSTR's fourth piece names the visit
+    # (VSTR2VIS^BEHOENCX); a visit of another patient answers nothing. With
+    # PRI set, the primary provider only. Row:
+    #   DUZ ^ NAME ^ PRIMARY (1/0) ^ EVENT DATE/TIME (V PROVIDER 1201)
+    DataMapper.define(:visit_providers) do |m|
+      m.rpc "BEHOENCX GETPRV"
+      m.context VUECENTRIC
+      m.field 0, :duz,                :integer
+      m.field 1, :name
+      m.field 2, :primary,            :boolean
+      m.field 3, :event_datetime,     :fileman_datetime
+    end
+
+    # BEHOART SIGNLIST — SIGNLIST^BEHOART(DATA,DFN,VER) (BEHOART.m:46): the
+    # patient's allergy entries (#120.8) the signed-on user may sign (they
+    # entered it and it is not signed, $$CANSIGN) or verify (signed and a
+    # verify candidate, $$CANVERIF; VER=1 skips GMRA's autoverify check).
+    # Row: ADVERSE REACTION IEN ^ ["Verify "]"Adverse Reaction to " REACTANT,
+    # or -DFN ^ "No Known Allergies" for an NKA assessment the user entered
+    # and has not signed. Read by Allergy.awaiting_signature.
+    DataMapper.define(:allergy_sign_list) do |m|
+      m.rpc "BEHOART SIGNLIST"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
+    # BEHOPGAP GETGOAL — GETGOAL^BEHOPGAP(RET,DFN) (BEHOPGAP.m:91): the
+    # patient's PATIENT GOALS (#9000093), a global array subscripted by goal
+    # number, so each goal arrives as consecutive lines (BEHOPGAP.m:92-97):
+    #   IEN ^ GOAL SETTING ^ CREATED ^ CREATED BY ^ LAST MODIFIED ^ FACILITY ^
+    #     PROVIDER ^ START DATE ^ FOLLOW-UP DATE ^ STATUS;STATUS NAME ^ GOAL NO
+    #   TYPE1 ^ TYPE2 ^ ...          (may be empty)
+    #   GOAL NAME
+    #   GOAL REASON
+    #   REVIEW ^ DATE ^ NOTE         (zero or more)
+    # Read line by line by PatientGoal.for_patient.
+    DataMapper.define(:patient_goals) do |m|
+      m.rpc "BEHOPGAP GETGOAL"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+    end
+
+    # BGOVTM GET — GET^BGOVTM(RET,INP), INP = VISIT IEN ^ PROVIDER IEN: the V
+    # ACTIVITY TIME (#9000010.19) entry of that provider on the visit as
+    # IEN ^ ACTIVITY TIME ^ TRAVEL MINUTES, 0^0^0 when none, -N^text for a
+    # missing visit or provider. Read by Encounter.activity_time.
+    DataMapper.define(:visit_activity_time) do |m|
+      m.rpc "BGOVTM GET"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+    end
+
+    # BGOVPED2 GETPVED — GETPVED^BGOVPED2(RET,VIEN): the visit's V PATIENT ED
+    # (#9000010.16) entries that name a PROBLEM (1103):
+    #   PROBLEM IEN ^ TOPIC ^ DATE (MM/DD/YYYY) ^ PROVIDER IEN ^ PROVIDER ^
+    #   V PATIENT ED IEN ^ CODE ^ SUBTOPIC ^ LEVEL ^ MINUTES ^ READINESS ^ MNEMONIC
+    # Read by PatientEducation.problem_linked.
+    DataMapper.define(:problem_linked_education) do |m|
+      m.rpc "BGOVPED2 GETPVED"
+      m.context VUECENTRIC
+      m.field 0, :problem_ien, :integer
+    end
+
+    # ORWDXIHS CLININD — CLININD^ORWDXIHS(DATA,DFN,VIEN,OI,SNOMED) -> SNOMED:
+    # the patient's problems with a SNOMED CT concept as clinical indications,
+    # by subscript (1 the visit's POV, 2-6 the problem statuses):
+    #   NARRATIVE ^ POV|PL ^ ICD ^ PROBLEM IEN ^ CONCEPT ID
+    # Read by Order.clinical_indications.
+    DataMapper.define(:order_clinical_indications) do |m|
+      m.rpc "ORWDXIHS CLININD"
+      m.context VUECENTRIC
+      m.field 0, :name
+    end
+
+    # BEHOCACV LIST — LIST^BEHOCACV(DATA,DFN): the patient's postings
+    # (ENCOVER^TIUPP3) then active record flags (GET^BEHOCACV):
+    #   TIU IEN ^ A|C|W|D ^ TITLE ^ MODIFIER ^ DATE ^ ADDENDUM
+    #   ASSIGNMENT IEN ^ F ^ FLAG ^ FLAG TYPE ^ ASSIGNED ^ FLAG NUMBER
+    # The allergies row has no IEN. Read by Patient.postings.
+    DataMapper.define(:patient_postings) do |m|
+      m.rpc "BEHOCACV LIST"
+      m.context VUECENTRIC
+      m.field 1, :letter
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.context VUECENTRIC
@@ -719,6 +989,63 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # ========================================================================
+    # INTEGRATED PROBLEM LIST READS (BGOPROB GET, BGOPROB1 GETONE / EDPROB)
+    # ========================================================================
+
+    # BGOPROB GET — GET^BGOPROB(RET,DFN,TYP,CPTYP,NUM,ACT) (BGOPROB.m:61).
+    # Rows led by a type letter: one "P" row per problem (26 pieces after
+    # the letter, documented at BGOPROB.m:40-42), then that problem's "P1",
+    # "F", "Q", "A", "N" and care plan rows. Read line by line by
+    # Problem.integrated.
+    DataMapper.define(:problem_integrated) do |m|
+      m.rpc "BGOPROB GET"
+      m.context VUECENTRIC
+      m.field 0, :type
+    end
+
+    # BGOPROB1 GETONE — GETONE^BGOPROB1(RET,PRIEN,PIP) (BGOPROB1.m:315): the
+    # rows GET2^BGOPROB writes for one problem, any status, with its care
+    # plan entries. Nothing for a problem IEN not on file.
+    DataMapper.define(:problem_integrated_one) do |m|
+      m.rpc "BGOPROB1 GETONE"
+      m.context VUECENTRIC
+      m.field 0, :type
+    end
+
+    # BGOPROB1 EDPROB — EDPROB^BGOPROB1(RET,DFN,EXT) (BGOPROB1.m:257): the
+    # patient's active problems that carry a SNOMED CT concept, from the
+    # ACTIVE cross-reference. With EXT=1 a row is
+    #   IEN ^ NARRATIVE ^ SNOMED CT ^ ICD ^ STATUS ^ EYE DX ^ DATE OF DX ^
+    #   DATE RECORDED ^ DATE RESOLVED ^ SOURCE OF DATE OF DX
+    DataMapper.define(:problem_coded_active) do |m|
+      m.rpc "BGOPROB1 EDPROB"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+      m.field 1, :narrative
+      m.field 2, :snomed_ct
+      m.field 3, :icd_code
+      m.field 4, :status
+      m.field 5, :eye_dx
+      m.field 6, :diagnosed_on
+      m.field 7, :recorded_on
+      m.field 8, :resolved_on
+      m.field 9, :diagnosis_date_source
+    end
+
+    # BGOUTL CHKSEC — CHKSEC^BGOUTL(RET,INP) (BGOUTL.m:32), how the BGO
+    # components decide what the signed-on user may do. One param:
+    #   KEY1|KEY2|... ^ PARAM1|PARAM2|... ^ USER IEN (optional)
+    # Answers 1/0 per key (HASKEY^BEHOUSCX) and, per parameter, the user's
+    # own setting and the first user class of theirs that sets it true:
+    #   K1|K2 ^ USERSETTING~CLASSNAME|...
+    # A USER IEN other than DUZ is refused -1053^text.
+    DataMapper.define(:component_security) do |m|
+      m.rpc "BGOUTL CHKSEC"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
     # BGOPROB GET CLASS — RETIRED, never bound. The #8994 registry sends
     # this name to DICLASS^BGOASLK (.broker_dumps_8994_20260607.txt:3103
     # "BGOPROB GET CLASS^DICLASS^BGOASLK^2"), which is "Get the
@@ -763,6 +1090,50 @@ module RpmsRpc
       m.rpc "BGOVHF SET"
       m.context VUECENTRIC
       m.scalar :result
+    end
+
+    # BGOVUPD SET — SET^BGOVUPD. One INP param:
+    #   Action IEN[1] ^ V File IEN[2] ^ DFN[3] ^ Visit String[4] ^
+    #   Event dt[5] ^ Provider IEN[6] ^ Delete[7] ^ Reason[8]
+    # Answers V UPDATED/REVIEWED IEN ^ Visit IEN, or -n^text.
+    DataMapper.define(:clinical_review_set) do |m|
+      m.rpc "BGOVUPD SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
+    # BGOCC GET — GET^BGOCC (BGOCC.m:23). One param, the visit IEN. Per
+    # chief complaint a header IEN^DUZ~NAME^LINE COUNT, then that many text
+    # lines; read line by line by ChiefComplaint.for_visit.
+    DataMapper.define(:chief_complaints) do |m|
+      m.rpc "BGOCC GET"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
+    # BGOCC SET — SET^BGOCC (BGOCC.m:63). One INP param:
+    #   Visit IEN[1] ^ V Narrative Text IEN[2] ^ Chief Complaint[3]
+    # Answers the V NARRATIVE TEXT IEN, or -n^text.
+    DataMapper.define(:chief_complaint_set) do |m|
+      m.rpc "BGOCC SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
+    # BGOVUPD GET — GET^BGOVUPD with DFN ^ Visit IEN. Rows:
+    #   IEN ^ ACTION IEN~ACTION ^ KIND ^ VISIT DATE ^ DATE ENTERED ^
+    #   ENTERED BY ^ EVENT DATE ^ ENCOUNTER PROVIDER
+    DataMapper.define(:clinical_reviews) do |m|
+      m.rpc "BGOVUPD GET"
+      m.context VUECENTRIC
+      m.field 0, :ien,                :integer
+      m.field 1, :action
+      m.field 2, :kind
+      m.field 3, :visit_date
+      m.field 4, :entered_at
+      m.field 5, :entered_by
+      m.field 6, :event_at
+      m.field 7, :encounter_provider
     end
 
     # BGOVEXAM SET — SET^BGOVEXAM (BGOVEXAM.m:106). One INP param

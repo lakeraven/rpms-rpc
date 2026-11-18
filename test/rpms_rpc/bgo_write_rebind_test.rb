@@ -200,7 +200,7 @@ class BgoWriteRebindTest < Minitest::Test
     # ERR^BGOUTL(1001) — patient not found (BGOREF.m:13)
     script("BGOREF SET" => "-1001^Patient not found")
 
-    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")
+    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3", refusal_date: "3260908")
     refute result[:success]
     assert_equal "-1001^Patient not found", result[:raw]
   end
@@ -211,7 +211,7 @@ class BgoWriteRebindTest < Minitest::Test
     def client.call_rpc(*) = nil
     RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")
+    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3", refusal_date: "3260908")
     refute result[:success], "broker silence must not read as a filed refusal"
   end
 

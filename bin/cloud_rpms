@@ -38,7 +38,7 @@ compose() {
   docker compose -f "$EHR/compose.yml" -p rpms-rpc "$@"
 }
 
-REPO_IMAGE=ghcr.io/lakeraven/rpms-ydb
+REPO_IMAGE=ghcr.io/lakeraven/openrpms   # the image name since openrpms#1175 (rpms-ydb holds releases gated before it)
 
 lock_image() {
   local img

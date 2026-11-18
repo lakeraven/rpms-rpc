@@ -4,6 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/immunization_refusal"
 require "rpms_rpc/api/problem"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/server_clock"
 
 # Two writes whose routine answers nothing on success: SET^BGOREF (BGOREF
 # SET, ImmunizationRefusal.record) leaves RET "" and DEL^BGOPROB3 (BGOPROB
@@ -16,6 +17,10 @@ require "rpms_rpc/api/ddr_fileman"
 # and reads the result back with DDR. A bad patient must still fail.
 #
 # It WRITES, so it runs only against a disposable local container.
+# A second refusal of the same vaccine for the same patient on the same day
+# edits the first (REFSET2^BGOUTL2 finds it on "AA"), so the refusal is dated
+# a random past day: the spec files a new entry whichever spec or persona
+# refused the vaccine today.
 class EmptyReplyWritesLiveTest < LiveSpec::Test
   writes!
 
@@ -31,7 +36,7 @@ class EmptyReplyWritesLiveTest < LiveSpec::Test
     before = refusal_iens
 
     result = RpmsRpc::ImmunizationRefusal.record(REFUSAL_DFN, TETANUS_TOXOID, reason_ien: reason[:ien],
-                                                 narrative: "live spec")
+                                                 narrative: "live spec", refusal_date: unrefused_day)
 
     assert result[:success], "record answered #{result.inspect}"
     filed = refusal_iens - before
@@ -62,6 +67,9 @@ class EmptyReplyWritesLiveTest < LiveSpec::Test
   end
 
   private
+
+  # A past day, so no other refusal of the vaccine today shares the entry.
+  def unrefused_day = RpmsRpc::ServerClock.today - rand(30..3000)
 
   def refusal_iens
     listed = RpmsRpc::DdrFileman.lister(file: REFUSAL_FILE, fields: ".02I", flags: "IP", xref: "AC", part: REFUSAL_DFN)

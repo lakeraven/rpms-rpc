@@ -84,6 +84,20 @@ module RpmsRpc
     # An API method never answers empty in place of any of them.
     class RpcNotAvailableError < RpcError; end
     class RpcRefusedError < RpcError; end
+    # XWB CREATE CONTEXT refused the option over XWB or BMX: the user does not
+    # hold it, or the server has no such option (#756). `option` names it and
+    # the message carries the server's reason. A subclass of RpcRefusedError,
+    # so it reads like CIA's refusal of the same user, which arrives as
+    # RpcRefusedError at the first RPC the option registers (the CIA bind sends
+    # nothing). Not ContextRefusedError, the CIA sign-on's AuthenticationError.
+    class ContextBindRefusedError < RpcRefusedError
+      attr_reader :option
+
+      def initialize(message = nil, option: nil)
+        super(message)
+        @option = option
+      end
+    end
     class RpcMError < RpcError; end
     class TimeoutError < ConnectionError; end
     # Raised when a single RPC's reply times out mid-call. Subclass of
@@ -111,10 +125,13 @@ module RpmsRpc
     #   CIA      4 Access denied for remote procedure: NAME   $$CANRUN^CIANBACT false (CIANBACT.m:49)
     #   XWB      The remote procedure NAME is not registered to the option OPT.  (XQCS.m:75)
     #   XWB/BMX  Application context has not been created!    (XWBSEC.m:26, BMXMSEC.m:27)
+    #   XWB/BMX  User NAME does not have access to option OPT. $$CHK^XQCS: BMX direct
+    #            mode checks every RPC against BMXRPC for the user (rpms-rpc#792)
     REFUSED_PATTERN = /
       Access\ denied\ for\ remote\ procedure
       | remote\ procedure\ .*\ is\ not\ registered\ to\ the\ option
       | Application\ context\ has\ not\ been\ created
+      | does\ not\ have\ access\ to\ option
     /xi
 
     # How each broker words "the M code failed" (#357):
@@ -449,6 +466,12 @@ module RpmsRpc
         set_division(target[:ien]) if requested || @divisions.size > 1
         @division = target
       end
+    rescue RpcRefusedError => e
+      # The codes were accepted, but the broker refuses the user its first RPC:
+      # over BMX, a user without the BMXRPC option (BMX checks every RPC
+      # against it, ADDCTXT^BMXMSEC). Sign-on fails closed and says so, as
+      # CiaClient does for CIAV VUECENTRIC (#501, rpms-rpc#792).
+      broker_refused(e.message)
     rescue RpcError => e
       division_refused("#{e.class.name.split('::').last}: #{e.message}")
     end
@@ -499,14 +522,26 @@ module RpmsRpc
     # A refused division leaves the client signed off: a session with the
     # wrong DUZ(2) is worse than none.
     def division_refused(why)
+      forget_signon
+      raise AuthenticationError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on bound no division: #{why}")
+    end
+    private :division_refused
+
+    # The broker refused the signed-on user its first RPC (rpms-rpc#792).
+    def broker_refused(why)
+      forget_signon
+      raise ContextRefusedError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on: this user may not use the broker (#{why})")
+    end
+    private :broker_refused
+
+    def forget_signon
       @authenticated = false
       @duz = nil
       @division = nil
       @divisions = nil
       @current_context = nil
-      raise AuthenticationError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on bound no division: #{why}")
     end
-    private :division_refused
+    private :forget_signon
 
     # Set application context (required before calling most RPCs).
     #
@@ -531,6 +566,14 @@ module RpmsRpc
     # (scope entry or nested). If that restore is refused too,
     # current_context stays nil. XwbClient and BmxClient use this method.
     # CiaClient binds on the client and does not share this path.
+    #
+    # A refusal raises ContextBindRefusedError naming the option (#756).
+    # CRCONTXT^XWBSEC puts its reason in both RESULT and XWBSEC (XWBSEC.m), so
+    # it can arrive two ways: as the reply (BMX, seen live: "User ... does not
+    # have access to option AGGRPC", "The context '...' does not exist on
+    # server."), or as XWB's security packet, which XwbClient#read_response
+    # raises as an RpcError. An M error or an unserved RPC is not a refusal of
+    # the option and propagates as it is.
     def create_context(option_name = "OR CPRS GUI CHART")
       synchronize_wire do
         raise ConnectionError, "Not connected" unless connected?
@@ -540,17 +583,27 @@ module RpmsRpc
         # Unknown until the reply is "1". The frame is about to be sent, so
         # any exception from here on must not leave the previous name.
         @current_context = nil
-        reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
-        unless reply&.strip == "1"
-          raise RpcError, RpmsRpc.sanitize_error(
-            "Failed to create context '#{option_name}': #{reply}"
-          )
+        begin
+          reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
+        rescue RpcMError, RpcNotAvailableError
+          raise
+        rescue RpcError => e
+          context_bind_refused(option_name, e.message)
         end
+        context_bind_refused(option_name, reply) unless reply&.strip == "1"
 
         @current_context = option_name # ContextScope — lets APIs scope + restore
         true
       end
     end
+
+    def context_bind_refused(option_name, reason)
+      raise ContextBindRefusedError.new(
+        RpmsRpc.sanitize_error("Failed to create context '#{option_name}': #{reason.to_s.strip}"),
+        option: option_name
+      )
+    end
+    private :context_bind_refused
 
     # -- credential resolution ------------------------------------------------
 

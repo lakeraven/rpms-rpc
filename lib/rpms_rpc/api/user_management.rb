@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "authentication"
 
 module RpmsRpc
   # Symbolic API for New Person / user-management operations.
@@ -32,9 +33,11 @@ module RpmsRpc
       # Passing one to ORWU USERINFO raises <PARAMETER>. So find(duz)
       # can only succeed when duz matches the session user; arbitrary-
       # DUZ lookup would need a different RPC (DDR LISTER / direct
-      # File 200 read) that isn't currently mapped.
-      user_info = DataMapper.user_info.fetch_lines
-      return nil if user_info.nil? || user_info[:duz].to_i != duz
+      # File 200 read) that isn't currently mapped. XUS GET USER INFO is
+      # read through Authentication.user_info, which names the option that
+      # registers it when the broker is CIA (#778).
+      user_info = Authentication.user_info(duz)
+      return nil if user_info.nil?
 
       practitioner = DataMapper.practitioner_info.fetch_one
       return nil if practitioner.nil? || practitioner[:duz].to_i != duz

@@ -90,13 +90,22 @@ module FeaturesTestHelper
 
   # Reverse drift guard (#384): module RPCs in required_rpcs.json must appear in the
   # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
-  BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {}.freeze
+  BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
+    "DDR GETS ENTRY DATA" =>
+      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767)"
+  }.freeze
 
   ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
     "BGOPROB SET" =>
       "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
     "BGOPROB DEL" =>
       "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
+    "BGOPROB GET" =>
+      "IHS integrated problem list read by Problem.integrated; outside the stock-VistA ORQQPL workflow",
+    "BGOPROB1 GETONE" =>
+      "IHS integrated problem list read by Problem.integrated_entry; outside the stock-VistA ORQQPL workflow",
+    "BGOPROB1 EDPROB" =>
+      "IHS coded active problems read by Problem.coded_active; outside the stock-VistA ORQQPL workflow",
     "DDR GETS ENTRY DATA" =>
       "Problem.update/delete read the PROBLEM entry before writing and every write reads it back (#527)"
   }.freeze

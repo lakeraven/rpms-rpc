@@ -135,6 +135,31 @@ class ApiCoverageTest < Minitest::Test
     end
   end
 
+  # Real live specs (rpms-rpc#765): one calls through a constant (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.x`),
+  # the other through a one-line helper (`def maint = RpmsRpc::SchedulingMaintenance`).
+  def test_live_call_sites_resolve_a_constant_or_helper_that_names_a_module
+    files = %w[behavioral_health_reference_live_test.rb scheduling_clinic_setup_live_test.rb].map { |f| File.join(ROOT, "test/live", f) }
+    sites = ApiCoverage.live_call_sites(files, root: ROOT)
+
+    assert_includes sites["RpmsRpc::BehavioralHealth::Reference"][:patients].map { |s| s[/\A[^:]+/] },
+                    "test/live/behavioral_health_reference_live_test.rb"
+    assert_includes sites["RpmsRpc::BehavioralHealth::Groups"].keys, :group_information
+    assert_includes sites["RpmsRpc::SchedulingMaintenance"].keys, :save_access_type
+    assert_includes sites["RpmsRpc::SchedulingMaintenance"].keys, :add_resource_group_member
+    assert_includes sites["RpmsRpc::Scheduling"].keys, :resources
+  end
+
+  def test_live_call_sites_leave_a_helper_that_calls_a_method_alone
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "x_live_test.rb")
+      File.write(path, "class X\n  def now = RpmsRpc::ServerClock.now\n  def test_a\n    now.year\n  end\nend\n")
+      sites = ApiCoverage.live_call_sites([ path ], root: dir)
+
+      assert_equal %w[RpmsRpc::ServerClock], sites.keys
+      assert_equal [ :now ], sites["RpmsRpc::ServerClock"].keys
+    end
+  end
+
   # --- the JSON ------------------------------------------------------------------------------
 
   def test_json_has_one_entry_per_public_method_in_the_documented_shape

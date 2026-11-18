@@ -68,11 +68,17 @@ class UserManagementTest < Minitest::Test
   end
 
   # XUS GET USER INFO answers for the signed-on user only, so a DUZ that is
-  # not that user is nil, and USERINFO is never asked.
+  # not that user is nil, and USERINFO is never asked. Over CIA the frame
+  # names XUS SIGNON, the option that registers it, and the session goes back
+  # to its sign-on context afterwards (#778).
   def test_find_returns_nil_for_a_duz_that_is_not_the_signed_on_user
     client = replay(find_script)
 
     assert_nil RpmsRpc::UserManagement.find(206)
-    assert_equal [ "XUS GET USER INFO" ], client.rpcs_called
+    assert_equal [
+      { rpc: :create_context, params: [ "XUS SIGNON" ] },
+      { rpc: "XUS GET USER INFO", params: [] },
+      { rpc: :create_context, params: [ "CIAV VUECENTRIC" ] }
+    ], client.calls
   end
 end

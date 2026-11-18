@@ -72,6 +72,48 @@ module RpmsRpc
     end
     shape :visits, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters/visits"
 
+    # The providers on one of the patient's visits: BEHOENCX GETPRV
+    # (GETPRV^BEHOENCX), from V PROVIDER (#9000010.06).
+    #
+    #   providers(dfn, visit_ien, primary_only: false)
+    #     => [{ duz:, name:, primary:, event_datetime: }, ...]
+    #
+    # The visit is named by IEN in the visit string's fourth piece
+    # (VSTR2VIS^BEHOENCX), so no location or time need match; a visit of
+    # another patient answers [] (VIS2VSTR refuses it). primary_only: true
+    # sends PRI and keeps the primary provider only.
+    def providers(dfn, visit_ien, primary_only: false)
+      return [] unless [ dfn, visit_ien ].all? { |id| id.to_s.match?(/\A[1-9]\d*\z/) }
+
+      mapping = DataMapper.visit_providers
+      client = RpmsRpc.client
+      reply = mapping.in_context(client) { client.call_rpc(mapping.rpc_name, dfn.to_s, ";;;#{visit_ien}", primary_only ? "1" : "") }
+      lines = Array(reply).map(&:to_s).reject(&:empty?)
+      raise Client::RpcError, RpmsRpc.sanitize_error("BEHOENCX GETPRV refused: #{lines.first}") if lines.first && DataMapper.error_row?(lines.first)
+
+      mapping.parse_many(lines)
+    end
+    shape :providers, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters/{visit_ien}/providers"
+
+    # A provider's activity and travel time on a visit: BGOVTM GET
+    # (GET^BGOVTM), the V ACTIVITY TIME (#9000010.19) entry on the visit's
+    # AD index whose ENCOUNTER PROVIDER (12;4) is the provider, as
+    # { ien:, activity_minutes:, travel_minutes: } (.01 and .04). nil when
+    # the provider has no entry on the visit (the routine answers 0^0^0).
+    # A -N^text reply (no visit, no provider, a provider not on file)
+    # raises Client::RpcError.
+    def activity_time(visit_ien, provider_duz)
+      return nil unless [ visit_ien, provider_duz ].all? { |id| id.to_s.match?(/\A[1-9]\d*\z/) }
+
+      raw = DataMapper.visit_activity_time.lines!("#{visit_ien}^#{provider_duz}").first.to_s
+      ien, activity, travel = raw.split("^", -1)
+      raise Client::RpcError, "BGOVTM GET answered #{raw.inspect}" unless ien.to_s.match?(/\A\d+\z/)
+      return nil if ien == "0"
+
+      { ien: ien.to_i, activity_minutes: activity.to_s.empty? ? nil : activity.to_i, travel_minutes: travel.to_s.empty? ? nil : travel.to_i }
+    end
+    shape :activity_time, resource: "encounters", verb: "GET", path: "/encounters/{visit_ien}/activity-time"
+
     # Open an active encounter — hydrates the visit context the chart needs:
     # location, provider, datetime, service category, lock state, and a
     # missing-components report.

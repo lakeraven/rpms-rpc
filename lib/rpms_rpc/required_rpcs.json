@@ -1,4 +1,5 @@
 {
+  "contract": "rpms-rpc-contract.v1",
   "build": "bcer-9.0-20261012-e7923a4-ydb",
   "modules": {
     "RpmsRpc::Adt": [
@@ -28,11 +29,16 @@
       "AGG WINDOW TABLE LOOKUP",
       "CIANBRPC CANRUN"
     ],
+    "RpmsRpc::Allergen": [
+      "ORWDAL32 ALLERGY MATCH"
+    ],
     "RpmsRpc::Allergy": [
+      "BEHOART SIGNLIST",
       "ORQQAL LIST",
       "ORWDAL32 SAVE ALLERGY"
     ],
     "RpmsRpc::Authentication": [
+      "BGOUTL CHKSEC",
       "DDR LISTER",
       "ORWU HAS OPTION ACCESS",
       "ORWU NPHASKEY",
@@ -114,6 +120,10 @@
     "RpmsRpc::Busa": [
       "BUSA LOG SECURITY AUDIT ENTRY"
     ],
+    "RpmsRpc::ChiefComplaint": [
+      "BGOCC GET",
+      "BGOCC SET"
+    ],
     "RpmsRpc::ClinicalEvent": [
       "ORWPCE GET EDUCATION TOPICS",
       "ORWPCE GET EXAM TYPE",
@@ -123,7 +133,19 @@
       "ORWPCE GET VISIT",
       "ORWPCE HASVISIT",
       "ORWPCE NOTEVSTR",
-      "ORWPCE PCE4NOTE"
+      "ORWPCE PCE4NOTE",
+      "TIU GET ALERT INFO"
+    ],
+    "RpmsRpc::ClinicalReview": [
+      "BEHOENCX GETVISIT",
+      "BGOVUPD GET",
+      "BGOVUPD SET",
+      "DDR LISTER"
+    ],
+    "RpmsRpc::Consult": [
+      "ORQQCN CANEDIT",
+      "ORQQCN GET CONSULT",
+      "ORQQCN LIST"
     ],
     "RpmsRpc::Coverage": [
       "AGG BUILD WINDOW DISPLAY",
@@ -163,14 +185,18 @@
     "RpmsRpc::Encounter": [
       "BEHOENCX CHKVISIT",
       "BEHOENCX FETCH",
+      "BEHOENCX GETPRV",
       "BEHOENCX GETVISIT",
       "BEHOENCX VISITLST",
+      "BGOVTM GET",
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
+      "BGOVEXAM GET",
       "BGOVEXAM SET"
     ],
     "RpmsRpc::HealthFactor": [
+      "BGOVHF GET",
       "BGOVHF SET"
     ],
     "RpmsRpc::HealthSummary": [
@@ -193,7 +219,13 @@
     ],
     "RpmsRpc::ImmunizationRefusal": [
       "BGOREF GETREA",
-      "BGOREF SET"
+      "BGOREF SET",
+      "ORWU DT"
+    ],
+    "RpmsRpc::Lab": [
+      "BEHOLRCV LIST",
+      "ORWLRR INTERIMG",
+      "ORWLRR NEWOLD"
     ],
     "RpmsRpc::Location": [
       "DDR GETS ENTRY DATA",
@@ -209,6 +241,7 @@
       "ORQQVI VITALS"
     ],
     "RpmsRpc::Medication": [
+      "BEHORXFN GETRXS",
       "ORQQPS DETAIL",
       "ORQQPS LIST",
       "ORWPS ACTIVE"
@@ -227,9 +260,12 @@
       "BEHOXQ FORWARD"
     ],
     "RpmsRpc::Order": [
+      "OREVNTX PAT",
       "ORWDX SAVE",
       "ORWDX SEND",
       "ORWDXC ACCEPT",
+      "ORWDXC ON",
+      "ORWDXIHS CLININD",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
@@ -237,7 +273,9 @@
       "ORWOR SHEETS",
       "ORWOR TSALL",
       "ORWOR UNSIGN",
+      "ORWORDG IEN",
       "ORWORR AGET",
+      "ORWORR GET4LST",
       "ORWU VALIDSIG"
     ],
     "RpmsRpc::Organization": [
@@ -255,6 +293,7 @@
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
       "AGG WINDOW DATA VALIDATION",
+      "BEHOCACV LIST",
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
@@ -271,7 +310,15 @@
       "AGG UNLOCK PATIENT",
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
+    ],
+    "RpmsRpc::PatientEducation": [
+      "BGOVPED GET",
+      "BGOVPED2 GETPVED"
+    ],
+    "RpmsRpc::PatientGoal": [
+      "BEHOPGAP GETGOAL"
     ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
@@ -301,6 +348,7 @@
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [
+      "BGOVPOV GET",
       "BGOVPOV RECENT",
       "BGOVPOV SET"
     ],
@@ -312,7 +360,10 @@
     ],
     "RpmsRpc::Problem": [
       "BGOPROB DEL",
+      "BGOPROB GET",
       "BGOPROB SET",
+      "BGOPROB1 EDPROB",
+      "BGOPROB1 GETONE",
       "DDR GETS ENTRY DATA",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",
@@ -358,7 +409,8 @@
       "BMC REFERRAL STATUS UPDATE",
       "BMC SEARCH REFERRAL",
       "BMC SEARCH REFERRED TO",
-      "BMC UPDATE REFERRAL"
+      "BMC UPDATE REFERRAL",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
@@ -371,7 +423,8 @@
       "AGG WINDOW DATA VALIDATION",
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
     ],
     "RpmsRpc::RegistrationParameters": [
       "DDR GETS ENTRY DATA",
@@ -380,10 +433,15 @@
     "RpmsRpc::RegistrationSetup": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
     ],
     "RpmsRpc::Reminders": [
-      "ORQQPXRM REMINDERS APPLICABLE"
+      "ORQQPXRM EDUCATION SUMMARY",
+      "ORQQPXRM REMINDER CATEGORIES",
+      "ORQQPXRM REMINDER WEB",
+      "ORQQPXRM REMINDERS APPLICABLE",
+      "ORQQPXRM REMINDERS UNEVALUATED"
     ],
     "RpmsRpc::Scheduling": [
       "BEHOENCX FETCH",
@@ -446,15 +504,2432 @@
       "XUS GET USER INFO"
     ],
     "RpmsRpc::Vital": [
+      "BEHOVM GRID",
+      "BEHOVM LIST",
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
-      "ORQQVI VITALS"
+      "ORQQVI VITALS",
+      "ORWU DT"
     ],
     "RpmsRpc::WaitList": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ]
+  },
+  "rpcs": {
+    "AGG ADD NEW PATIENT": {
+      "methods": {
+        "RpmsRpc::Agg.add_patient": "non_idempotent_write",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG BUILD WINDOW DISPLAY": {
+      "methods": {
+        "RpmsRpc::Agg.window_values": "non_idempotent_write",
+        "RpmsRpc::Coverage.on_file": "read",
+        "RpmsRpc::Patient.registration_record": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.contacts": "read",
+        "RpmsRpc::PatientProfile.languages": "read",
+        "RpmsRpc::PatientProfile.social_status": "read",
+        "RpmsRpc::PatientProfile.update_contact": "non_idempotent_write",
+        "RpmsRpc::Registration.record": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG BUILD WINDOW MANY": {
+      "methods": {
+        "RpmsRpc::Coverage.on_file": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG BUILD WINDOW MULTIPLE": {
+      "methods": {
+        "RpmsRpc::Agg.window_multiple": "read",
+        "RpmsRpc::Coverage.on_file": "read",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.aliases": "read",
+        "RpmsRpc::PatientProfile.other_tribes": "read",
+        "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_other_tribe": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG CHECK SENSITIVE PATIENT": {
+      "methods": {
+        "RpmsRpc::Agg.check_sensitive_patient": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG ERROR SCREEN": {
+      "methods": {
+        "RpmsRpc::Agg.error_screen": "read"
+      },
+      "replies": []
+    },
+    "AGG GET INSURANCE DATA": {
+      "methods": {
+        "RpmsRpc::Coverage.add_private_insurance": "non_idempotent_write",
+        "RpmsRpc::Coverage.insurers": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG GET TEMP PAT HRN": {
+      "methods": {
+        "RpmsRpc::Agg.temporary_hrn": "non_idempotent_write",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG LOCK PATIENT": {
+      "methods": {
+        "RpmsRpc::Agg.editing": "non_idempotent_write",
+        "RpmsRpc::Patient.update": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_social_status": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.update_contact": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.set_preferred_name": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-preferred-name.yml"
+      ]
+    },
+    "AGG LOOKUP PATIENTS": {
+      "methods": {
+        "RpmsRpc::Agg.registration_candidates": "non_idempotent_write",
+        "RpmsRpc::Patient.lookup": "read",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookup-patients.yml",
+        "test/fixtures/wire_captures/agg-lookup-patients.yml"
+      ]
+    },
+    "AGG PATIENT EDIT CHECK": {
+      "methods": {
+        "RpmsRpc::Agg.edit_check": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG PATIENT LANGUAGES": {
+      "methods": {
+        "RpmsRpc::Agg.patient_languages": "read",
+        "RpmsRpc::PatientProfile.languages": "read",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG QUANTUM VALIDATION": {
+      "methods": {
+        "RpmsRpc::Agg.quantum_check": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG SEND SENSITIVE NOTIFY": {
+      "methods": {
+        "RpmsRpc::Agg.send_sensitive_notify": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG UNLOCK PATIENT": {
+      "methods": {
+        "RpmsRpc::Agg.editing": "non_idempotent_write",
+        "RpmsRpc::Patient.update": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_social_status": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.update_contact": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.set_preferred_name": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-preferred-name.yml"
+      ]
+    },
+    "AGG UPDATE A MULTIPLE RECORD": {
+      "methods": {
+        "RpmsRpc::Agg.update_multiple_record": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_other_tribe": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG UPDATE ALIASES": {
+      "methods": {
+        "RpmsRpc::Agg.update_aliases": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG UPDATE MEDICAID": {
+      "methods": {
+        "RpmsRpc::Coverage.add_medicaid": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicaid": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG UPDATE MEDICARE": {
+      "methods": {
+        "RpmsRpc::Coverage.add_medicare": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicare": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicare_record": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG UPDATE PATIENT": {
+      "methods": {
+        "RpmsRpc::Agg.update_patient": "non_idempotent_write",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::Patient.update": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_social_status": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.update_contact": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write",
+        "RpmsRpc::Registration.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/registration-edits.yml"
+      ]
+    },
+    "AGG UPDATE PRIVATE INSUR": {
+      "methods": {
+        "RpmsRpc::Coverage.add_private_insurance": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "AGG UPDATE SPECIAL MULTIPLES": {
+      "methods": {
+        "RpmsRpc::Agg.update_special_multiple": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG WINDOW DATA VALIDATION": {
+      "methods": {
+        "RpmsRpc::Agg.validate_field": "non_idempotent_write",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::Patient.update": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.update_contact": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write",
+        "RpmsRpc::Registration.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/registration-refused-validation.yml"
+      ]
+    },
+    "AGG WINDOW TABLE LOOKUP": {
+      "methods": {
+        "RpmsRpc::Agg.table_lookup": "read",
+        "RpmsRpc::PatientProfile.language_lookup": "read",
+        "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.relationships": "read",
+        "RpmsRpc::PatientProfile.states": "read"
+      },
+      "replies": []
+    },
+    "AMHG CREATE/EDIT VISIT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET ADMIN RECORDS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.admin_records": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET CASE DATES": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::CaseManagement.case_dates": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET CASE MANAGEMENT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::CaseManagement.case_management": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET CLINICS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.clinics": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET COMMUNITY ACTIVITIES": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::CaseManagement.community_activities": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET COMMUNITY ACTIVITY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::CaseManagement.community_activity": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP CPT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_cpt": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP EDU": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_edu": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP INFORMATION": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_information": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP PATIENTS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_patients": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP POV": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_pov": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP SEC PROVIDERS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUP SOAP": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.group_soap": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET GROUPS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Groups.groups": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+      ]
+    },
+    "AMHG GET INTAKE": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Intake.intakes": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET INTAKE DOCUMENTS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Intake.intake_documents": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET PATIENT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.patients": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET SITE PARAMETERS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.site_parameters": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET SUICIDE FORM": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.suicide_form": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET SUICIDE FORM CF": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET SUICIDE FORM METHOD": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.suicide_form_methods": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET SUICIDE FORM SUB": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.suicide_form_substances": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET SUICIDE FORMS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.suicide_forms": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET TP NARRATIVE": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.treatment_plan_narrative": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET TP PLAN PARTICIPANTS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.treatment_plan_participants": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET TP REVIEW": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.treatment_plan_reviews": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET TREATMENT PLAN": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.treatment_plan": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET TREATMENT PLANS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.treatment_plans": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT ACTIVITY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_activity": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT ASSESSMENT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_assessment": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT AXIS II": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_axis_ii": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT AXIS III": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_axis_iii": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT AXIS IV": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_axis_iv": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT AXIS V": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_axis_v": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT CC": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_chief_complaint": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT COMM APP": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.visit_comment_appointment": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT INFORMATION": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_information": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT MSR DATA ENTRY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Wellness.save_measurements": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-wellness.yml"
+      ]
+    },
+    "AMHG GET VISIT SCREENING": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visit_screenings": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISIT SOAP": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.visit_soap": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG GET VISITS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.visits": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG SAVE HEALTH FACTORS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-health-factors.yml"
+      ]
+    },
+    "AMHG SAVE MEASUREMENTS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Wellness.save_measurements": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-wellness.yml"
+      ]
+    },
+    "AMHG SAVE POV": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG SAVE PROGRESS NOTES": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AMHG SAVE SCREENING": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Wellness.save_screening": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-wellness.yml"
+      ]
+    },
+    "AMHG SAVE VISIT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_visit": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BEHOART SIGNLIST": {
+      "methods": {
+        "RpmsRpc::Allergy.awaiting_signature": "read"
+      },
+      "replies": []
+    },
+    "BEHOCACV LIST": {
+      "methods": {
+        "RpmsRpc::Patient.postings": "read"
+      },
+      "replies": []
+    },
+    "BEHOCCD GETREF": {
+      "methods": {
+        "RpmsRpc::Phr.referrals_for_visits": "read"
+      },
+      "replies": []
+    },
+    "BEHOCCD PHR": {
+      "methods": {
+        "RpmsRpc::Phr.enrollment_status": "read",
+        "RpmsRpc::Phr.has_access?": "read"
+      },
+      "replies": []
+    },
+    "BEHOCIR GETNUM": {
+      "methods": {
+        "RpmsRpc::Phr.counts": "read"
+      },
+      "replies": []
+    },
+    "BEHOCIR1 GETCCDS": {
+      "methods": {
+        "RpmsRpc::Phr.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/behocir1-getccds.yml"
+      ]
+    },
+    "BEHOENCX CHKVISIT": {
+      "methods": {
+        "RpmsRpc::Encounter.open": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/behoencx-chkvisit.yml"
+      ]
+    },
+    "BEHOENCX FETCH": {
+      "methods": {
+        "RpmsRpc::Encounter.create": "non_idempotent_write",
+        "RpmsRpc::Encounter.open": "non_idempotent_write",
+        "RpmsRpc::Scheduling.checkin_visit": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/wire_captures/behoencx-fetch.yml"
+      ]
+    },
+    "BEHOENCX GETPRV": {
+      "methods": {
+        "RpmsRpc::Encounter.providers": "read"
+      },
+      "replies": []
+    },
+    "BEHOENCX GETVISIT": {
+      "methods": {
+        "RpmsRpc::ClinicalReview.record": "non_idempotent_write",
+        "RpmsRpc::Encounter.open": "non_idempotent_write",
+        "RpmsRpc::Measurement.find": "read",
+        "RpmsRpc::Measurement.for_visit": "read",
+        "RpmsRpc::Measurement.latest": "read",
+        "RpmsRpc::Measurement.newest_by_type": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/wire_captures/behoencx-getvisit.yml"
+      ]
+    },
+    "BEHOENCX VISITLST": {
+      "methods": {
+        "RpmsRpc::Encounter.visits": "read"
+      },
+      "replies": []
+    },
+    "BEHOENPC SAVE": {
+      "methods": {
+        "RpmsRpc::Procedure.add": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/procedure-add.yml"
+      ]
+    },
+    "BEHOLRCV LIST": {
+      "methods": {
+        "RpmsRpc::Lab.cover_sheet_orders": "read"
+      },
+      "replies": []
+    },
+    "BEHOPGAP GETGOAL": {
+      "methods": {
+        "RpmsRpc::PatientGoal.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BEHOPTCX PTINFO": {
+      "methods": {
+        "RpmsRpc::Patient.brief_header": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/patient-brief-header.yml",
+        "test/fixtures/captured_replies/patient-designated-providers.yml",
+        "test/fixtures/wire_captures/behoptcx-ptinfo.yml"
+      ]
+    },
+    "BEHOPTPC GETBDP": {
+      "methods": {
+        "RpmsRpc::Patient.brief_header": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/patient-brief-header.yml",
+        "test/fixtures/captured_replies/patient-designated-providers.yml",
+        "test/fixtures/wire_captures/behoptpc-getbdp.yml"
+      ]
+    },
+    "BEHOPTPL DOBLKP": {
+      "methods": {
+        "RpmsRpc::PatientSelection.find": "read"
+      },
+      "replies": []
+    },
+    "BEHOPTPL HRNLKP": {
+      "methods": {
+        "RpmsRpc::PatientSelection.find": "read"
+      },
+      "replies": []
+    },
+    "BEHOPTPL LISTALL": {
+      "methods": {
+        "RpmsRpc::PatientSelection.find": "read"
+      },
+      "replies": []
+    },
+    "BEHOPTPL LOOKUP": {
+      "methods": {
+        "RpmsRpc::PatientSelection.find": "read"
+      },
+      "replies": []
+    },
+    "BEHORXFN GETRXS": {
+      "methods": {
+        "RpmsRpc::Medication.profile": "read"
+      },
+      "replies": []
+    },
+    "BEHOSICX SITEINFO": {
+      "methods": {
+        "RpmsRpc::Site.current": "read",
+        "RpmsRpc::Site.list": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/behosicx-siteinfo.yml"
+      ]
+    },
+    "BEHOVM GRID": {
+      "methods": {
+        "RpmsRpc::Vital.grid": "read"
+      },
+      "replies": []
+    },
+    "BEHOVM LIST": {
+      "methods": {
+        "RpmsRpc::Vital.latest_by_type": "read"
+      },
+      "replies": []
+    },
+    "BEHOVM SAVE": {
+      "methods": {
+        "RpmsRpc::Vital.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BEHOVM TEMPLATE": {
+      "methods": {
+        "RpmsRpc::Vital.template": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "BEHOVM VALIDATE": {
+      "methods": {
+        "RpmsRpc::Vital.validate": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/behovm-validate.yml"
+      ]
+    },
+    "BEHOVM2 VUNITS": {
+      "methods": {
+        "RpmsRpc::Measurement.find": "read",
+        "RpmsRpc::Measurement.for_visit": "read",
+        "RpmsRpc::Measurement.latest": "read",
+        "RpmsRpc::Measurement.newest_by_type": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/wire_captures/behovm2-vunits.yml"
+      ]
+    },
+    "BEHOXQ ALRLIST": {
+      "methods": {
+        "RpmsRpc::Notifications.forward": "non_idempotent_write",
+        "RpmsRpc::Notifications.inbox": "non_idempotent_write",
+        "RpmsRpc::Notifications.remove": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BEHOXQ ALRMSG": {
+      "methods": {
+        "RpmsRpc::Notifications.message": "read"
+      },
+      "replies": []
+    },
+    "BEHOXQ ALRPP": {
+      "methods": {
+        "RpmsRpc::Notifications.remove": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BEHOXQ FORWARD": {
+      "methods": {
+        "RpmsRpc::Notifications.forward": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOCC GET": {
+      "methods": {
+        "RpmsRpc::ChiefComplaint.for_visit": "read"
+      },
+      "replies": []
+    },
+    "BGOCC SET": {
+      "methods": {
+        "RpmsRpc::ChiefComplaint.record": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOPROB DEL": {
+      "methods": {
+        "RpmsRpc::Problem.delete": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/problem-write.yml"
+      ]
+    },
+    "BGOPROB GET": {
+      "methods": {
+        "RpmsRpc::Problem.integrated": "read"
+      },
+      "replies": []
+    },
+    "BGOPROB SET": {
+      "methods": {
+        "RpmsRpc::Problem.add": "non_idempotent_write",
+        "RpmsRpc::Problem.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/problem-write.yml"
+      ]
+    },
+    "BGOPROB1 EDPROB": {
+      "methods": {
+        "RpmsRpc::Problem.coded_active": "read"
+      },
+      "replies": []
+    },
+    "BGOPROB1 GETONE": {
+      "methods": {
+        "RpmsRpc::Problem.integrated_entry": "read"
+      },
+      "replies": []
+    },
+    "BGOREF GETREA": {
+      "methods": {
+        "RpmsRpc::ImmunizationRefusal.reasons": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgoref-getrea.yml"
+      ]
+    },
+    "BGOREF SET": {
+      "methods": {
+        "RpmsRpc::ImmunizationRefusal.record": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOUTL CHKSEC": {
+      "methods": {
+        "RpmsRpc::Authentication.component_security": "read"
+      },
+      "replies": []
+    },
+    "BGOVCPT GET": {
+      "methods": {
+        "RpmsRpc::Procedure.add": "non_idempotent_write",
+        "RpmsRpc::Procedure.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovcpt.yml",
+        "test/fixtures/captured_replies/procedure-add.yml"
+      ]
+    },
+    "BGOVEXAM GET": {
+      "methods": {
+        "RpmsRpc::ExamComponent.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVEXAM SET": {
+      "methods": {
+        "RpmsRpc::ExamComponent.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOVHF GET": {
+      "methods": {
+        "RpmsRpc::HealthFactor.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVHF SET": {
+      "methods": {
+        "RpmsRpc::HealthFactor.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOVIMM GET": {
+      "methods": {
+        "RpmsRpc::Immunization.find": "read",
+        "RpmsRpc::Immunization.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVIMM GETVFC": {
+      "methods": {
+        "RpmsRpc::Eligibility.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVIMM PROFILE": {
+      "methods": {
+        "RpmsRpc::Immunization.text_summary": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-profile.yml"
+      ]
+    },
+    "BGOVIMM2 GETELIG": {
+      "methods": {
+        "RpmsRpc::Eligibility.codes": "read",
+        "RpmsRpc::Eligibility.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVMSR GET": {
+      "methods": {
+        "RpmsRpc::Measurement.for_visit": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/wire_captures/bgovmsr-get.yml"
+      ]
+    },
+    "BGOVMSR LAST": {
+      "methods": {
+        "RpmsRpc::Measurement.latest": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/wire_captures/bgovmsr-last.yml"
+      ]
+    },
+    "BGOVMSR SET": {
+      "methods": {
+        "RpmsRpc::Measurement.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOVPED GET": {
+      "methods": {
+        "RpmsRpc::PatientEducation.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVPED2 GETPVED": {
+      "methods": {
+        "RpmsRpc::PatientEducation.problem_linked": "read"
+      },
+      "replies": []
+    },
+    "BGOVPOV GET": {
+      "methods": {
+        "RpmsRpc::Pov.for_visit": "read"
+      },
+      "replies": []
+    },
+    "BGOVPOV RECENT": {
+      "methods": {
+        "RpmsRpc::Pov.for_patient": "read"
+      },
+      "replies": []
+    },
+    "BGOVPOV SET": {
+      "methods": {
+        "RpmsRpc::Pov.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGOVTM GET": {
+      "methods": {
+        "RpmsRpc::Encounter.activity_time": "read"
+      },
+      "replies": []
+    },
+    "BGOVUPD GET": {
+      "methods": {
+        "RpmsRpc::ClinicalReview.for_visit": "read"
+      },
+      "replies": []
+    },
+    "BGOVUPD SET": {
+      "methods": {
+        "RpmsRpc::ClinicalReview.record": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BGU MAILMAN MESSAGE": {
+      "methods": {
+        "RpmsRpc::Bgu.send_mailman_message": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC ADD C32 PRINT LOG": {
+      "methods": {
+        "RpmsRpc::Referral.add_c32_print_log": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC ADD REFERRAL": {
+      "methods": {
+        "RpmsRpc::Referral.add": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC CHK YEAR SITE PARAM": {
+      "methods": {
+        "RpmsRpc::Referral.check_year_site_param": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC CONSULTATION STATUS UPDATE": {
+      "methods": {
+        "RpmsRpc::Referral.update_consultation_status": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC GET PURPOSE OF REF API": {
+      "methods": {
+        "RpmsRpc::Referral.purposes": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC GET RCIS TEMPLATE DETAIL": {
+      "methods": {
+        "RpmsRpc::Referral.rcis_template_detail": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC GET RCIS TEMPLATE LIST": {
+      "methods": {
+        "RpmsRpc::Referral.rcis_templates": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC GET REFERENCE DATA": {
+      "methods": {
+        "RpmsRpc::Referral.reference_data": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC GET REFERRAL": {
+      "methods": {
+        "RpmsRpc::Referral.find": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmc-get-referral.yml"
+      ]
+    },
+    "BMC GET USERS/PROVIDERS": {
+      "methods": {
+        "RpmsRpc::Referral.users_providers": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC HEALTH SUMMARY TYPE": {
+      "methods": {
+        "RpmsRpc::Referral.health_summary_types": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC PATIENT ELIGIBILITY STATUS": {
+      "methods": {
+        "RpmsRpc::Referral.patient_eligibility_status": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC PATIENT FACE SHEET": {
+      "methods": {
+        "RpmsRpc::Referral.patient_face_sheet": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC PATIENT HEALTH SUMMARY": {
+      "methods": {
+        "RpmsRpc::Referral.patient_health_summary": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC PRINT REFERRAL": {
+      "methods": {
+        "RpmsRpc::Referral.print": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC PROVIDERS": {
+      "methods": {
+        "RpmsRpc::Referral.providers": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC REFERRAL STATUS UPDATE": {
+      "methods": {
+        "RpmsRpc::Referral.cancel": "non_idempotent_write",
+        "RpmsRpc::Referral.update_status": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC SEARCH REFERRAL": {
+      "methods": {
+        "RpmsRpc::Referral.for_patient": "non_idempotent_write",
+        "RpmsRpc::Referral.pending": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals-bmcrpc.yml"
+      ]
+    },
+    "BMC SEARCH REFERRED TO": {
+      "methods": {
+        "RpmsRpc::Referral.search_referred_to": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BMC UPDATE REFERRAL": {
+      "methods": {
+        "RpmsRpc::Referral.update": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BQI PATIENT INSURANCE": {
+      "methods": {
+        "RpmsRpc::Coverage.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage.yml"
+      ]
+    },
+    "BSDX ADD NEW APPOINTMENT": {
+      "methods": {
+        "RpmsRpc::Scheduling.add_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/wire_captures/bsdx-add-new-appointment.yml"
+      ]
+    },
+    "BSDX ADD NEW AVAILABILITY": {
+      "methods": {
+        "RpmsRpc::Scheduling.add_availability": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX ADD RES GROUP ITEM": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.add_resource_group_member": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX ADD/EDIT ACCESS TYPE": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.save_access_type": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX ADD/EDIT RESOURCE GROUP": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.save_resource_group": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX ADD/EDIT RESOURCEUSER": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.save_resource_user": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX ALL APPOINTMENTS": {
+      "methods": {
+        "RpmsRpc::Scheduling.all_appointments": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CANCEL APPOINTMENT": {
+      "methods": {
+        "RpmsRpc::Scheduling.cancel_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/wire_captures/bsdx-cancel-appointment.yml"
+      ]
+    },
+    "BSDX CANCEL AV BY DATE": {
+      "methods": {
+        "RpmsRpc::Scheduling.cancel_availability_by_date": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CANCEL CHECKOUT APPT": {
+      "methods": {
+        "RpmsRpc::Scheduling.cancel_checkout": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CHECKIN APPOINTMENT": {
+      "methods": {
+        "RpmsRpc::Scheduling.cancel_checkin": "non_idempotent_write",
+        "RpmsRpc::Scheduling.checkin_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/wire_captures/bsdx-checkin-appointment.yml"
+      ]
+    },
+    "BSDX CHECKOUT APPOINTMENT": {
+      "methods": {
+        "RpmsRpc::Scheduling.checkout_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CLINIC SETUP": {
+      "methods": {
+        "RpmsRpc::Scheduling.clinic_setup": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CLINIC VAR APPT": {
+      "methods": {
+        "RpmsRpc::Scheduling.variable_length?": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CREATE APPT SCHEDULE": {
+      "methods": {
+        "RpmsRpc::Scheduling.appointments": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX CREATE ASGND SLOT SCHED": {
+      "methods": {
+        "RpmsRpc::Scheduling.slot_schedule": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX DELETE RES GROUP ITEM": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.remove_resource_group_member": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX DELETE RESOURCEUSER": {
+      "methods": {
+        "RpmsRpc::SchedulingMaintenance.remove_resource_user": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "BSDX EDIT APPOINTMENT": {
+      "methods": {
+        "RpmsRpc::Scheduling.edit_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX HOSPITAL LOCATION": {
+      "methods": {
+        "RpmsRpc::Scheduling.hospital_locations": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX NOSHOW": {
+      "methods": {
+        "RpmsRpc::Scheduling.mark_no_show": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/wire_captures/bsdx-noshow.yml"
+      ]
+    },
+    "BSDX OVERBOOK": {
+      "methods": {
+        "RpmsRpc::Scheduling.overbook_allowed": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX PATIENT APPT DISPLAY": {
+      "methods": {
+        "RpmsRpc::Scheduling.patient_appointments": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX RESOURCES": {
+      "methods": {
+        "RpmsRpc::Scheduling.resources": "read",
+        "RpmsRpc::SchedulingMaintenance.save_resource_user": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX RESOURCES BY USER": {
+      "methods": {
+        "RpmsRpc::Scheduling.resources_by_user": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX SEARCH AVAILABILITY": {
+      "methods": {
+        "RpmsRpc::Scheduling.availability": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX UNCANCEL APPT": {
+      "methods": {
+        "RpmsRpc::Scheduling.uncancel_appointment": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BUSA LOG SECURITY AUDIT ENTRY": {
+      "methods": {
+        "RpmsRpc::Busa.log_security_audit": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "CIANBRPC CANRUN": {
+      "methods": {
+        "RpmsRpc::Agg.available?": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "CIAVCXUS VIMINFO": {
+      "methods": {
+        "RpmsRpc::Session.bootstrap": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/ciavcxus-viminfo.yml"
+      ]
+    },
+    "DDR FILER": {
+      "methods": {
+        "RpmsRpc::Coverage.delete_private_insurance": "non_idempotent_write",
+        "RpmsRpc::DdrFileman.filer": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.add_mbi": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.set_gender_identity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_legal_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_preferred_name": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.rename_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.add_clinic_provider": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.add_holiday": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.mark_overbook": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.remove_clinic_provider": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.remove_holiday": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.set_cancellation_remarks": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.set_clinic_note": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.set_default_provider": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.set_master_overbook": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.update_clinic_settings": "non_idempotent_write",
+        "RpmsRpc::WaitList.add": "non_idempotent_write",
+        "RpmsRpc::WaitList.remove": "non_idempotent_write",
+        "RpmsRpc::WaitList.set_comments": "non_idempotent_write",
+        "RpmsRpc::WaitList.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-preferred-name.yml"
+      ]
+    },
+    "DDR GETS ENTRY DATA": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_visit": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth::Wellness.save_measurements": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth::Wellness.save_screening": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicaid": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicare": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicare_record": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_private_insurance": "non_idempotent_write",
+        "RpmsRpc::Coverage.on_file": "read",
+        "RpmsRpc::DdrFileman.gets_entry": "read",
+        "RpmsRpc::Immunization.find": "read",
+        "RpmsRpc::ImmunizationLot.find": "read",
+        "RpmsRpc::ImmunizationLot.list": "read",
+        "RpmsRpc::Location.find": "read",
+        "RpmsRpc::Measurement.find": "read",
+        "RpmsRpc::Measurement.for_visit": "read",
+        "RpmsRpc::Measurement.latest": "read",
+        "RpmsRpc::Measurement.newest_by_type": "read",
+        "RpmsRpc::Organization.find": "read",
+        "RpmsRpc::Patient.address": "non_idempotent_write",
+        "RpmsRpc::Patient.contact": "non_idempotent_write",
+        "RpmsRpc::Patient.race": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::Practitioner.detail": "non_idempotent_write",
+        "RpmsRpc::Practitioner.roles": "non_idempotent_write",
+        "RpmsRpc::Problem.add": "non_idempotent_write",
+        "RpmsRpc::Problem.delete": "non_idempotent_write",
+        "RpmsRpc::Problem.update": "non_idempotent_write",
+        "RpmsRpc::Procedure.add": "non_idempotent_write",
+        "RpmsRpc::Referral.find": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.address_history": "read",
+        "RpmsRpc::Registration.advance_directives": "read",
+        "RpmsRpc::Registration.cell_phone": "read",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.mbis": "read",
+        "RpmsRpc::Registration.preferred_name": "read",
+        "RpmsRpc::Registration.race_ethnicity": "read",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.set_gender_identity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_preferred_name": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
+        "RpmsRpc::RegistrationParameters.for_facility": "read",
+        "RpmsRpc::RegistrationSetup.local_flag": "read",
+        "RpmsRpc::RegistrationSetup.local_flag_history": "read",
+        "RpmsRpc::SchedulingSetup.cancelled_by": "read",
+        "RpmsRpc::SchedulingSetup.clinic_rules": "read",
+        "RpmsRpc::SchedulingSetup.clinic_settings": "read",
+        "RpmsRpc::SchedulingSetup.clinic_stop": "read",
+        "RpmsRpc::SchedulingSetup.creates_visit_at_checkin": "read",
+        "RpmsRpc::SchedulingSetup.update_clinic_settings": "non_idempotent_write",
+        "RpmsRpc::Tribal.eligibility": "read",
+        "RpmsRpc::Tribal.enrollment": "read",
+        "RpmsRpc::Tribal.service_unit": "read",
+        "RpmsRpc::Tribal.tribe_info": "read",
+        "RpmsRpc::WaitList.comments": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-wellness.yml",
+        "test/fixtures/captured_replies/bmc-get-referral.yml",
+        "test/fixtures/captured_replies/coverage-on-file.yml",
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
+        "test/fixtures/captured_replies/immunization-lot.yml",
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/captured_replies/patient-race.yml",
+        "test/fixtures/captured_replies/problem-write.yml",
+        "test/fixtures/captured_replies/procedure-add.yml",
+        "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-parameters.yml",
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/wire_captures/ddr-gets-entry-data.yml"
+      ]
+    },
+    "DDR KEY VALIDATOR": {
+      "methods": {
+        "RpmsRpc::DdrFileman.validate_key": "read"
+      },
+      "replies": []
+    },
+    "DDR LISTER": {
+      "methods": {
+        "RpmsRpc::Authentication.user_security_keys": "read",
+        "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth.save_visit": "non_idempotent_write",
+        "RpmsRpc::ClinicalReview.record": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_medicare_record": "non_idempotent_write",
+        "RpmsRpc::Coverage.delete_private_insurance": "non_idempotent_write",
+        "RpmsRpc::DdrFileman.lister": "non_idempotent_write",
+        "RpmsRpc::HealthSummary.component_data": "read",
+        "RpmsRpc::HealthSummary.for_patient": "read",
+        "RpmsRpc::HealthSummary.generate_selective": "read",
+        "RpmsRpc::HealthSummary.summary_types": "read",
+        "RpmsRpc::ImmunizationLot.list": "read",
+        "RpmsRpc::Location.search": "read",
+        "RpmsRpc::Patient.register": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.for_patient": "read",
+        "RpmsRpc::PatientApplication.types": "read",
+        "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.add_mbi": "non_idempotent_write",
+        "RpmsRpc::Registration.address_history": "read",
+        "RpmsRpc::Registration.advance_directive_types": "read",
+        "RpmsRpc::Registration.advance_directives": "read",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.eligibility_modifier_choices": "read",
+        "RpmsRpc::Registration.eligibility_modifiers": "read",
+        "RpmsRpc::Registration.mbis": "read",
+        "RpmsRpc::Registration.pick_list": "read",
+        "RpmsRpc::Registration.race_ethnicity": "read",
+        "RpmsRpc::Registration.race_ethnicity_choices": "read",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.register": "non_idempotent_write",
+        "RpmsRpc::Registration.register_via_agg": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.set_gender_identity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_legal_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
+        "RpmsRpc::RegistrationParameters.for_facility": "read",
+        "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.eligibility_modifier_table": "read",
+        "RpmsRpc::RegistrationSetup.flag_types": "read",
+        "RpmsRpc::RegistrationSetup.local_flag": "read",
+        "RpmsRpc::RegistrationSetup.local_flag_history": "read",
+        "RpmsRpc::RegistrationSetup.local_flags": "read",
+        "RpmsRpc::RegistrationSetup.rename_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
+        "RpmsRpc::SchedulingMaintenance.save_resource_user": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.access_types": "read",
+        "RpmsRpc::SchedulingSetup.add_clinic_provider": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.clinic_providers": "read",
+        "RpmsRpc::SchedulingSetup.clinic_rules": "read",
+        "RpmsRpc::SchedulingSetup.clinic_settings": "read",
+        "RpmsRpc::SchedulingSetup.clinic_stops": "read",
+        "RpmsRpc::SchedulingSetup.holidays": "read",
+        "RpmsRpc::SchedulingSetup.letters": "read",
+        "RpmsRpc::SchedulingSetup.mark_overbook": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.master_overbook?": "read",
+        "RpmsRpc::SchedulingSetup.overbook?": "read",
+        "RpmsRpc::SchedulingSetup.remove_holiday": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.resource_groups": "read",
+        "RpmsRpc::SchedulingSetup.resource_users": "read",
+        "RpmsRpc::SchedulingSetup.set_clinic_note": "non_idempotent_write",
+        "RpmsRpc::SchedulingSetup.set_default_provider": "non_idempotent_write",
+        "RpmsRpc::Tribal.communities": "read",
+        "RpmsRpc::Tribal.tribes": "read",
+        "RpmsRpc::WaitList.add": "non_idempotent_write",
+        "RpmsRpc::WaitList.entries": "read",
+        "RpmsRpc::WaitList.lists": "read",
+        "RpmsRpc::WaitList.reasons": "read",
+        "RpmsRpc::WaitList.remove": "non_idempotent_write",
+        "RpmsRpc::WaitList.set_comments": "non_idempotent_write",
+        "RpmsRpc::WaitList.update": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/health-summary.yml",
+        "test/fixtures/captured_replies/immunization-lot.yml",
+        "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-parameters.yml"
+      ]
+    },
+    "DDR LOCK/UNLOCK NODE": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth::Wellness.save_measurements": "non_idempotent_write",
+        "RpmsRpc::BehavioralHealth::Wellness.save_screening": "non_idempotent_write",
+        "RpmsRpc::DdrFileman.lock": "non_idempotent_write",
+        "RpmsRpc::DdrFileman.unlock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-wellness.yml"
+      ]
+    },
+    "DDR VALIDATOR": {
+      "methods": {
+        "RpmsRpc::DdrFileman.validate_field": "read",
+        "RpmsRpc::SchedulingSetup.add_clinic_provider": "non_idempotent_write",
+        "RpmsRpc::Tribal.validate": "read"
+      },
+      "replies": []
+    },
+    "DG SENSITIVE RECORD ACCESS": {
+      "methods": {
+        "RpmsRpc::DgSensitive.check_access": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "DG SENSITIVE RECORD BULLETIN": {
+      "methods": {
+        "RpmsRpc::DgSensitive.record_bulletin": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "OREVNTX PAT": {
+      "methods": {
+        "RpmsRpc::Order.delayed_events": "read"
+      },
+      "replies": []
+    },
+    "ORPRF HASFLG": {
+      "methods": {
+        "RpmsRpc::Patient.flags": "read"
+      },
+      "replies": []
+    },
+    "ORQQAL LIST": {
+      "methods": {
+        "RpmsRpc::Allergy.assessment": "read",
+        "RpmsRpc::Allergy.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/allergy-save.yml",
+        "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/wire_captures/orqqal-list.yml"
+      ]
+    },
+    "ORQQCN CANEDIT": {
+      "methods": {
+        "RpmsRpc::Consult.resubmittable": "read"
+      },
+      "replies": []
+    },
+    "ORQQCN GET CONSULT": {
+      "methods": {
+        "RpmsRpc::Consult.find": "read"
+      },
+      "replies": []
+    },
+    "ORQQCN LIST": {
+      "methods": {
+        "RpmsRpc::Consult.for_patient": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL AUDIT HIST": {
+      "methods": {
+        "RpmsRpc::Problem.audit_history": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL CLIN SRCH": {
+      "methods": {
+        "RpmsRpc::Problem.clinic_search": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL DETAIL": {
+      "methods": {
+        "RpmsRpc::Problem.details": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "ORQQPL EDIT LOAD": {
+      "methods": {
+        "RpmsRpc::Problem.edit_load": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "ORQQPL INIT PT": {
+      "methods": {
+        "RpmsRpc::Problem.init_patient": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL LIST": {
+      "methods": {
+        "RpmsRpc::Problem.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/orqqpl-list-retired-icd.yml",
+        "test/fixtures/captured_replies/read-call-formals.yml",
+        "test/fixtures/wire_captures/orqqpl-list.yml"
+      ]
+    },
+    "ORQQPL PROB COMMENTS": {
+      "methods": {
+        "RpmsRpc::Problem.comments": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL PROBLEM LEX SEARCH": {
+      "methods": {
+        "RpmsRpc::Problem.lex_search": "read"
+      },
+      "replies": []
+    },
+    "ORQQPL PROVIDER LIST": {
+      "methods": {
+        "RpmsRpc::Problem.provider_list": "read"
+      },
+      "replies": []
+    },
+    "ORQQPS DETAIL": {
+      "methods": {
+        "RpmsRpc::Medication.find": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/medication-detail.yml"
+      ]
+    },
+    "ORQQPS LIST": {
+      "methods": {
+        "RpmsRpc::Medication.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "ORQQPX REMINDER DETAIL": {
+      "methods": {
+        "RpmsRpc::HealthSummary.reminder_detail": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orqqpx-reminders.yml"
+      ]
+    },
+    "ORQQPX REMINDERS LIST": {
+      "methods": {
+        "RpmsRpc::HealthSummary.clinical_reminders": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orqqpx-reminders.yml"
+      ]
+    },
+    "ORQQPXRM EDUCATION SUMMARY": {
+      "methods": {
+        "RpmsRpc::Reminders.education_topics": "read"
+      },
+      "replies": []
+    },
+    "ORQQPXRM REMINDER CATEGORIES": {
+      "methods": {
+        "RpmsRpc::Reminders.categories": "read"
+      },
+      "replies": []
+    },
+    "ORQQPXRM REMINDER WEB": {
+      "methods": {
+        "RpmsRpc::Reminders.web_references": "read"
+      },
+      "replies": []
+    },
+    "ORQQPXRM REMINDERS APPLICABLE": {
+      "methods": {
+        "RpmsRpc::Reminders.applicable": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orqqpxrm-reminders-applicable.yml",
+        "test/fixtures/wire_captures/orqqpxrm-reminders-applicable.yml"
+      ]
+    },
+    "ORQQPXRM REMINDERS UNEVALUATED": {
+      "methods": {
+        "RpmsRpc::Reminders.unevaluated": "read"
+      },
+      "replies": []
+    },
+    "ORQQVI VITALS": {
+      "methods": {
+        "RpmsRpc::Measurement.newest_by_type": "read",
+        "RpmsRpc::Vital.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/wire_captures/orqqvi-vitals.yml"
+      ]
+    },
+    "ORWDAL32 ALLERGY MATCH": {
+      "methods": {
+        "RpmsRpc::Allergen.search": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/allergen.yml"
+      ]
+    },
+    "ORWDAL32 DEF": {
+      "methods": {
+        "RpmsRpc::Symptom.defaults": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/symptom.yml"
+      ]
+    },
+    "ORWDAL32 SAVE ALLERGY": {
+      "methods": {
+        "RpmsRpc::Allergy.no_known_allergies": "non_idempotent_write",
+        "RpmsRpc::Allergy.save": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/allergy-save.yml"
+      ]
+    },
+    "ORWDAL32 SYMPTOMS": {
+      "methods": {
+        "RpmsRpc::Symptom.search": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml",
+        "test/fixtures/captured_replies/symptom.yml"
+      ]
+    },
+    "ORWDX SAVE": {
+      "methods": {
+        "RpmsRpc::Order.save": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/order-write.yml"
+      ]
+    },
+    "ORWDX SEND": {
+      "methods": {
+        "RpmsRpc::Order.sign_and_release": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/order-write.yml"
+      ]
+    },
+    "ORWDXC ACCEPT": {
+      "methods": {
+        "RpmsRpc::Order.check": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/order-write.yml"
+      ]
+    },
+    "ORWDXC ON": {
+      "methods": {
+        "RpmsRpc::Order.checking_enabled?": "read"
+      },
+      "replies": []
+    },
+    "ORWDXIHS CLININD": {
+      "methods": {
+        "RpmsRpc::Order.clinical_indications": "read"
+      },
+      "replies": []
+    },
+    "ORWLRR INTERIMG": {
+      "methods": {
+        "RpmsRpc::Lab.specimen": "read"
+      },
+      "replies": []
+    },
+    "ORWLRR NEWOLD": {
+      "methods": {
+        "RpmsRpc::Lab.result_date_range": "read"
+      },
+      "replies": []
+    },
+    "ORWOR ACTION TEXT": {
+      "methods": {
+        "RpmsRpc::Order.action_text": "read"
+      },
+      "replies": []
+    },
+    "ORWOR EXPIRED": {
+      "methods": {
+        "RpmsRpc::Order.expired_search_start": "read"
+      },
+      "replies": []
+    },
+    "ORWOR RESULT": {
+      "methods": {
+        "RpmsRpc::Order.result": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "ORWOR RESULT HISTORY": {
+      "methods": {
+        "RpmsRpc::Order.result_history": "read"
+      },
+      "replies": []
+    },
+    "ORWOR SHEETS": {
+      "methods": {
+        "RpmsRpc::Order.sheets_for_patient": "read"
+      },
+      "replies": []
+    },
+    "ORWOR TSALL": {
+      "methods": {
+        "RpmsRpc::Order.all_sheets": "read"
+      },
+      "replies": []
+    },
+    "ORWOR UNSIGN": {
+      "methods": {
+        "RpmsRpc::Order.unsigned_for_patient": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "ORWORDG IEN": {
+      "methods": {
+        "RpmsRpc::Order.display_group_ien": "read"
+      },
+      "replies": []
+    },
+    "ORWORR AGET": {
+      "methods": {
+        "RpmsRpc::Order.list": "read"
+      },
+      "replies": []
+    },
+    "ORWORR GET4LST": {
+      "methods": {
+        "RpmsRpc::Order.summaries": "read"
+      },
+      "replies": []
+    },
+    "ORWPCE GET EDUCATION TOPICS": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.education_topics": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-education-topics.yml"
+      ]
+    },
+    "ORWPCE GET EXAM TYPE": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.exam_types": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-exam-type.yml"
+      ]
+    },
+    "ORWPCE GET HEALTH FACTORS TY": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.health_factor_types": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-health-factors-ty.yml"
+      ]
+    },
+    "ORWPCE GET IMMUNIZATION TYPE": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.immunization_types": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-immunization-type.yml"
+      ]
+    },
+    "ORWPCE GET SKIN TEST TYPE": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.skin_test_types": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-skin-test-type.yml"
+      ]
+    },
+    "ORWPCE GET VISIT": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.visit_for_note": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-get-visit.yml"
+      ]
+    },
+    "ORWPCE HASVISIT": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.has_visit?": "read",
+        "RpmsRpc::ClinicalEvent.visit_status": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-hasvisit.yml"
+      ]
+    },
+    "ORWPCE NOTEVSTR": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.note_visit_string": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-notevstr.yml"
+      ]
+    },
+    "ORWPCE PCE4NOTE": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.pce_for_note": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpce-pce4note.yml"
+      ]
+    },
+    "ORWPS ACTIVE": {
+      "methods": {
+        "RpmsRpc::Medication.active_for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwps-active.yml",
+        "test/fixtures/captured_replies/read-call-formals.yml",
+        "test/fixtures/wire_captures/orwps-active.yml"
+      ]
+    },
+    "ORWPT ADMITLST": {
+      "methods": {
+        "RpmsRpc::Adt.admissions": "read"
+      },
+      "replies": []
+    },
+    "ORWPT APPTLST": {
+      "methods": {
+        "RpmsRpc::Encounter.for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/clinical-data.yml"
+      ]
+    },
+    "ORWPT CWAD": {
+      "methods": {
+        "RpmsRpc::Patient.brief_header": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwpt-cwad-letters.yml",
+        "test/fixtures/captured_replies/patient-brief-header.yml",
+        "test/fixtures/captured_replies/patient-designated-providers.yml",
+        "test/fixtures/wire_captures/orwpt-cwad.yml"
+      ]
+    },
+    "ORWPT DISCHARGE": {
+      "methods": {
+        "RpmsRpc::Adt.discharge_datetime": "read"
+      },
+      "replies": []
+    },
+    "ORWPT FULLSSN": {
+      "methods": {
+        "RpmsRpc::Patient.find_by_ssn": "read"
+      },
+      "replies": []
+    },
+    "ORWPT ID INFO": {
+      "methods": {
+        "RpmsRpc::Patient.find": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwpt-id-info.yml",
+        "test/fixtures/wire_captures/orwpt-id-info.yml"
+      ]
+    },
+    "ORWPT INPLOC": {
+      "methods": {
+        "RpmsRpc::Adt.current_location": "read"
+      },
+      "replies": []
+    },
+    "ORWPT LIST ALL": {
+      "methods": {
+        "RpmsRpc::Patient.search": "read"
+      },
+      "replies": []
+    },
+    "ORWPT SELECT": {
+      "methods": {
+        "RpmsRpc::Patient.find": "read"
+      },
+      "replies": [
+        "test/fixtures/wire_captures/orwpt-select.yml"
+      ]
+    },
+    "ORWRA IMAGING EXAMS1": {
+      "methods": {
+        "RpmsRpc::Image.exams_for_patient": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwra-imaging-exams1.yml"
+      ]
+    },
+    "ORWRP REPORT TEXT": {
+      "methods": {
+        "RpmsRpc::HealthSummary.component_data": "read",
+        "RpmsRpc::HealthSummary.for_patient": "read",
+        "RpmsRpc::HealthSummary.generate_selective": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/health-summary.yml"
+      ]
+    },
+    "ORWU DT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth.save_visit": "non_idempotent_write",
+        "RpmsRpc::ImmunizationRefusal.record": "non_idempotent_write",
+        "RpmsRpc::Orwu.fileman_datetime": "read",
+        "RpmsRpc::PatientApplication.add": "non_idempotent_write",
+        "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.add_mbi": "non_idempotent_write",
+        "RpmsRpc::Registration.change_address": "non_idempotent_write",
+        "RpmsRpc::Registration.change_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.record_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_advance_directive": "non_idempotent_write",
+        "RpmsRpc::Registration.remove_eligibility_modifier": "non_idempotent_write",
+        "RpmsRpc::Registration.set_gender_identity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_legal_sex": "non_idempotent_write",
+        "RpmsRpc::Registration.set_race_ethnicity": "non_idempotent_write",
+        "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
+        "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
+        "RpmsRpc::Vital.add": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwu-dt.yml"
+      ]
+    },
+    "ORWU HAS OPTION ACCESS": {
+      "methods": {
+        "RpmsRpc::Authentication.option_access": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/orwu-has-option-access.yml"
+      ]
+    },
+    "ORWU NEWPERS": {
+      "methods": {
+        "RpmsRpc::Practitioner.search": "read",
+        "RpmsRpc::UserManagement.search": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/user-management.yml"
+      ]
+    },
+    "ORWU NPHASKEY": {
+      "methods": {
+        "RpmsRpc::Authentication.has_security_key?": "read",
+        "RpmsRpc::Authentication.held_keys": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml"
+      ]
+    },
+    "ORWU USERINFO": {
+      "methods": {
+        "RpmsRpc::Authentication.timed_read": "read",
+        "RpmsRpc::Authentication.user_type": "read",
+        "RpmsRpc::Practitioner.find": "read",
+        "RpmsRpc::UserManagement.find": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/user-management.yml"
+      ]
+    },
+    "ORWU VALIDSIG": {
+      "methods": {
+        "RpmsRpc::ESignature.validate": "non_idempotent_write",
+        "RpmsRpc::Order.sign_and_release": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/order-write.yml",
+        "test/fixtures/captured_replies/orwu-validsig.yml"
+      ]
+    },
+    "TIU AUTHORIZATION": {
+      "methods": {
+        "RpmsRpc::ProgressNote.authorize": "read",
+        "RpmsRpc::ProgressNote.update_text": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/captured_replies/tiu-authorization.yml"
+      ]
+    },
+    "TIU CREATE RECORD": {
+      "methods": {
+        "RpmsRpc::ProgressNote.create": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/wire_captures/tiu-create-record.yml"
+      ]
+    },
+    "TIU DELETE RECORD": {
+      "methods": {
+        "RpmsRpc::ESignature.remove": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/e-signature.yml"
+      ]
+    },
+    "TIU DIV AND CLASS INFO": {
+      "methods": {
+        "RpmsRpc::Practitioner.roles": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "TIU DOCUMENTS BY CONTEXT": {
+      "methods": {
+        "RpmsRpc::ProgressNote.list": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml"
+      ]
+    },
+    "TIU GET ALERT INFO": {
+      "methods": {
+        "RpmsRpc::ClinicalEvent.has_visit?": "read",
+        "RpmsRpc::ClinicalEvent.pce_for_note": "read",
+        "RpmsRpc::ClinicalEvent.visit_for_note": "read",
+        "RpmsRpc::ClinicalEvent.visit_status": "read"
+      },
+      "replies": []
+    },
+    "TIU GET RECORD TEXT": {
+      "methods": {
+        "RpmsRpc::ProgressNote.fetch_text": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/wire_captures/tiu-get-record-text.yml"
+      ]
+    },
+    "TIU LOCK RECORD": {
+      "methods": {
+        "RpmsRpc::ProgressNote.lock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/captured_replies/tiu-authorization.yml",
+        "test/fixtures/wire_captures/tiu-lock-record.yml"
+      ]
+    },
+    "TIU SET DOCUMENT TEXT": {
+      "methods": {
+        "RpmsRpc::ProgressNote.update_text": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/captured_replies/tiu-authorization.yml",
+        "test/fixtures/wire_captures/tiu-set-document-text.yml"
+      ]
+    },
+    "TIU SIGN RECORD": {
+      "methods": {
+        "RpmsRpc::ESignature.add": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/e-signature.yml",
+        "test/fixtures/wire_captures/tiu-sign-record.yml"
+      ]
+    },
+    "TIU TEMPLATE ACCESS LEVEL": {
+      "methods": {
+        "RpmsRpc::NoteTemplate.access_level": "read"
+      },
+      "replies": []
+    },
+    "TIU TEMPLATE GETBOIL": {
+      "methods": {
+        "RpmsRpc::NoteTemplate.boilerplate": "read"
+      },
+      "replies": []
+    },
+    "TIU TEMPLATE GETITEMS": {
+      "methods": {
+        "RpmsRpc::NoteTemplate.items": "read"
+      },
+      "replies": []
+    },
+    "TIU TEMPLATE GETROOTS": {
+      "methods": {
+        "RpmsRpc::NoteTemplate.roots": "read"
+      },
+      "replies": []
+    },
+    "TIU TEMPLATE GETTEXT": {
+      "methods": {
+        "RpmsRpc::NoteTemplate.text": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/read-call-formals.yml"
+      ]
+    },
+    "TIU UNLOCK RECORD": {
+      "methods": {
+        "RpmsRpc::ProgressNote.unlock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/progress-note.yml",
+        "test/fixtures/captured_replies/tiu-authorization.yml",
+        "test/fixtures/wire_captures/tiu-unlock-record.yml"
+      ]
+    },
+    "TIU WHICH SIGNATURE ACTION": {
+      "methods": {
+        "RpmsRpc::ESignature.which_action": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/e-signature.yml"
+      ]
+    },
+    "XUS AV CODE": {
+      "methods": {
+        "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml"
+      ]
+    },
+    "XUS CVC": {
+      "methods": {
+        "RpmsRpc::Authentication.change_verify_code": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml"
+      ]
+    },
+    "XUS GET USER INFO": {
+      "methods": {
+        "RpmsRpc::Authentication.authenticate": "non_idempotent_write",
+        "RpmsRpc::Authentication.user_info": "read",
+        "RpmsRpc::UserManagement.find": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/user-management.yml"
+      ]
+    },
+    "XUS SIGNON SETUP": {
+      "methods": {
+        "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/authentication.yml"
+      ]
+    }
   }
 }

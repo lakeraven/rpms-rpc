@@ -24,5 +24,18 @@
       "Bash(gh api -X DELETE repos/lakeraven/lakeraven-ehr/issues/:*)",
       "Bash(gh api repos/lakeraven/factory/contents/etc/scope:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/factory_live_rpms"
+          }
+        ]
+      }
+    ]
   }
 }

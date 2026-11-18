@@ -76,7 +76,7 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
 
     refute_match(/<script>/, md)
     md.lines.grep(/^\|/).each do |row|
-      assert_operator row.count("|"), :<=, 9, "unescaped pipe broke the table: #{row.inspect}"
+      assert_operator row.count("|"), :<=, 10, "unescaped pipe broke the table: #{row.inspect}"
     end
     refute_match(/^\| rake test \| live \|/, md)
     refute_match(/`tick/, md)
