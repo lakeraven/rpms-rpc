@@ -2862,31 +2862,40 @@
       "methods": {
         "RpmsRpc::NoteTemplate.access_level": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/note-template.yml"
+      ]
     },
     "TIU TEMPLATE GETBOIL": {
       "methods": {
         "RpmsRpc::NoteTemplate.boilerplate": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/note-template.yml"
+      ]
     },
     "TIU TEMPLATE GETITEMS": {
       "methods": {
         "RpmsRpc::NoteTemplate.items": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/note-template.yml"
+      ]
     },
     "TIU TEMPLATE GETROOTS": {
       "methods": {
         "RpmsRpc::NoteTemplate.roots": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/note-template.yml"
+      ]
     },
     "TIU TEMPLATE GETTEXT": {
       "methods": {
         "RpmsRpc::NoteTemplate.text": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/note-template.yml",
         "test/fixtures/captured_replies/read-call-formals.yml"
       ]
     },
