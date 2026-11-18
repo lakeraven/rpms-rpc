@@ -11,8 +11,9 @@ module RpmsRpc
     # unlock, and sign only when that whole chain succeeded and a signature
     # code was actually supplied.
     #
-    # The code is never logged and never returned. A capture whose reply or
-    # inputs contain it is dropped, not rewritten. The broker still receives
+    # The code is never logged and never returned. When any capture's reply or
+    # inputs contain it, every capture of the run is dropped, not rewritten, and
+    # SIGN does not fire when the code shows before it (#617). The broker still receives
     # the XWB ciphertext; the structure this returns puts WITHHELD in its
     # place before that check, so the marker itself is not a hit.
     class NoteWriteFlow
@@ -53,19 +54,15 @@ module RpmsRpc
           quarantine_secrets(captures, secrets)
         end
 
-        # A capture whose raw or inputs contain a secret becomes an error.
-        # Every other capture is the same object, bytes unchanged.
+        # When any capture's raw or inputs contain a secret, every capture of
+        # the run becomes an error (#617): keeping the clean ones would leave a
+        # fixture set that mixes this run's note IEN with an older one. With no
+        # secret found, every capture is the same object, bytes unchanged.
         def quarantine_secrets(captures, secrets)
           needles = secret_needles(secrets)
-          return captures if needles.empty?
+          return captures unless secret_in_any_capture?(captures, needles)
 
-          captures.each_with_object({}) do |(rpc, capture), clean|
-            clean[rpc] = if secret_in_capture?(capture, needles)
-              { "error" => quarantine_error(rpc) }
-            else
-              capture
-            end
-          end
+          captures.each_key.to_h { |rpc| [ rpc, { "error" => quarantine_error(rpc) } ] }
         end
 
         # An exception message that contains a secret is replaced wholesale.
@@ -164,8 +161,12 @@ module RpmsRpc
         end
 
         # Create, a held lock, set text, proven read-back, and unlock already succeeded.
+        # Fail closed (#617): a code that already appears in a capture (a word of
+        # the read-back header, say) would drop the run's captures, so SIGN does
+        # not fire for a run that cannot be recorded.
         def sign_note(captures, secrets, esig, note_ien)
           return unless sign?(esig)
+          return if secret_in_any_capture?(captures, secret_needles(secrets))
 
           guarded(captures, SIGN_RPC, secrets) { ESignature.add(note_ien, SESSION_DUZ, esig) }
         end
@@ -285,6 +286,12 @@ module RpmsRpc
 
         def secret_needles(secrets)
           Array(secrets).flatten.compact.map { |secret| secret.to_s.b }.reject(&:empty?).uniq
+        end
+
+        def secret_in_any_capture?(captures, needles)
+          return false if needles.empty?
+
+          captures.each_value.any? { |capture| secret_in_capture?(capture, needles) }
         end
 
         def secret_in_capture?(capture, needles)
