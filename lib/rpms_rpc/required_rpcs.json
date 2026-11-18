@@ -1236,6 +1236,7 @@
         "RpmsRpc::Patient.brief_header": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/patient-brief-header.yml",
         "test/fixtures/captured_replies/patient-designated-providers.yml",
         "test/fixtures/wire_captures/behoptcx-ptinfo.yml"
@@ -1246,6 +1247,7 @@
         "RpmsRpc::Patient.brief_header": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/patient-brief-header.yml",
         "test/fixtures/captured_replies/patient-designated-providers.yml",
         "test/fixtures/wire_captures/behoptpc-getbdp.yml"
@@ -2212,6 +2214,7 @@
       "replies": [
         "test/fixtures/captured_replies/allergy-save.yml",
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
     },
@@ -2273,6 +2276,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orqqpl-list-retired-icd.yml",
         "test/fixtures/captured_replies/read-call-formals.yml",
         "test/fixtures/wire_captures/orqqpl-list.yml"
@@ -2369,6 +2373,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/wire_captures/orqqvi-vitals.yml"
       ]
@@ -2595,6 +2600,7 @@
         "RpmsRpc::Medication.active_for_patient": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwps-active.yml",
         "test/fixtures/captured_replies/read-call-formals.yml",
         "test/fixtures/wire_captures/orwps-active.yml"
@@ -2619,6 +2625,7 @@
         "RpmsRpc::Patient.brief_header": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwpt-cwad-letters.yml",
         "test/fixtures/captured_replies/patient-brief-header.yml",
         "test/fixtures/captured_replies/patient-designated-providers.yml",
@@ -2642,6 +2649,7 @@
         "RpmsRpc::Patient.find": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwpt-id-info.yml",
         "test/fixtures/wire_captures/orwpt-id-info.yml"
       ]
