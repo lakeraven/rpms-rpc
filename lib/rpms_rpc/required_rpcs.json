@@ -717,6 +717,12 @@
       },
       "replies": []
     },
+    "AGG UPDATE LEGAL NAMES": {
+      "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write"
+      },
+      "replies": []
+    },
     "AGG UPDATE MEDICAID": {
       "methods": {
         "RpmsRpc::Coverage.add_medicaid": "non_idempotent_write",
@@ -1990,6 +1996,7 @@
     },
     "DDR GETS ENTRY DATA": {
       "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
