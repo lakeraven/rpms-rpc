@@ -1,0 +1,6 @@
+# BPRM sends no RPC: it queries BMW classes over the SuperServer. Its stored procedures (BMW.BSF.SP.*, BPRM 4.0 patch 6)
+# call M in process; these are the RPCs whose registered entry point (TAG^ROUTINE) a stored procedure calls, as
+# openrpms-ux rpcs/inputs/bprm-entry-points.tsv carries it (openrpms-ux 6816564aaf5b). One name per line, byte-sorted.
+AGG PATIENT EDIT CHECK
+DG SENSITIVE RECORD ACCESS
+DG SENSITIVE RECORD BULLETIN
