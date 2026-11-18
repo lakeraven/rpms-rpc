@@ -365,10 +365,16 @@ module RpmsRpc
     # bytes, and that copy is checked and sent (never the caller's to_s).
     # RIEN is 1-15 digits. RIEN and DFN are not accepted as parameters. An
     # edit carries exactly one parameter, one of LEGAL_NAME_PARMS (AGGLNPRF is
-    # left for a later slice): both PARMS loops quit after the first entry
-    # when a stale BMXSEC is set (:87, :112) and LEGL still answers success,
-    # so a second entry could be dropped silently. A key is a String or
-    # Symbol, a value a String, each copied once and checked and sent as bytes.
+    # left for a later slice). Both PARMS loops (:87, PARS :112) quit after
+    # the entry that set BMXSEC, which LEGL sets only for a name not on the
+    # window (:91, :116), so never for a call this wrapper sends. LEGL does not
+    # NEW BMXSEC (:58-59). The BMX broker clears it (BMXMBRK.m:152,
+    # BMXMON.m:244), but no CIA or XWB routine references it, so over CIA
+    # (which this gem uses) one left set by an earlier AGG call stays and the
+    # loops stop after the first entry. With one entry per edit LEGL files the
+    # one field sent even then, and a success reply accounts for exactly that
+    # field. A key is a String or Symbol, a value a String, each copied once
+    # and checked and sent as bytes.
     #
     # LEGL files with FILE^DIE flags "" (internal values, no validation), so
     # every value byte must be printable ASCII (0x20-0x7E), and the value is
@@ -770,7 +776,7 @@ module RpmsRpc
         return legal_name_failure(:invalid_param, "a parameter name must be a String or Symbol") unless name_text
 
         value_text = legal_name_text(value, symbol: false)
-        return legal_name_failure(:invalid_param, "#{name_text} needs a String value") unless value_text
+        return legal_name_failure(:invalid_param, "#{name_text.inspect} needs a String value") unless value_text
 
         [ name_text, value_text ]
       end
