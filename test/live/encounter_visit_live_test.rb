@@ -24,58 +24,43 @@ class EncounterVisitLiveTest < LiveSpec::Test
     assert_equal [ { component: "E&M", message: "Visit has no note" } ], result[:missing_components]
   end
 
+  # Every persona: the PCC MASTER CONTROL gap that once refused PROV123's
+  # create (TYPE OF VISIT MISSING) is closed on the build, and its create files.
   def test_create_is_get_or_create_and_reads_back
-    if persona == "SYS123"
-      datetime = unlikely_past_visit_datetime_fm
-      vstr_args = {
-        location_ien: LOCATION_IEN,
-        datetime: datetime,
-        service_category: "A",
-        create: 1
-      }
-      date_part = datetime.split(".").first
+    datetime = unlikely_past_visit_datetime_fm
+    vstr_args = {
+      location_ien: LOCATION_IEN,
+      datetime: datetime,
+      service_category: "A",
+      create: 1
+    }
+    date_part = datetime.split(".").first
 
-      before = newest_visit_ien
-      first = RpmsRpc::Encounter.create(DFN, **vstr_args)
-      assert first[:success], "SYS123 create should succeed: #{first.inspect}"
-      visit_ien = first[:visit_ien]
-      assert visit_ien.is_a?(Integer) && visit_ien.positive?
-      assert visit_ien > before, "CREATE=1 must add a new ^AUPNVSIT entry (was #{before}, got #{visit_ien})"
+    # A new visit is not a higher IEN: FileMan hands out a free lower one
+    # (seen live: 117 after 120). It is one CREATE=0 did not find before.
+    none = RpmsRpc::Encounter.create(DFN, **vstr_args.merge(create: 0))
+    refute none && none[:success], "a visit already sits on #{datetime}, so the create would prove nothing: #{none.inspect}"
 
-      second = RpmsRpc::Encounter.create(DFN, **vstr_args)
-      assert second[:success]
-      assert_equal visit_ien, second[:visit_ien], "identical CREATE=1 must return the same visit IEN"
+    first = RpmsRpc::Encounter.create(DFN, **vstr_args)
+    assert first[:success], "create should succeed: #{first.inspect}"
+    visit_ien = first[:visit_ien]
+    assert visit_ien.is_a?(Integer) && visit_ien.positive?
 
-      found = RpmsRpc::Encounter.create(DFN, **vstr_args.merge(create: 0))
-      assert found[:success]
-      assert_equal visit_ien, found[:visit_ien]
+    second = RpmsRpc::Encounter.create(DFN, **vstr_args)
+    assert second[:success]
+    assert_equal visit_ien, second[:visit_ien], "identical CREATE=1 must return the same visit IEN"
 
-      row = RpmsRpc::DataMapper.encounter_visit.fetch_one(visit_ien.to_s)
-      refute_nil row
-      assert_equal DFN, row[:patient_dfn]
-      assert_equal LOCATION_IEN, row[:location_ien]
-      assert_equal "A", row[:service_category]
-      assert row[:datetime_raw].to_s.start_with?(date_part),
-             "GETVISIT datetime_raw #{row[:datetime_raw].inspect} must start with sent date #{date_part.inspect}"
-    elsif persona == "PROV123"
-      # PROV123 pins the named seed gap: division 1 has no #9001000 PCC MASTER CONTROL entry,
-      # so ADDVIST returns TYPE OF VISIT MISSING / Error Creating Visit until openrpms seeds it.
-      datetime = server_now_fm
-      vstr_args = {
-        location_ien: LOCATION_IEN,
-        datetime: datetime,
-        service_category: "A",
-        create: 1
-      }
-      before = newest_visit_ien
-      result = RpmsRpc::Encounter.create(DFN, **vstr_args)
-      refute result[:success]
-      assert_equal "Error Creating Visit", result[:error]
-      after = newest_visit_ien
-      assert_equal before, after, "refused create must not add a ^AUPNVSIT entry"
-    else
-      flunk "persona #{persona.inspect} is not pinned — this spec covers SYS123 and PROV123 only (see README)"
-    end
+    found = RpmsRpc::Encounter.create(DFN, **vstr_args.merge(create: 0))
+    assert found[:success]
+    assert_equal visit_ien, found[:visit_ien]
+
+    row = RpmsRpc::DataMapper.encounter_visit.fetch_one(visit_ien.to_s)
+    refute_nil row
+    assert_equal DFN, row[:patient_dfn]
+    assert_equal LOCATION_IEN, row[:location_ien]
+    assert_equal "A", row[:service_category]
+    assert row[:datetime_raw].to_s.start_with?(date_part),
+           "GETVISIT datetime_raw #{row[:datetime_raw].inspect} must start with sent date #{date_part.inspect}"
   end
 
   private
@@ -93,15 +78,5 @@ class EncounterVisitLiveTest < LiveSpec::Test
 
     shifted = now - (rand(30..3000) * 86_400) - (rand(0..59) * 60)
     RpmsRpc::FilemanDateParser.format_datetime(shifted)
-  end
-
-  def newest_visit_ien
-    listed = RpmsRpc::DdrFileman.lister(
-      file: VISIT_FILE, fields: ".01", flags: "IPB", max: "1", xref: "#"
-    )
-    flunk "DDR LISTER on file #{VISIT_FILE} failed: #{listed.inspect}" if listed.nil? || listed[:error]
-    flunk "no visits on file #{VISIT_FILE}" if listed[:entries].empty?
-
-    listed[:entries].first[:ien].to_i
   end
 end

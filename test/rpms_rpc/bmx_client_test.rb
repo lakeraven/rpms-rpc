@@ -271,6 +271,17 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_match(/not registered to the option/i, error.message)
   end
 
+  # A user without the BMXRPC option is refused every RPC in the security
+  # packet with $$CHK^XQCS's reason (rpms-rpc#792): a refusal, not a broken
+  # connection. The live proof is test/live/bmx/signon_refused_live_test.rb.
+  def test_a_user_refused_the_bmx_option_is_a_refusal_not_a_connection_error
+    msg = "User PROVIDER,TEST does not have access to option BMXRPC"
+    client = connected_client([ msg.bytesize.chr + msg + "\x00" + "\x04" ])
+
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) { client.call_rpc("XUS DIVISION GET") }
+    assert_match(/does not have access to option BMXRPC/, error.message)
+  end
+
   # A clean data reply (both packet lengths 0) passes through unchanged on the
   # raw path.
   def test_a_resolved_data_reply_passes_through

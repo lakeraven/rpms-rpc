@@ -2,6 +2,7 @@
 
 require_relative "../shape"
 require_relative "../fileman_date_parser"
+require_relative "../server_clock"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -28,8 +29,10 @@ module RpmsRpc
     # reason_ien  — REFUSAL REASON (#9999999.102) IEN; the routine reads the
     #   reason's SNOMED concept from that file (BGOREF.m:26-27). Valid IENs
     #   come from {reasons}.
-    # refusal_date defaults to today; provider defaults server-side to the
-    # signed-on DUZ (BGOUTL2.m:118).
+    # refusal_date defaults to the server's today (ServerClock, ORWU DT:
+    # REFSET2 files the date it is given and has no default of its own,
+    # BGOUTL2.m:89-90); provider defaults server-side to the signed-on DUZ
+    # (BGOUTL2.m:118).
     #
     # REFSET2 returns "" on success (BGOUTL2.m:126-129) — there is no saved
     # IEN in the reply, so :ien is always nil. Errors are -CODE^text
@@ -43,7 +46,7 @@ module RpmsRpc
         REFUSAL_TYPE,
         vaccine_ien.to_s,
         dfn.to_s,
-        fileman_date(refusal_date || Date.today),
+        fileman_date(refusal_date || ServerClock.today),
         narrative.to_s,
         provider_duz.to_s,
         reason_ien.to_s

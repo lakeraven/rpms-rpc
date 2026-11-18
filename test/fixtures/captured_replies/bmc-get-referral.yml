@@ -3,30 +3,69 @@
 ---
 rpc: BMC GET REFERRAL
 entry_point: GTRFBYID^BMCRPC1
-release_tag: bcer-9.0-20261109-d3adcff-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair)
-bound_context: BMCRPC
-captured_at: '2026-11-09T04:50:50Z'
-note: 'Reads only. Referral 1 is the minimal one the referral cancel live spec filed
-  (no referral number, .02), so LIST^DIC on the C index finds nothing, CRTMSG^BMCRPC4
-  builds no line and GTRFBYID+31 reads ^TMP($J,"PRNRC",1) undefined: the broker answers
-  that M error.'
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-17T03:29:23Z'
+note: 'Setup files referral 1 with no REFERRAL # (.02) and referral 2 with 9000000000002.
+  Called directly, GTRFBYID dies on referral 1 (LIST^DIC on the C index finds nothing,
+  CRTMSG^BMCRPC4 builds no line and GTRFBYID+31 reads ^TMP($J,"PRNRC",1) undefined)
+  and answers its message for an IEN not on file, which the broker reads as a global
+  name. The flows are what Referral.find sends for each case.'
 captures:
 - name: m_error
   inputs:
   - '1'
   context: 'referral 1, filed without a referral number: an M error inside GTRFBYID'
-  raw_return: "5\x011\rThe server has reported the following error:\r\rGTRFBYID+31^BMCRPC1,
-    Global variable undefined: ^TMP(386,150372994,-%YDB-E-GVUNDEF\r\rA detailed log
+  raw_return: "7\x011\rThe server has reported the following error:\r\rGTRFBYID+31^BMCRPC1,
+    Global variable undefined: ^TMP(347,150372994,-%YDB-E-GVUNDEF\r\rA detailed log
     of the error has been created.\r"
-  sha256: eda72b8cc10f7a4e4058cc738751e51b47233df96efec79cc0b3f58ea20e9972
+  sha256: bb75333a95131ae5f358235d5b8ec2087891b1b44ba1ea45a51deddfcd7bebac
 - name: no_such_referral
   inputs:
   - '999999999'
   context: 'an IEN no referral has: the routine''s message, not a record'
-  raw_return: "6\0\x011\rThe server has reported the following error:\r\rOUT+5^CIANBACT,
+  raw_return: "8\0\x011\rThe server has reported the following error:\r\rOUT+5^CIANBACT,
     Indirection string contains extra trailing characters,150373010,-%YDB-E-INDEXTRACHARS\r\rA
     detailed log of the error has been created.\r"
-  sha256: 0af0ae8f160c9d3933bb78b33560b8ad9569af4cd881de363896c7e0348743fc
+  sha256: 643dfd45a6e18287d6af13fcd0771e0bfc7661aa3dc5e9f2399197213ebb6607
+- name: find_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 999999999,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: Referral.find of an IEN no referral has
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: find_no_number/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: Referral.find of referral 1, which has no referral number
+  raw_return: "5\0[Data]\r90001^1^.01^3261116^\r90001^1^.02^^\r"
+  sha256: 2bf89b65fe235d7554ade5810e3940f75b4da2b13a5d25a4632038023df2ad6c
+- name: find_numbered/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 2,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: Referral.find of referral 2, filed with a referral number
+  raw_return: "5\0[Data]\r90001^2^.01^3261116^\r90001^2^.02^9000000000002^\r"
+  sha256: c8fee2ba34df421800ace9d78f50122815d04897f1a77cf7c4d92d21f7af9149
+- name: find_numbered/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '2'
+  context: Referral.find of referral 2, filed with a referral number
+  raw_return: "6\0~`2^NOV 16, 2026^9000000000002^990001^ALPHA,CASEY^^^<UNKNOWN>^^^^^DIRECT
+    ONLY^^^N^O^^^^^^^^^^^^^^^^^^^^^^<UNKNOWN>^^^^^^ACTIVE^^^~`D'~D~`M'~M~`B'~B~`C'~C"
+  sha256: '09818c6df2c52669404c51b612767f3c08ec87e29ece25fc835a1491216dbb9f'

@@ -5,19 +5,12 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/vital"
 
 class VitalTest < Minitest::Test
+  # When the measurements were taken. add without taken_at reads the
+  # server's clock (ORWU DT), which the live spec proves (rpms-rpc#741).
+  TAKEN = Time.new(2026, 5, 14, 9, 30, 15)
+
   def setup
     RpmsRpc.mock! do |m|
-      # Template: BEHOVM TEMPLATE — multi-line field metadata. TEMPLATE(DATA,
-      # DFN,VSTR,METRIC) (BEHOVM.m:57) takes the patient first, so the mock
-      # keys it by DFN (#259).
-      m.seed_keyed_collection(:vital_template, "8791", [
-        { ien: 3,  display_order: 3,  name: "TEMPERATURE",  abbreviation: "TMP", units: "F",     low: nil, high: nil, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 5,  display_order: 5,  name: "PULSE",        abbreviation: "PU",  units: "/min",  low: 60,  high: 100, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 4,  display_order: 4,  name: "BLOOD PRESSURE", abbreviation: "BP", units: "mmHg", low: 90,  high: 150, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 1,  display_order: 1,  name: "HEIGHT",       abbreviation: "HT",  units: "in",    low: nil, high: nil, percentile_rpc: "BEHOVM PCTILE", required: 1, display_row: 2 },
-        { ien: 2,  display_order: 2,  name: "WEIGHT",       abbreviation: "WT",  units: "lb",    low: nil, high: nil, percentile_rpc: "BEHOVM PCTILE", required: 1, display_row: 3 }
-      ])
-
       # Save: BEHOVM SAVE — "0" success per observed trace
       m.seed_scalar(:vital_save, "8791", "0")
       m.seed_scalar(:vital_save, "9999", "1^bad request")
@@ -36,20 +29,7 @@ class VitalTest < Minitest::Test
 
   VSTR = "349;3260514.09;A;2090059"
 
-  def test_template_returns_field_metadata_for_visit
-    fields = RpmsRpc::Vital.template(8791, VSTR)
-    assert_kind_of Array, fields
-    assert_equal 5, fields.length
-    tmp = fields.find { |f| f[:abbreviation] == "TMP" }
-    assert_equal "TEMPERATURE", tmp[:name]
-    bp = fields.find { |f| f[:abbreviation] == "BP" }
-    assert_equal 90,  bp[:low]
-    assert_equal 150, bp[:high]
-  end
-
-  def test_template_returns_empty_for_unknown_patient
-    assert_equal [], RpmsRpc::Vital.template(999999, VSTR)
-  end
+  # Template rows are proven against the build in test/live/vital_reads_live_test.rb.
 
   def test_template_returns_empty_without_a_visit_string_or_patient
     assert_equal [], RpmsRpc::Vital.template(8791, "")
@@ -67,7 +47,7 @@ class VitalTest < Minitest::Test
       { abbreviation: "PU",  value: 80,        units: "/min" },
       { abbreviation: "BP",  value: "130/90",  units: "mmHg" }
     ]
-    result = RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurements, provider_duz: 2843)
+    result = RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurements, provider_duz: 2843, taken_at: TAKEN)
     assert result[:success], "Expected success; got #{result.inspect}"
     assert_equal 3, result[:measurement_count]
     assert_equal "0", result[:raw].to_s
@@ -78,7 +58,7 @@ class VitalTest < Minitest::Test
       { abbreviation: "TMP", value: 97, units: "F" },
       { abbreviation: "PU",  value: 80, units: "/min" }
     ]
-    RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurements, provider_duz: 2843)
+    RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurements, provider_duz: 2843, taken_at: TAKEN)
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOVM SAVE" }
     refute_nil call, "Expected BEHOVM SAVE to fire"
@@ -101,15 +81,24 @@ class VitalTest < Minitest::Test
   end
 
   def test_add_returns_failure_when_save_returns_nonzero
-    result = RpmsRpc::Vital.add(9999, "v", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843)
+    result = RpmsRpc::Vital.add(9999, "v", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843, taken_at: TAKEN)
     refute result[:success]
     assert_equal "1^bad request", result[:raw]
   end
 
   # === build_save_payload (public for testability) ===
 
+  def test_build_save_payload_stamps_the_time_the_caller_gives
+    # 21:30 on Nov 15 at the site is already Nov 16 in UTC; the site's time is filed.
+    taken = Time.new(2026, 11, 15, 21, 30, 5, "-08:00")
+    payload = RpmsRpc::Vital.build_save_payload(8791, "v1", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843, taken_at: taken)
+
+    assert_equal "VST^DT^3261115.213005", payload[1]
+    assert_equal "VIT+^TMP^0^^97^2843^F^^3261115.213005^^", payload.last
+  end
+
   def test_build_save_payload_uses_provider_duz_in_vit_lines
-    payload = RpmsRpc::Vital.build_save_payload(8791, "v1", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843)
+    payload = RpmsRpc::Vital.build_save_payload(8791, "v1", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843, taken_at: TAKEN)
     assert payload.any? { |line| line.include?("^2843^") }, "VIT+ line should embed provider DUZ"
   end
 
@@ -143,7 +132,7 @@ class VitalTest < Minitest::Test
   def test_build_save_payload_raises_for_nil_provider_duz
     measurements = [ { abbreviation: "TMP", value: 97, units: "F" } ]
     assert_raises(ArgumentError) do
-      RpmsRpc::Vital.build_save_payload(8791, "v1", measurements, provider_duz: nil)
+      RpmsRpc::Vital.build_save_payload(8791, "v1", measurements, provider_duz: nil, taken_at: TAKEN)
     end
   end
 
@@ -151,7 +140,7 @@ class VitalTest < Minitest::Test
 
   def test_add_accepts_a_single_measurement_hash_without_flattening
     measurement = { abbreviation: "TMP", value: 97, units: "F" }
-    result = RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurement, provider_duz: 2843)
+    result = RpmsRpc::Vital.add(8791, "492;3260514.09;A;2090059", measurement, provider_duz: 2843, taken_at: TAKEN)
     assert result[:success]
     assert_equal 1, result[:measurement_count]
     # The VIT+ line must contain TMP / 97 / F, not Array(hash) pair tokens.

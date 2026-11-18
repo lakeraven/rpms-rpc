@@ -11,6 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/pov"
 require "rpms_rpc/api/procedure"
 require "rpms_rpc/api/site"
+require "rpms_rpc/server_clock"
 
 # The VueCentric-only RPCs bind their own option (ADR 0011, rpms-rpc#528):
 # each one's mapping declares CIAV VUECENTRIC, the only broker option the
@@ -19,15 +20,16 @@ require "rpms_rpc/api/site"
 # The spec signs on (CIA binds CIAV VUECENTRIC), reads with several of the
 # APIs that send those RPCs, then binds OR CPRS GUI CHART, which carries none
 # of them, and reads again. The broker refuses a kept RPC sent under that
-# option (checked first, so the spec can tell a bind from a pass-through).
+# option (checked first, so the spec can tell a bind from a pass-through),
+# except to a holder of XUPROGMODE, whom CANRUN^CIANBACT lets run any RPC.
 # Each read answers what it answered under the sign-on option, and the
 # session is left on OR CPRS GUI CHART afterwards.
 #
 # The first class reads only. The second files one immunization refusal
 # (BGOREF SET, which ImmunizationRefusal.record sends itself), so it runs only
-# against a disposable local container, and on a fresh one: a second refusal
-# for the same patient, vaccine and day files no new entry (observed on the
-# pinned build), as in empty_reply_writes_live_test.rb.
+# against a disposable local container. A second refusal for the same
+# patient, vaccine and day edits the first (REFSET2^BGOUTL2), so it is dated a
+# random past day, as in empty_reply_writes_live_test.rb.
 class VuecentricOnlyContextLiveTest < LiveSpec::Test
   OTHER_OPTION = "OR CPRS GUI CHART"
   DFN = 4 # DEMO,PATIENT ONE, the build's seeded patient
@@ -56,9 +58,16 @@ class VuecentricOnlyContextLiveTest < LiveSpec::Test
     empty = baseline.select { |_, v| v.nil? || (v.respond_to?(:empty?) && v.empty?) }.keys
     assert_empty empty, "these reads answered nothing under the sign-on option, so they prove no bind: #{empty.join(', ')}"
 
+    programmer = client.call_rpc("ORWU HASKEY", "XUPROGMODE").first.to_s.strip == "1"
     client.create_context(OTHER_OPTION)
-    assert_raises(RpmsRpc::Client::RpcRefusedError, "#{OTHER_OPTION} is expected to refuse BGOVCPT GET when sent bare") do
+    if programmer
+      # CANRUN^CIANBACT lets a holder of XUPROGMODE run any RPC under any
+      # option (CIANBACT.m:141), so the bare call answers: stock, not a bind.
       client.call_rpc("BGOVCPT GET", DFN.to_s)
+    else
+      assert_raises(RpmsRpc::Client::RpcRefusedError, "#{OTHER_OPTION} is expected to refuse BGOVCPT GET when sent bare") do
+        client.call_rpc("BGOVCPT GET", DFN.to_s)
+      end
     end
 
     reads.each do |name, read|
@@ -85,7 +94,8 @@ class VuecentricOnlyContextWriteLiveTest < LiveSpec::Test
 
     client.create_context(OTHER_OPTION)
     result = RpmsRpc::ImmunizationRefusal.record(REFUSAL_DFN, TETANUS_TOXOID, reason_ien: reason[:ien],
-                                                 narrative: "live spec")
+                                                 narrative: "live spec",
+                                                 refusal_date: RpmsRpc::ServerClock.today - rand(30..3000))
     assert result[:success], "record under #{OTHER_OPTION} answered #{result.inspect}"
     assert_equal OTHER_OPTION, client.current_context, "record left the session off #{OTHER_OPTION}"
 

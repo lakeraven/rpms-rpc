@@ -155,7 +155,7 @@ class ReferralTest < Minitest::Test
   # image the BMC* RPCs are listed in the RPC multiple of ONE file-19 option,
   # BMCRPC (22 entries: the 21 BMC names this module calls plus ORWDXIHS
   # CLININD), and in no other — not CIAV VUECENTRIC, not OR CPRS GUI CHART.
-  # So every call here must run under BMCRPC
+  # So every BMC call here must run under BMCRPC
   # and hand the caller's option back afterward, the way RpmsRpc::Agg does
   # for AGGRPC.
 
@@ -204,6 +204,10 @@ class ReferralTest < Minitest::Test
       calls = mock.received_calls
       refute_empty calls, "#{method} made no RPC call"
       calls.each do |call|
+        # find's pre-check reads the entry with the stock FileMan RPC, which
+        # BMCRPC does not list, under the caller's option (#767).
+        next assert_equal(caller_context, call[:context]) if method == :find && call[:rpc] == "DDR GETS ENTRY DATA"
+
         assert_equal "BMCRPC", call[:context],
           "#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the BMC* RPCs " \
           "are registered under BMCRPC only, so it is denied there"

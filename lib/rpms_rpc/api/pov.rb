@@ -6,7 +6,8 @@ require_relative "../shape"
 module RpmsRpc
   # Symbolic API for visit purpose-of-visit (POV) entry — visit-level diagnosis
   # codes with optional modifiers (primary/secondary, injury cause, etc.).
-  # Underlying RPC: BGOVPOV SET (SET^BGOVPOV — BGOVPOV.m:291).
+  # Underlying RPCs: BGOVPOV RECENT, BGOVPOV GET (GET^BGOVPOV — BGOVPOV.m:106),
+  # BGOVPOV SET (SET^BGOVPOV — BGOVPOV.m:291).
   module Pov
     extend self
     extend Shape::Declarable
@@ -21,6 +22,31 @@ module RpmsRpc
       DataMapper.patient_pov_list.fetch_many(dfn.to_s)
     end
     shape :for_patient, resource: "purposes-of-visit", verb: "GET", path: "/patients/{dfn}/purposes-of-visit"
+
+    # The diagnoses on one visit, with what BGOVPOV RECENT leaves out:
+    # episodicity, modifier, stage, injury, primary or secondary, provider,
+    # qualifiers, the problem it was recorded against and laterality.
+    # Underlying RPC: BGOVPOV GET (GET^BGOVPOV, FORMAT 0, the detailed row).
+    #
+    #   for_visit(visit_ien) => [{ ien:, visit_date:, facility_code:, facility:,
+    #                              icd_code:, episodicity:, narrative:, modifier:,
+    #                              onset_date:, stage:, revisit:, cause:,
+    #                              injury_date:, external_cause:, place_of_injury:,
+    #                              primary_or_secondary:, provider_name:, visit_ien:,
+    #                              visit_locked:, asthma_control:, snomed_ct:,
+    #                              provider_text:, qualifiers:, problem_ien:,
+    #                              e_code:, icd_name:, icd_ien:, normal_abnormal:,
+    #                              laterality: }, ...]
+    #
+    # ien is the V POV (#9000010.07) IEN; the dates are Dates; qualifiers
+    # and laterality are the "|"-joined pieces as sent. A -n^text reply
+    # raises Client::RpcError.
+    def for_visit(visit_ien)
+      return [] if invalid_id?(visit_ien)
+
+      DataMapper.visit_povs.fetch_many!("#{visit_ien}^^")
+    end
+    shape :for_visit, resource: "purposes-of-visit", verb: "GET", path: "/visits/{visit_ien}/purposes-of-visit"
 
     # Add a POV to an open visit.
     #

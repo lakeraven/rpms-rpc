@@ -5,6 +5,7 @@ require_relative "agg"
 require_relative "../shape"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
+require_relative "../server_clock"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -35,10 +36,11 @@ module RpmsRpc
   #   under it, a status on a date (.01, .02).
   # - Each screen ends with UPDATE1^AGED(DUZ(2),DFN,3,""), which stamps IHS
   #   PATIENT (#9000001) .03 DATE OF LAST REG. UPDATE and .16 DATE OF LAST
-  #   UPDATE with today and .12 USER-LAST UPDATE with DUZ. This module files
-  #   those three in the same call. UPDATE1 also sets ^AGPATCH(now,site,dfn),
-  #   AG's list of patients edited, which is not a FileMan file: that is the
-  #   one part not done, and it is said so here.
+  #   UPDATE with today (DT, the server's date) and .12 USER-LAST UPDATE with
+  #   DUZ. This module files those three in the same call. UPDATE1 also
+  #   sets ^AGPATCH(now,site,dfn), AG's list of patients edited, which is
+  #   not a FileMan file: that is the one part not done, and it is said so
+  #   here.
   # - EDAPPDT: "DELETING APPLICATIONS DATA IS PROHIBITED!": an application
   #   recorded by mistake gets the status E ENTERED IN ERROR. This module
   #   deletes nothing.
@@ -46,6 +48,10 @@ module RpmsRpc
   # Each write is one DDR FILER ADD (UPDATE^DIE, internal values), which
   # also files fields of existing entries, so a write lands whole or not at
   # all. Every DDR call binds CIAV VUECENTRIC (as Registration's do).
+  #
+  # "Today" is the server's (ServerClock, ORWU DT "NOW", read once per
+  # write), as FileMan's -DT check and UPDATE1's stamp use DT: this
+  # process's clock may be in another day (rpms-rpc#741).
   module PatientApplication
     extend self
     extend Shape::Declarable
@@ -125,7 +131,8 @@ module RpmsRpc
     # set, a reason outside 3-45 characters or with "^", via or reason
     # without submitted:. An application already on file on that date (and
     # case) is :exists, with its ien: AG's lookup would select it to edit.
-    # A failed read is :lookup_failed and files nothing.
+    # A failed read is :lookup_failed and files nothing. "The future" is
+    # after the server's today (one ORWU DT, sent after the other checks).
     #
     # Returns { success: true, application: ien, submission: ien or nil },
     # a failure hash, or nil when DDR FILER gave no reply (outcome unknown).
@@ -139,11 +146,14 @@ module RpmsRpc
                           case_ien: case_ien)
       return refusal if refusal
 
+      today = ServerClock.today
+      return invalid("the date obtained cannot be in the future") if obtained > today
+
       Agg.editing(dfn: id) do
         in_context do
           file_new_application(id, obtained: obtained, type: type, status: status, received_by: received_by,
                                     submitted: submitted, via: via, reason: reason&.strip,
-                                    submitted_by: submitted_by, case_ien: case_ien)
+                                    submitted_by: submitted_by, case_ien: case_ien, today: today)
         end
       end
     end
@@ -156,17 +166,19 @@ module RpmsRpc
     # IN ERROR is how AG retires an application; nothing is deleted. One DDR
     # FILER ADD with the UPDATE1^AGED stamp, inside Agg.editing, after the
     # application is read (missing: :not_found; failed read: :lookup_failed).
+    # date defaults to the server's today (ORWU DT).
     #
     # Returns { success: true, dated: true/false } (dated: whether a status
     # date was filed), a failure hash, or nil when DDR FILER gave no reply.
-    def update_status(dfn, application:, status:, date: Date.today)
+    def update_status(dfn, application:, status:, date: nil)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
       return invalid("application must be a positive integer") unless positive_integer?(application)
       return invalid("status must be one of #{OVERALL_STATUSES.keys.join(', ')}") unless OVERALL_STATUSES.key?(status)
-      return invalid("date must be a Date") unless date.instance_of?(Date)
+      return invalid("date must be a Date") unless date.nil? || date.instance_of?(Date)
 
-      Agg.editing(dfn: id) { in_context { file_status(id, application, status, date) } }
+      today = ServerClock.today
+      Agg.editing(dfn: id) { in_context { file_status(id, application, status, date || today, today) } }
     end
     shape :update_status, resource: "patient-applications", verb: "PUT",
           path: "/patients/{dfn}/patient-applications/status"
@@ -175,7 +187,6 @@ module RpmsRpc
 
     def check_add(obtained:, type:, status:, received_by:, submitted:, via:, reason:, submitted_by:, case_ien:)
       return invalid("obtained must be a Date") unless obtained.instance_of?(Date)
-      return invalid("the date obtained cannot be in the future") if obtained > Date.today
       return invalid("type must be a positive integer") unless positive_integer?(type)
       return invalid("status must be one of #{OVERALL_STATUSES.keys.join(', ')}") unless OVERALL_STATUSES.key?(status)
       return invalid("submitted must be a Date") unless submitted.nil? || submitted.instance_of?(Date)
@@ -196,7 +207,7 @@ module RpmsRpc
     end
 
     def file_new_application(id, obtained:, type:, status:, received_by:, submitted:, via:, reason:, submitted_by:,
-                             case_ien:)
+                             case_ien:, today:)
       type_read = DdrFileman.gets_entry(file: TYPE_FILE, iens: "#{type},", fields: ".01", flags: "I")
       return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{TYPE_FILE}") if type_read.nil?
       return invalid("application type #{type} is not on file") if type_read[:error] || type_read[:fields].empty?
@@ -232,7 +243,7 @@ module RpmsRpc
         rows << row(SUBMISSION_FILE, ".03", sub, reason) if reason
         rows << row(SUBMISSION_FILE, ".04", sub, submitted_by) if submitted_by
       end
-      stamp = stamp_rows(id)
+      stamp = stamp_rows(id, today)
       return stamp if stamp.is_a?(Hash)
 
       filed = DdrFileman.filer(mode: "ADD", rows: rows + stamp)
@@ -242,7 +253,7 @@ module RpmsRpc
       { success: true, application: filed[:iens][2].to_i, submission: (submitted ? filed[:iens][3].to_i : nil) }
     end
 
-    def file_status(id, application, status, date)
+    def file_status(id, application, status, date, today)
       header = header_ien(id)
       return header if header.is_a?(Hash)
       return not_found("the patient has no applications") unless header
@@ -263,7 +274,7 @@ module RpmsRpc
         rows << row(STATUS_FILE, ".01", node, fm(date))
         rows << row(STATUS_FILE, ".02", node, status)
       end
-      stamp = stamp_rows(id)
+      stamp = stamp_rows(id, today)
       return stamp if stamp.is_a?(Hash)
 
       filed = DdrFileman.filer(mode: "ADD", rows: rows + stamp)
@@ -273,14 +284,15 @@ module RpmsRpc
       { success: true, dated: dated }
     end
 
-    # UPDATE1^AGED's FileMan part: #9000001 .03 and .16 today, .12 DUZ.
-    def stamp_rows(id)
+    # UPDATE1^AGED's FileMan part: #9000001 .03 and .16 the server's today
+    # (DT), .12 DUZ.
+    def stamp_rows(id, today)
       duz = signed_on_duz
       return invalid("a signed-on DUZ is required") unless duz
 
-      today = fm(Date.today)
-      [ row(PATIENT_FILE, ".03", "#{id},", today), row(PATIENT_FILE, ".12", "#{id},", duz),
-        row(PATIENT_FILE, ".16", "#{id},", today) ]
+      day = fm(today)
+      [ row(PATIENT_FILE, ".03", "#{id},", day), row(PATIENT_FILE, ".12", "#{id},", duz),
+        row(PATIENT_FILE, ".16", "#{id},", day) ]
     end
 
     # The patient's #9000045 entry, as AGEDBEB finds it ($O(^AUPNAPPS("B",DFN,""))):

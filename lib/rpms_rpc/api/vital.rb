@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../server_clock"
 
 module RpmsRpc
   module Vital
@@ -41,12 +42,78 @@ module RpmsRpc
     # $G(METRIC,-1) and normalised to -1 / 0 / 1 (QUERY^BEHOVM:
     # BEHOVM.m:95): -1 each vital's own default units, 0 US, 1 metric.
     # A location-only frame died in M on VSTR (#259).
+    #
+    # The reply is what GRID^BEHOVM builds: node 0 is a count header
+    # "<vitals>^<dates>^<results>" (BEHOVM.m:45), the vital rows follow
+    # (node 0,n, merged from VLIST), then the visit's date and result rows
+    # (GRIDX, BEHOVM.m:48-54). Only the <vitals> rows after the header are
+    # template rows. Read whole, the header parsed as a vital whose IEN was
+    # the count.
     def template(dfn, visit_string, metric: -1)
       return [] if invalid_id?(dfn) || visit_string.to_s.strip.empty?
 
-      DataMapper.vital_template.fetch_many(dfn.to_s, visit_string.to_s, metric.to_i.to_s) || []
+      mapping = DataMapper.vital_template
+      lines = mapping.fetch_text(dfn.to_s, visit_string.to_s, metric.to_i.to_s).to_s.split(/\r?\n/)
+      count = lines.first.to_s.split("^").first.to_i
+      mapping.parse_many(lines[1, count] || [])
     end
     shape :template, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/template"
+
+    # The patient's latest measurement of each vital type on the site's
+    # BEHOVM VITAL LIST, as VueCentric's vitals cover sheet lists them.
+    # Underlying RPC: BEHOVM LIST (LIST^BEHOVM, BEHOVM.m:6, RMAX 1).
+    #
+    #   latest_by_type(dfn, start_date: nil, end_date: nil)
+    #   => [{ measurement_ien:, name:, abbreviation:, taken_at:, value:, alternate_value:, qualifiers: }, ...]
+    #
+    # value is the reading with its units ("142/88 mmHg") in the vital's
+    # default units, and alternate_value the same reading in the other
+    # system when it differs (LISTX writes both, whatever METRIC says)
+    # ("97.069 kg"); qualifiers as the routine joins them. measurement_ien is
+    # the V MEASUREMENT (#9000010.01) IEN. The range defaults to all history
+    # up to today (QUERY^BEHOVM). A -N^text reply raises Client::RpcError.
+    def latest_by_type(dfn, start_date: nil, end_date: nil)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.vital_latest_by_type.lines!(dfn.to_s, fileman(start_date), fileman(end_date), "", "", "", "", "").map do |line|
+        ien, name, abbreviation, taken, value, alternate, qualifiers = line.split("^", -1)
+        raise Client::RpcError, "BEHOVM LIST answered #{line.inspect}, not a vital row" unless ien.to_s.match?(/\A[1-9]\d*\z/)
+
+        { measurement_ien: ien.to_i, name: name, abbreviation: abbreviation,
+          taken_at: FilemanDateParser.parse_datetime_or_date(taken.to_s), value: value.to_s.strip,
+          alternate_value: alternate.to_s.strip.empty? ? nil : alternate.strip,
+          qualifiers: qualifiers.to_s.strip.empty? ? nil : qualifiers.strip }
+      end
+    end
+    shape :latest_by_type, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/latest-by-type"
+
+    # The patient's vitals over a range as VueCentric's vitals grid shows
+    # them: the vital types (columns) and every measurement in range.
+    # Underlying RPC: BEHOVM GRID (GRID^BEHOVM, BEHOVM.m:40).
+    #
+    #   grid(dfn, start_date: nil, end_date: nil, max_per_type: nil, metric: -1)
+    #   => { vitals: [{ control_ien:, type_ien:, name:, abbreviation:, units:, low:, high:,
+    #                   percentile_rpc:, has_qualifiers: }, ...],
+    #        results: [{ abbreviation:, taken_at:, value:, flag:, measurement_ien:, qualifiers: }, ...] }
+    #
+    # GRID writes a count header VITALS^DATES^RESULTS, the vital rows
+    # (VCTL^VTYP^NAME^ABBR^UNITS^LOW^HIGH^PCTILE RPC^HAS QUALIFIERS^SD), a
+    # row per date (N^DATE), then the result rows (DATE N^VITAL N^VALUE^
+    # FLAG^VIEN^QUALIFIERS). Each result is resolved to its vital's
+    # abbreviation and its date. flag is :low or :high against the vital's
+    # range (FLAG^BEHOVM), else nil. max_per_type caps the results per vital
+    # (blank is the BEHOVM MAX RETURN parameter). A reply whose counts do
+    # not match its rows raises Client::RpcError.
+    def grid(dfn, start_date: nil, end_date: nil, max_per_type: nil, metric: -1)
+      return { vitals: [], results: [] } if invalid_id?(dfn)
+
+      lines = DataMapper.vital_grid.lines!(dfn.to_s, fileman(start_date), fileman(end_date), max_per_type.to_s,
+                                           "", "", metric.to_i.to_s, "", "", "")
+      return { vitals: [], results: [] } if lines.empty?
+
+      read_grid(lines)
+    end
+    shape :grid, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/grid"
 
     # Pre-save validation of a set of measurements: BEHOVM VALIDATE for each
     # one, nothing filed.
@@ -104,7 +171,12 @@ module RpmsRpc
     # A caller that needs the IEN of a specific measurement should read the
     # visit instead: `RpmsRpc::Measurement.for_visit(visit_ien)` returns
     # every V MEASUREMENT on that visit with its IEN.
-    def add(dfn, visit_string, measurements, provider_duz:)
+    #
+    # taken_at is when the measurements were taken, as the site's wall-clock
+    # Time (the caller's RPMS clock, not this process's); it is filed as each
+    # measurement's date/time. Omitted, it is now on the server's clock
+    # (ServerClock, ORWU DT "NOW"), not this process's (rpms-rpc#741).
+    def add(dfn, visit_string, measurements, provider_duz:, taken_at: nil)
       # provider_duz is required regardless of measurement count — checking
       # before the empty-list early return so add(..., [], provider_duz: nil)
       # also fails fast on the contract violation.
@@ -113,7 +185,8 @@ module RpmsRpc
       measurements = coerce_measurements(measurements)
       return { success: false, measurement_count: 0, raw: "EMPTY", payload: [] } if measurements.empty?
 
-      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz)
+      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz,
+                                                                    taken_at: taken_at || ServerClock.now)
       raw = DataMapper.vital_save.fetch_scalar(dfn.to_s, payload)
 
       {
@@ -129,10 +202,12 @@ module RpmsRpc
     # lines: HDR (visit string), VST (date/patient), and one VIT+ per measurement.
     # Public for testability; callers should normally go through .add.
     # provider_duz is required (matches .add); raises ArgumentError when nil.
-    def build_save_payload(dfn, visit_string, measurements, provider_duz:)
+    # taken_at is required here (.add supplies the server's now when its
+    # caller gives none), so building a payload sends no RPC.
+    def build_save_payload(dfn, visit_string, measurements, provider_duz:, taken_at:)
       raise ArgumentError, "provider_duz is required (got nil)" if provider_duz.nil?
 
-      now = FilemanDateParser.format_datetime(Time.now, seconds: true)
+      now = FilemanDateParser.format_datetime(taken_at, seconds: true)
       duz = provider_duz.to_s
       payload = [ "HDR^^^#{visit_string}" ]
       payload << "VST^DT^#{now}"
@@ -145,6 +220,40 @@ module RpmsRpc
     end
 
     private
+
+    GRID_FLAGS = { "L" => :low, "H" => :high }.freeze
+
+    def read_grid(lines)
+      vital_count, date_count, result_count = lines.first.split("^").map { |n| Integer(n, exception: false) }
+      body = lines.drop(1)
+      unless vital_count && date_count && result_count && body.size >= vital_count + date_count + result_count
+        raise Client::RpcError, "BEHOVM GRID answered header #{lines.first.inspect} over #{body.size} rows"
+      end
+
+      vitals = body.first(vital_count).map { |line| grid_vital(line.split("^", -1)) }
+      dates = body[vital_count, date_count].to_h do |line|
+        n, date = line.split("^", 2)
+        [ n.to_i, FilemanDateParser.parse_datetime_or_date(date.to_s) ]
+      end
+      results = body.last(result_count).map { |line| grid_result(line.split("^", -1), vitals, dates) }
+      { vitals: vitals, results: results }
+    end
+
+    def grid_vital(pieces)
+      control, type, name, abbreviation, units, low, high, percentile, qualifiers = pieces
+      { control_ien: control.to_i, type_ien: type.to_i, name: name, abbreviation: abbreviation,
+        units: units.to_s.empty? ? nil : units, low: low.to_s.empty? ? nil : low, high: high.to_s.empty? ? nil : high,
+        percentile_rpc: percentile.to_s.empty? ? nil : percentile, has_qualifiers: qualifiers == "1" }
+    end
+
+    def grid_result(pieces, vitals, dates)
+      date_n, vital_n, value, flag, vien, qualifiers = pieces
+      vital = vitals[vital_n.to_i - 1]
+      raise Client::RpcError, "BEHOVM GRID result #{pieces.join('^').inspect} names no listed vital or date" unless vital && dates.key?(date_n.to_i)
+
+      { abbreviation: vital[:abbreviation], taken_at: dates[date_n.to_i], value: value.to_s.strip,
+        flag: GRID_FLAGS[flag.to_s], measurement_ien: vien.to_i, qualifiers: qualifiers.to_s.empty? ? nil : qualifiers }
+    end
 
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0

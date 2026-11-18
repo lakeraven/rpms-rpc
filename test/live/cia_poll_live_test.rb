@@ -3,9 +3,18 @@
 require_relative "live_helper"
 
 # CiaClient#poll and Authentication.timed_read on a real broker: the {CIA} poll action keeps a signed-on
-# session open past the listener's idle cut (about 45 s), and a session that
-# sends nothing for longer is closed. Read-only: polls change nothing in RPMS.
+# session open past the listener's idle cut, and a session that sends nothing
+# for longer is closed. Read-only: polls change nothing in RPMS.
+#
+# The idle cut differs by engine (rpms-rpc#707): stock CIANBLIS ends a session
+# after 11 empty 10 s header reads, about 110 s (IRIS); the YottaDB image's own
+# listener ends it at 60 s. These specs wait past the longer, so they hold on both.
 class CiaPollLiveTest < LiveSpec::Test
+  # Stock CIANBLIS: CIARETRY gains .5 per empty $$TCPREAD(8,10) and the session
+  # ends when CIARETRY>5, so about 110 s; plus margin.
+  IDLE_CUT = 120
+  POLL_EVERY = 20
+
   def test_poll_returns_rpms_polling_interval_and_its_clock
     result = client.poll
 
@@ -22,16 +31,17 @@ class CiaPollLiveTest < LiveSpec::Test
   end
 
   def test_a_polled_session_still_answers_after_the_idle_cut
-    4.times do
-      sleep 20
+    polls = (IDLE_CUT / POLL_EVERY) + 1
+    polls.times do
+      sleep POLL_EVERY
       client.poll
     end
 
-    assert client.call_rpc("ORWU USERINFO"), "polled every 20 s for 80 s, the session still answers"
+    assert client.call_rpc("ORWU USERINFO"), "polled every #{POLL_EVERY} s for #{polls * POLL_EVERY} s, the session still answers"
   end
 
   def test_a_session_that_sends_nothing_is_closed_by_the_broker
-    sleep 70
+    sleep IDLE_CUT
 
     assert_raises(RpmsRpc::Client::ConnectionError) { client.call_rpc("ORWU USERINFO") }
   end

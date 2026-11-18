@@ -15,10 +15,13 @@ require_relative "../captured_replies"
 # Each replay test runs one recorded flow (test/fixtures/captured_replies/
 # registration-bprm418.yml): the gem run as PROFILE,REG (DUZ 207) on seed
 # patient DFN 990042 on the pinned build, with every reply it got, in order.
-# The gem dates DATE ENTERED rows with the client's today, so where a
-# recorded frame carries the capture's day, the replay expects today in its
-# place; every other piece of each frame must be exactly what the gem sent
-# the build. The round trips, read back from the files, are proven by
+# The gem dates DATE ENTERED rows with the server's today, which it reads
+# with ORWU DT "NOW" (rpms-rpc#741); the replay answers that with the build's
+# own captured reply (orwu-dt.yml "now", 3261109). The flows were recorded
+# before that read existed, by a gem that used the capture host's day, so
+# where a recorded frame carries that day the replay expects the server's in
+# its place; every other piece of each frame must be exactly what the gem
+# sent the build. The round trips, read back from the files, are proven by
 # test/live/registration_bprm418_live_test.rb, including the eligibility
 # cascade of set_sex, which no seed patient here has rows for.
 class RegistrationBprm418Test < Minitest::Test
@@ -40,6 +43,10 @@ class RegistrationBprm418Test < Minitest::Test
                    .find { |row| row.start_with?("9000001.9201^3^") }.split("^").last
   )
 
+  # The build's ORWU DT "NOW" reply, and the server's day in it.
+  SERVER_NOW = CapturedReplies.raw("orwu-dt", "now")
+  SERVER_DAY = FM.parse_date(SERVER_NOW.split("\0").last)
+
   def teardown
     RpmsRpc.reset!
   end
@@ -47,14 +54,16 @@ class RegistrationBprm418Test < Minitest::Test
   def replay(flow = nil)
     @flow = flow
     script = flow ? CapturedReplies.flow_script(SLUG, flow) : {}
+    script["ORWU DT"] = Array.new(3) { SERVER_NOW }
     @client = CapturedReplies::ReplayCiaClient.new(script).signed_on_as(DUZ)
     RpmsRpc.configure { |cfg| cfg.client = @client }
     @client
   end
 
-  def today = FM.to_fileman(Date.today)
+  def today = FM.to_fileman(SERVER_DAY)
 
-  # A recorded value with the capture's day in it, as the gem builds it today.
+  # A recorded value with the capture host's day in it, as the gem builds it
+  # now: with the server's day.
   def as_of_today(value)
     case value
     when String then value.gsub(FM.to_fileman(CAPTURE_DAY), today)
@@ -69,9 +78,11 @@ class RegistrationBprm418Test < Minitest::Test
   def filer_calls = sent.select { |rpc, _| rpc == "DDR FILER" }
   def filer_rows(index = 0) = filer_calls.fetch(index).last[1].values
 
-  # The gem sent exactly the calls of the flow it replays, frame for frame.
+  # The gem sent exactly the calls of the flow it replays, frame for frame,
+  # besides its reads of the server's clock (each ORWU DT "NOW").
   def assert_sends_the_recorded_flow
-    assert_equal as_of_today(CapturedReplies.flow_calls(SLUG, @flow)), sent
+    assert_equal as_of_today(CapturedReplies.flow_calls(SLUG, @flow)), sent.reject { |rpc, _| rpc == "ORWU DT" }
+    sent.select { |rpc, _| rpc == "ORWU DT" }.each { |call| assert_equal [ "ORWU DT", [ "NOW", "TS" ] ], call }
   end
 
   def assert_refused(result, error)
