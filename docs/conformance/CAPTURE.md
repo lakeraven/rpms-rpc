@@ -5,6 +5,8 @@ rpms-rpc is tested against the RPC signature of the latest published openrpms Yo
 reference if its bytes trace to a real, artifact-bound capture of that build. openrpms produces that
 capture as a build output; this repo fetches it when the tests run. Nothing is pinned or committed per
 release, and nothing here boots an engine.
+Which pin lives where, across openrpms, rpms-rpc, lakeraven-ehr and cloud-rpms, is stated once, in openrpms
+[docs/PINS.md](https://github.com/lakeraven/openrpms/blob/main/docs/PINS.md).
 
 ## The contract
 

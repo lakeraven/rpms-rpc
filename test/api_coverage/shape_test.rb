@@ -4,15 +4,15 @@ require "minitest/autorun"
 require "json"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
-require_relative "../../tools/openapi/rpcs_pin"
+require_relative "../rpms_rpc/release_under_test"
 require_relative "../../tools/openapi/client_api"
 
 # Issue #389: declared resource/verb/path per public API method; rpc:api_coverage reports shape.
 class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
-  # The catalog is the OpenAPI client API, which is built on the surface of data/openapi/rpcs.lock.yml.
-  def self.openapi_surface = (@openapi_surface ||= OpenApi::RpcsPin.verify(ROOT)[:surface])
-  def openapi_surface = self.class.openapi_surface
+  # The catalog is the OpenAPI client API, which is built on the surface of the release under test
+  # (rake openrpms:fetch); with OPENRPMS_OFFLINE=1 the tests that read it skip, saying so.
+  def openapi_surface = ReleaseUnderTest.surface(self)
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
   WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
