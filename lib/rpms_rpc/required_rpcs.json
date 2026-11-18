@@ -1143,20 +1143,26 @@
       "methods": {
         "RpmsRpc::Phr.referrals_for_visits": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/phr.yml"
+      ]
     },
     "BEHOCCD PHR": {
       "methods": {
         "RpmsRpc::Phr.enrollment_status": "read",
         "RpmsRpc::Phr.has_access?": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/phr.yml"
+      ]
     },
     "BEHOCIR GETNUM": {
       "methods": {
         "RpmsRpc::Phr.counts": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/phr.yml"
+      ]
     },
     "BEHOCIR1 GETCCDS": {
       "methods": {
