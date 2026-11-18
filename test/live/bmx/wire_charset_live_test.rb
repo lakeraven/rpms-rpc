@@ -8,6 +8,7 @@ require_relative "../live_helper"
 # Needs the BMXRPC context. Reads only.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxWireCharsetLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   broker :bmx
 
   FIXTURES = File.expand_path("../../fixtures/wire_charset", __dir__)

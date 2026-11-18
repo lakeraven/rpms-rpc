@@ -16,6 +16,7 @@ require "rpms_rpc/api/authentication"
 # on a few role-policy names from SecurityKeys::REGISTRY so a refusal is not
 # read as "holds none".
 class HeldKeysLiveTest < LiveSpec::Test
+  runs_as "PROV123", "PMD123", "PREG123", "PSCH123", "SYS123"
   CONTEXT = "CIAV VUECENTRIC"
   UNHELD = "LIVESPEC NO SUCH KEY"
 

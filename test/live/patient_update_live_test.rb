@@ -18,6 +18,7 @@ require "rpms_rpc/api/ddr_fileman"
 # it is not asserted. UPD writes no ^AGPATCH stamp (only roll-and-scroll AG
 # does, AGMAN.m:28), so none is asserted (rpms-rpc#381).
 class PatientUpdateLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   DFN = 990_031 # EMBER,AVERY, a synthetic seed patient

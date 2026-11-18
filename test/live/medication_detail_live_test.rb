@@ -12,6 +12,7 @@ require "rpms_rpc/api/medication"
 # the patient does not have, and the build answers DETAIL's own "not found"
 # text. That proves the frame, not the detail lines of a real medication.
 class MedicationDetailLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   DFN = 4 # DEMO,PATIENT ONE on the pinned build
 

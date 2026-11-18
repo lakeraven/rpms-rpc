@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # Read only: GETS^DIQ reads; nothing is filed.
 class DdrGetsEntryXwbLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   broker :xwb
 
   CONTEXT = "CIAV VUECENTRIC"

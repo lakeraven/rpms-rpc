@@ -14,6 +14,7 @@ require "rpms_rpc/api/coverage"
 #
 # Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
 class CoverageOnFileLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   DFN = 990_049 # ZEPHYR,QUINN on the pinned build; unused by other live specs

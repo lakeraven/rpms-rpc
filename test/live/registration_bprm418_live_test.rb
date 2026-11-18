@@ -7,6 +7,7 @@ require "rpms_rpc/api/ddr_fileman"
 # rpms-rpc#418 registration rows on a disposable build: SOGI, MBI, and sex writes
 # through Registration, read back through DDR.
 class RegistrationBprm418LiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   DFN = 990_043

@@ -12,6 +12,7 @@ require "rpms_rpc/fileman_date_parser"
 # (GMRAGUI1.m UPDATE), not on #120.8. It WRITES against a disposable local
 # container only.
 class AllergyWriteLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   # Isolated synthetic patient (not DFN 8 wire-capture input, not ADD_DFN).

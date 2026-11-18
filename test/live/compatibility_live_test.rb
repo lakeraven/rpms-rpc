@@ -15,6 +15,7 @@ require "rpms_rpc/compatibility"
 #
 # Read only: DDR LISTER lists #8994; nothing is filed.
 class CompatibilityLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   # Registered on no pinned registry (#207); the gem no longer sends it.
   UNREGISTERED_RPC = "ORWU USERKEYS"
   SERVED_RPC = "ORWPT SELECT"

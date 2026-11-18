@@ -18,6 +18,7 @@ require "rpms_rpc/api/eligibility"
 #
 # The demo patients are DFN 3, 990001 and 990027.
 class EligibilityLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   DEMO_DFNS = %w[3 990001 990027].freeze
 

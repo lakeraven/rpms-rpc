@@ -25,6 +25,7 @@ module SignonDivisionLive
 end
 
 class SignonDivisionLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   include SignonDivisionLive
 
   # The harness signed on with no division named: the session acts in the
@@ -40,6 +41,7 @@ class SignonDivisionLiveTest < LiveSpec::Test
 end
 
 class SignonDivisionChoiceLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   include SignonDivisionLive
   connect_only!
 

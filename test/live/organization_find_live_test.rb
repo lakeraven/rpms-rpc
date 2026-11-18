@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 # at (#40.8 field .07: the facility, which carries an address) and against
 # the first entries of #4, so it holds on any build with a division.
 class OrganizationFindLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
 
   def test_find_returns_the_institution_each_division_points_at

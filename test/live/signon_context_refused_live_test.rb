@@ -8,6 +8,7 @@ require_relative "live_helper"
 # PROFILE,BILL is that user on the build: a terminal user, the one SEEDPERS
 # persona without CIAV VUECENTRIC. Sign-on still fails closed.
 class SignonContextRefusedLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   connect_only!
 
   TERMINAL_ONLY = [ "PBIL123", "PBIL123!!" ].freeze

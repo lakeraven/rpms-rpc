@@ -16,6 +16,7 @@ require "rpms_rpc/api/dg_sensitive"
 # ACCESS may write a DG SECURITY LOG entry (DGSEC4.m:65), so the spec is
 # declared as writing.
 class ChartTabReadsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 4 # DEMO,PATIENT ONE on the pinned build, an outpatient
@@ -90,10 +91,17 @@ class ChartTabReadsLiveTest < LiveSpec::Test
     itself = RpmsRpc::DdrFileman.validate_key(values: [ { file: KEY_FILE, iens: "#{entry[:ien]},", field: ".01", value: name } ])
     assert_equal({ valid: true, error: nil }, itself, "the entry does not collide with itself")
   end
+end
 
-  # PTSEC^DGSEC4 answers 0 (access granted, no warning) for a patient whose
-  # record is not sensitive. The demo build has no sensitive record.
+# PTSEC^DGSEC4 answers 0 (access granted, no warning) for a patient whose
+# record is not sensitive. The demo build has no sensitive record. No demo
+# persona may run DG SENSITIVE RECORD ACCESS on bcer-9.0-20261116-2a9b3fe-ydb, so the
+# operator runs it until a release gives the clinician the option (#814).
+class ChartTabSensitiveRecordLiveTest < LiveSpec::Test
+  runs_as "SYS123"
+  writes!
+
   def test_sensitive_record_access_to_a_record_that_is_not_sensitive
-    assert_equal({ result: 0, messages: [] }, RpmsRpc::DgSensitive.check_access(dfn: DFN))
+    assert_equal({ result: 0, messages: [] }, RpmsRpc::DgSensitive.check_access(dfn: ChartTabReadsLiveTest::DFN))
   end
 end

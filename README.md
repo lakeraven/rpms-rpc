@@ -537,7 +537,7 @@ rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line p
   An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
 - **Registered:** each RPC is looked up on the pinned #8994 registry named in `data/rpc_coverage/config.yml`, with its entry point `TAG^ROUTINE`.
 - **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`, including a call through a constant the file assigns a module (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.groups`) or a parameterless one-line helper that returns one (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.save_access_type`).
-  The harness runs every live spec as the persona the run names, and a spec cannot declare its own, so a proven method runs as both the least-privilege and the programmer persona.
+  Each live spec runs as the persona whose role it proves (`runs_as`, see Live personas), so a proven method is proven as that persona.
 - **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
   This is static: whether the spec passes is `rake test:live`'s answer, per persona.
 
@@ -680,7 +680,8 @@ The test suite is hermetic — no sockets, no live RPMS.
 
 ### Test results, quickly
 
-`bundle exec rake report:daily` runs the hermetic suite, then the live specs once per persona, prints a summary, and writes one markdown file. It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
+`bundle exec rake report:daily` runs the hermetic suite, then the live specs as PROV123 and as SYS123, prints a summary, and writes one markdown file.
+It does not yet run the specs of PMD123, PREG123 and PSCH123 (see Live personas; #815). It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
 
 Point it at a broker in either of two ways.
 
@@ -715,16 +716,36 @@ docker run --detach --name rpms-live --publish 127.0.0.1:19100:9100 --publish 12
 docker inspect -f '{{.State.Health.Status}}' rpms-live   # repeat until it prints healthy
 
 export BROKER_HOST=127.0.0.1 BROKER_PORT=19100 BMX_PORT=19101 LIVE_DISPOSABLE=1 LIVE_BUILD=$TAG
-VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
-PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=PROV123 RPMS_VERIFY='PROV123!!' bundle exec rake test:live
+PERSONA=PMD123 RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' bundle exec rake test:live
+PERSONA=PREG123 RPMS_ACCESS=PREG123 RPMS_VERIFY='PREG123!!' bundle exec rake test:live
+PERSONA=PSCH123 RPMS_ACCESS=PSCH123 RPMS_VERIFY='PSCH123!!' bundle exec rake test:live
+PERSONA=SYS123 RPMS_ACCESS=SYS123 RPMS_VERIFY=... bundle exec rake test:live
 
 docker rm -f rpms-live
 ```
 
-A file runs on its own the same way: `bundle exec ruby -Ilib -Itest test/live/<name>_live_test.rb`.
-SYS123, the build's operator, passes the suite (two specs can still collide with data an earlier run left, #810).
-PROV123 is least-privilege, so specs outside its role fail with `Access denied for remote procedure` (#452).
+A file runs on its own the same way, as a persona it declares: `bundle exec ruby -Ilib -Itest test/live/<name>_live_test.rb`.
 A spec that writes changes the container's data, so start a new container for a clean run.
+
+#### Live personas
+
+Each live spec runs as the persona whose role it proves, with the least privilege that role needs (#452).
+A spec declares it (`runs_as "PREG123"`), and a run signs on as one persona and runs only the specs that declare it; the run's summary says how many spec classes ran as that persona and how many belong to another.
+A spec that declares no persona fails, and so does one run by hand as a persona it does not declare.
+`bundle exec rake test:live_personas` lists every spec under the persona that runs it.
+
+| Persona | User | Role | Runs |
+|---|---|---|---|
+| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
+| `PMD123` | PROFILE,MD | the physician | orders (including the unsigned order it authored), alerts, and the clinical writes PROV123 is not given |
+| `PREG123` | PROFILE,REG | registration | patient registration and edits, coverage, tribal enrollment (AGGRPC, and BMXRPC for the duplicate lookup) |
+| `PSCH123` | PROFILE,SCHED | scheduling | clinics, availability, booking, check-in and check-out, wait list (BSDXRPC) |
+| `SYS123` | MANAGER,SYSTEM | the operator | Behavioral Health (AMHGRPC, which no demo persona holds) and build setup |
+
+The demo personas' pairs are the build's published seed pairs; only the operator's is not shown here.
+What each persona is refused outside its role is itself proven: `test/live/least_privilege_live_test.rb` runs as every persona, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers its holders and refuses everyone else.
+When a release changes a persona's menus, that spec fails and its table moves with the build.
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format

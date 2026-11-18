@@ -13,6 +13,7 @@ require "rpms_rpc/api/problem"
 # Each test signs on with a client of its own, so the harness's session is
 # not the one that fails.
 class ConnectionFailureLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   # ORQQPL PROBLEM LEX SEARCH for "fracture" took 5.7-5.9 s on each of three
   # runs against bcer-9.0-20261012-e7923a4-ydb on loopback (2026-10-16), well
   # past the one-second client timeout below. The client's timeout is whole

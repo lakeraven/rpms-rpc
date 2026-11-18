@@ -24,6 +24,7 @@ require "rpms_rpc/api/user_management"
 # specs call them on the sign-on context, as a host would. The spec reads only;
 # it files nothing.
 class UserRoleLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   def test_user_info_line_7_is_the_users_dtime
     duz = client.duz
     info = RpmsRpc::Authentication.user_info(duz)

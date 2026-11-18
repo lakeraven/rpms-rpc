@@ -10,6 +10,7 @@ require "rpms_rpc/api/ddr_fileman"
 # quantum, tribe quantum, enrollment number) through AG's Eligibility window
 # (AGG UPDATE PATIENT), and IHS PATIENT (#9000001) holds each value.
 class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   DFN = 990_052 # BRAVO,REESE on the pinned build; unused by other live specs

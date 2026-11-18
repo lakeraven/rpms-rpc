@@ -19,6 +19,7 @@ require "rpms_rpc/api/ddr_fileman"
 # with DDR GETS ENTRY DATA, and then files it ACTIVE again with the same RPC,
 # so the container ends as it began and a rerun reuses the same referral.
 class ReferralCancelLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   REFERRAL_FILE = "90001"

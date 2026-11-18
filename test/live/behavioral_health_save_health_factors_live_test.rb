@@ -8,6 +8,8 @@ require "rpms_rpc/api/ddr_fileman"
 # RpmsRpc::BehavioralHealth.save_health_factors over AMHG SAVE HEALTH FACTORS (HF^AMHGSVF).
 # WRITES on a disposable container only; synthetic patient DFN 990037.
 class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   DFN = 990_037

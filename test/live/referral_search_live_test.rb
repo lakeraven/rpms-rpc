@@ -15,6 +15,7 @@ require "rpms_rpc/api/referral"
 # answer may be empty; what this proves is that the call answers, and that any
 # row it does return belongs to the patient asked for.
 class ReferralSearchLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DFN = 4 # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
 
   def test_for_patient_answers_with_that_patients_referrals

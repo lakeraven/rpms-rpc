@@ -12,6 +12,8 @@ require "rpms_rpc/api/coverage"
 # CMS example MBI 1EG4TE5MK73; FileMan subfile IENS are child-first (mien,dfn,);
 # assert row present before each delete, then gone after.
 class CoverageWriteLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   DFN = 990_048 # WILLOW,FINLEY on the pinned build; unused by other live specs

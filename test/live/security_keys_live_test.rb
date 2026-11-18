@@ -17,6 +17,7 @@ require "rpms_rpc/api/authentication"
 # ORWU HASKEY is in CIAV VUECENTRIC, the option sign-on binds, for PROV123 and
 # for the programmer alike. The spec reads only; it files nothing.
 class SecurityKeysLiveTest < LiveSpec::Test
+  runs_as "PROV123", "PMD123", "PREG123", "PSCH123", "SYS123"
   KEYS = %i[
     registration_menu registration_manager registration_view_only registration_view_ssn benefits_case_reopen
     scheduling_menu scheduling_supervisor scheduling_registration_menu

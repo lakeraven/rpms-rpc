@@ -17,6 +17,7 @@ require "rpms_rpc/api/pov"
 # visit and coded value, so a piece read from the wrong position fails. Read
 # only.
 class PccVfileReadsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DFN = 4 # the build's demo patient, who carries exams, health factors and education
 
   def test_exams_read_back_against_v_exam

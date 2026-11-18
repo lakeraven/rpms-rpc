@@ -8,6 +8,7 @@ require "rpms_rpc/api/patient"
 # SEEDPRF assigns the stock national BEHAVIORAL flag to one panel patient
 # (openrpms#1082); the pin predates it until #639.
 class PatientFlagsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   FLAGGED_DFN = 990_003 # CHARLIE,JORDAN, a synthetic panel patient
   UNFLAGGED_DFN = 990_004
   BUILD_BEFORE_THE_SEED = "bcer-9.0-20261012-e7923a4-ydb"

@@ -18,6 +18,7 @@ require "rpms_rpc/api/vital"
 # answer against the empty file; a build that files them is checked entry
 # by entry.
 class LabVitalMedicationReadsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DFN = 2 # the demo patient with vitals on the pinned build
 
   def test_latest_vitals_read_back_against_v_measurement
