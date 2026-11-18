@@ -125,10 +125,13 @@ module RpmsRpc
     #   CIA      4 Access denied for remote procedure: NAME   $$CANRUN^CIANBACT false (CIANBACT.m:49)
     #   XWB      The remote procedure NAME is not registered to the option OPT.  (XQCS.m:75)
     #   XWB/BMX  Application context has not been created!    (XWBSEC.m:26, BMXMSEC.m:27)
+    #   XWB/BMX  User NAME does not have access to option OPT. $$CHK^XQCS: BMX direct
+    #            mode checks every RPC against BMXRPC for the user (rpms-rpc#792)
     REFUSED_PATTERN = /
       Access\ denied\ for\ remote\ procedure
       | remote\ procedure\ .*\ is\ not\ registered\ to\ the\ option
       | Application\ context\ has\ not\ been\ created
+      | does\ not\ have\ access\ to\ option
     /xi
 
     # How each broker words "the M code failed" (#357):
@@ -463,6 +466,12 @@ module RpmsRpc
         set_division(target[:ien]) if requested || @divisions.size > 1
         @division = target
       end
+    rescue RpcRefusedError => e
+      # The codes were accepted, but the broker refuses the user its first RPC:
+      # over BMX, a user without the BMXRPC option (BMX checks every RPC
+      # against it, ADDCTXT^BMXMSEC). Sign-on fails closed and says so, as
+      # CiaClient does for CIAV VUECENTRIC (#501, rpms-rpc#792).
+      broker_refused(e.message)
     rescue RpcError => e
       division_refused("#{e.class.name.split('::').last}: #{e.message}")
     end
@@ -513,14 +522,26 @@ module RpmsRpc
     # A refused division leaves the client signed off: a session with the
     # wrong DUZ(2) is worse than none.
     def division_refused(why)
+      forget_signon
+      raise AuthenticationError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on bound no division: #{why}")
+    end
+    private :division_refused
+
+    # The broker refused the signed-on user its first RPC (rpms-rpc#792).
+    def broker_refused(why)
+      forget_signon
+      raise ContextRefusedError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on: this user may not use the broker (#{why})")
+    end
+    private :broker_refused
+
+    def forget_signon
       @authenticated = false
       @duz = nil
       @division = nil
       @divisions = nil
       @current_context = nil
-      raise AuthenticationError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on bound no division: #{why}")
     end
-    private :division_refused
+    private :forget_signon
 
     # Set application context (required before calling most RPCs).
     #
