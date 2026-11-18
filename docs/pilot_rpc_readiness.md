@@ -134,10 +134,10 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
 # Evidence limits of the capture itself:
 # - The esig gate (WireCapture.write_refusal) refuses a code found in the note text or the
-#   withheld marker, but not one found in the read-back header. The quarantine scans every
-#   capture's raw bytes. So a code equal to a header word (for example UNSIGNED or PROVIDER)
-#   passes the gate, SIGN fires, and the GET capture is then dropped: the fixture set mixes
-#   note IENs. Choose a code that is not an English word until that is closed (rpms-rpc#617).
+#   withheld marker before the run; it cannot know the read-back header. A code equal to a
+#   header word (for example UNSIGNED or PROVIDER) is caught in the captures instead: SIGN
+#   does not fire, and every capture of the run is dropped, so the fixture set never mixes
+#   note IENs (rpms-rpc#617). Choose a code that is not an English word, or the run records nothing.
 # - The TIU GET RECORD TEXT reply carries no note IEN (no TIUDA). Its evidence is bound to the
 #   note by the call's input and by the note text matching, not by anything in the reply.
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
