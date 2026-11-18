@@ -1,97 +1,75 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "date"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/phr"
+require_relative "../captured_replies"
 
+# The PHR reads: BEHOCCD PHR (portal access, PHR^BEHOCCD), BEHOCIR GETNUM
+# (the immunization reconciliation count) and BEHOCCD GETREF (the CCD status
+# of a visit's referrals). The replies are test/fixtures/captured_replies/phr.yml,
+# captured live as the clinician PROVIDER,TEST and replayed through CiaClient's
+# own reply grammar (rpms-rpc#620).
+#
+# No patient on the build has portal access, a reconciled immunization or a
+# CCD referral, so what RPMS answers here is the "none" case for each. The
+# access message, the count arithmetic and the referral row layout are not
+# proven by a reply RPMS sent; the MockClient seeds this file used to carry
+# for them were the fake's, not the server's.
 class PhrTest < Minitest::Test
-  DFN = 8791
+  SLUG = "phr"
   INVALID_IDS = [ nil, "", 0, -5, "abc" ].freeze
-
-  def setup
-    RpmsRpc.mock! do |m|
-      # BEHOCCD PHR is line-based: line 0 = "1"/"0", line 1 = optional message.
-      # seed_text models the multi-line wire shape; fetch_one would only see
-      # the first line.
-      m.seed_text(:phr_access, DFN.to_s, "1\nPatient portal enabled")
-      m.seed_text(:phr_access, "123", "0")
-
-      m.seed(:immunization_count, DFN.to_s, { total: 5, reconciled: 2 })
-
-      m.seed_keyed_collection(:ccd_referral, "9001^9002", [
-        {
-          referral_ien: 7001, visit_ien: 9001, has_ccd: true,
-          ccd_sent_date: Date.new(2026, 5, 10), provider_name: "PROVIDER,TEST",
-          facility: "Test Facility"
-        },
-        {
-          referral_ien: 7002, visit_ien: 9002, has_ccd: false,
-          ccd_sent_date: nil, provider_name: "PROVIDER,TWO", facility: nil
-        }
-      ])
-    end
-  end
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def test_enrollment_status_returns_access_hash
-    status = RpmsRpc::Phr.enrollment_status(DFN)
-
-    assert_equal true, status[:enrolled]
-    assert_equal true, status[:has_access]
-    assert_equal "Patient portal enabled", status[:message]
+  def replay(flow)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script(SLUG, flow))
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  def test_enrollment_status_defaults_blank_message
-    status = RpmsRpc::Phr.enrollment_status(123)
+  def sent(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
 
-    assert_equal false, status[:enrolled]
-    assert_equal false, status[:has_access]
-    assert_equal "PHR not enrolled", status[:message]
+  # BEHOCCD PHR answers "0" on its first line and no message, for a seed
+  # patient, a panel patient and a DFN not on file alike.
+  def test_enrollment_status_without_access_carries_the_default_message
+    %w[enrollment_seed enrollment_panel enrollment_unknown].zip([ 2, 990_001, 999_999_999 ]).each do |flow, dfn|
+      client = replay(flow)
+
+      assert_equal({ enrolled: false, has_access: false, message: "PHR not enrolled" }, RpmsRpc::Phr.enrollment_status(dfn), flow)
+      assert_equal CapturedReplies.flow_calls(SLUG, flow), sent(client)
+    end
   end
 
-  def test_enrollment_status_rejects_blank_zero_negative_and_nonnumeric_dfn
+  def test_an_invalid_patient_id_reaches_no_wire
+    client = replay("enrollment_seed")
+
     INVALID_IDS.each do |dfn|
       assert_equal false, RpmsRpc::Phr.enrollment_status(dfn)[:has_access]
       assert_equal false, RpmsRpc::Phr.has_access?(dfn)
-    end
-  end
-
-  def test_enrollment_status_returns_disabled_for_unknown_dfn
-    status = RpmsRpc::Phr.enrollment_status(999_999)
-
-    assert_equal false, status[:has_access]
-    assert_equal "No response", status[:message]
-  end
-
-  def test_counts_returns_total_reconciled_and_pending
-    counts = RpmsRpc::Phr.counts(DFN)
-
-    assert_equal 5, counts[:total]
-    assert_equal 2, counts[:reconciled]
-    assert_equal 3, counts[:pending]
-  end
-
-  def test_counts_returns_zeroes_for_invalid_or_unknown_dfn
-    (INVALID_IDS + [ 999_999 ]).each do |dfn|
       assert_equal({ total: 0, reconciled: 0, pending: 0 }, RpmsRpc::Phr.counts(dfn))
     end
-  end
-
-  def test_referrals_for_visits_returns_ccd_status
-    referrals = RpmsRpc::Phr.referrals_for_visits([ 9001, 9002 ])
-
-    assert_equal 2, referrals.length
-    assert_equal 7001, referrals.first[:referral_ien]
-    assert_equal 9001, referrals.first[:visit_ien]
-    assert_equal true, referrals.first[:has_ccd]
-    assert_equal Date.new(2026, 5, 10), referrals.first[:ccd_sent_date]
-  end
-
-  def test_referrals_for_visits_rejects_invalid_ids
     assert_equal [], RpmsRpc::Phr.referrals_for_visits(INVALID_IDS)
+    assert_empty sent(client)
+  end
+
+  # BEHOCIR GETNUM answers TOTAL^RECONCILED; with nothing to reconcile, 0^0.
+  def test_counts_read_total_and_reconciled
+    %w[counts counts_unknown].zip([ 2, 999_999_999 ]).each do |flow, dfn|
+      client = replay(flow)
+
+      assert_equal({ total: 0, reconciled: 0, pending: 0 }, RpmsRpc::Phr.counts(dfn), flow)
+      assert_equal CapturedReplies.flow_calls(SLUG, flow), sent(client)
+    end
+  end
+
+  # BEHOCCD GETREF answers nothing for visits with no CCD referral.
+  def test_referrals_for_visits_without_a_ccd_referral_are_empty
+    client = replay("referrals")
+
+    assert_equal [], RpmsRpc::Phr.referrals_for_visits([ 1, 2 ])
+    assert_equal CapturedReplies.flow_calls(SLUG, "referrals"), sent(client)
   end
 end
