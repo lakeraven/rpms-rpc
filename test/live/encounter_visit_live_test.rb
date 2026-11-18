@@ -27,7 +27,9 @@ class EncounterVisitLiveTest < LiveSpec::Test
   # Every persona: the PCC MASTER CONTROL gap that once refused PROV123's
   # create (TYPE OF VISIT MISSING) is closed on the build, and its create files.
   def test_create_is_get_or_create_and_reads_back
-    datetime = unlikely_past_visit_datetime_fm
+    # A new visit is not a higher IEN: FileMan hands out a free lower one
+    # (seen live: 117 after 120). It is one CREATE=0 did not find before.
+    datetime = unused_past_visit_datetime_fm
     vstr_args = {
       location_ien: LOCATION_IEN,
       datetime: datetime,
@@ -35,11 +37,6 @@ class EncounterVisitLiveTest < LiveSpec::Test
       create: 1
     }
     date_part = datetime.split(".").first
-
-    # A new visit is not a higher IEN: FileMan hands out a free lower one
-    # (seen live: 117 after 120). It is one CREATE=0 did not find before.
-    none = RpmsRpc::Encounter.create(DFN, **vstr_args.merge(create: 0))
-    refute none && none[:success], "a visit already sits on #{datetime}, so the create would prove nothing: #{none.inspect}"
 
     first = RpmsRpc::Encounter.create(DFN, **vstr_args)
     assert first[:success], "create should succeed: #{first.inspect}"
@@ -71,11 +68,28 @@ class EncounterVisitLiveTest < LiveSpec::Test
       flunk("ORWU DT NOW did not yield a FileMan datetime")
   end
 
-  def unlikely_past_visit_datetime_fm
+  VISIT_TIME_TRIES = 10
+
+  # A past visit time at which CREATE=0 finds no visit for DFN, so the create
+  # files a new one. A container that already ran the suite holds earlier
+  # runs' visits (#810), so a time is drawn until the server finds none there.
+  def unused_past_visit_datetime_fm
     base = server_now_fm
     now = RpmsRpc::FilemanDateParser.parse_datetime(base)
     flunk("server now #{base.inspect} did not parse as FileMan datetime") unless now
 
+    tried = Array.new(VISIT_TIME_TRIES) do
+      datetime = draw_past_visit_datetime_fm(now)
+      found = RpmsRpc::Encounter.create(DFN, location_ien: LOCATION_IEN, datetime: datetime,
+                                             service_category: "A", create: 0)
+      return datetime unless found && found[:success]
+
+      "#{datetime} (visit #{found[:visit_ien]})"
+    end
+    flunk "CREATE=0 found a visit for DFN #{DFN} at every time tried: #{tried.join(', ')}"
+  end
+
+  def draw_past_visit_datetime_fm(now)
     shifted = now - (rand(30..3000) * 86_400) - (rand(0..59) * 60)
     RpmsRpc::FilemanDateParser.format_datetime(shifted)
   end
