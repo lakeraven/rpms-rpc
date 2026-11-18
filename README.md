@@ -578,6 +578,23 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
 
+## RPC inventory: every RPC on both engines, and what covers it
+
+`rake rpc:inventory` writes one row per RPC registered on an IRIS and a YottaDB openrpms release, as CSV and Markdown.
+A row says where the RPC is registered and callable, its contexts and entry point, which clients use it (VueCentric, BPRM, lakeraven-ehr), the rpms-rpc methods that send it with their REST paths, read or write, resource and operation, its live specs and captured replies, and each release's live verdict and wire cases.
+The Markdown starts with a summary: counts per engine, how the engines differ, and how much is wrapped, live-tested and captured.
+
+```sh
+rake rpc:inventory                        # the newest published release of each engine
+rake rpc:inventory IRIS=<tag> YDB=<tag>   # pinned: the same tags and checkout give the same bytes
+# EXPLICIT SUCCESS: rpc:inventory wrote tmp/rpc-inventory/rpc-inventory.csv and tmp/rpc-inventory/rpc-inventory.md: 5592 RPCs, ...
+```
+
+It downloads each release's `<tag>-rpcs.json`, `<tag>-rpms-rpc-live.json`, `<tag>-harness.json` and `<tag>-conformance-<persona>.jsonl` with `gh` into `tmp/openrpms/<tag>/` (`CACHE=` overrides) once, and writes `tmp/rpc-inventory/` (`OUT=`).
+Nothing is committed: the output is a view of published releases, as `rake openrpms:matrix` is.
+The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source; refresh them when a client changes.
+The column definitions are in the Markdown and in `tools/rpc_inventory/`.
+
 ## Order checks
 
 `RpmsRpc::Order.check` runs order checks through `ORWDXC ACCEPT` before an order is saved (#454). Each row is `ORID^checkIEN^CDL^text`. A high or unknown severity requires an override. An empty or unparseable reply is reported as order checks unavailable.
