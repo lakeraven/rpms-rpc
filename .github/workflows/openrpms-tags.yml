@@ -1,0 +1,127 @@
+name: Tag openrpms releases
+# rpms-rpc tags itself from published openrpms releases (rpms-rpc#724). An openrpms gate runs rpms-rpc main at the
+# cut and records the commit in the release's <tag>-harness.json; this reads that record and the per-RPC record
+# (<tag>-rpms-rpc-live.json), and when the record's contract passed, tags that commit <tag> here and creates the
+# rpms-rpc release <tag> with both records and the two OpenAPI documents attached.
+#
+#   plan    tools/openrpms_tags.rb plan: which releases to tag, and why any is skipped or refused (the logic,
+#           unit-tested in test/tools/openrpms_tags_test.rb on real records)
+#   tag     one job per release: at the recorded commit, fetch that release, build the OpenAPI documents, create
+#           the tag (never moved) and the release, then read both back
+#
+# Credentials. GITHUB_TOKEN writes this repository only, so no openrpms secret can write rpms-rpc. Reading
+# lakeraven/openrpms needs OPENRPMS_READ_TOKEN (Contents: read) while it is private. A release this job creates
+# with GITHUB_TOKEN does not trigger openapi-release.yml, so the documents are attached here.
+# Which pin lives where: openrpms docs/PINS.md.
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openrpms-tags
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      todo: ${{ steps.plan.outputs.todo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # merge-base --is-ancestor needs main's history.
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - name: Which releases to tag
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENRPMS_READ_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+        run: ruby tools/openrpms_tags.rb plan
+
+  tag:
+    name: Tag ${{ matrix.release.tag }}
+    needs: plan
+    # A refused release fails the plan, but the others still get tagged.
+    if: ${{ always() && needs.plan.outputs.todo != '' && needs.plan.outputs.todo != '[]' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        release: ${{ fromJSON(needs.plan.outputs.todo) }}
+    env:
+      TAG: ${{ matrix.release.tag }}
+      COMMIT: ${{ matrix.release.commit }}
+      ACTION: ${{ matrix.release.action }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.release.commit }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Fetch the release and its records
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+          OPENRPMS_RELEASE: ${{ matrix.release.tag }}
+        run: |
+          set -euo pipefail
+          bundle exec rake openrpms:fetch
+          mkdir -p pkg/release
+          gh release download "$TAG" --repo lakeraven/openrpms --dir pkg/release \
+            --pattern "$TAG-harness.json" --pattern "$TAG-rpms-rpc-live.json"
+          [ "$(jq -r .harness.rpms_rpc_commit "pkg/release/$TAG-harness.json")" = "$COMMIT" ] \
+            || { echo "::error::$TAG-harness.json no longer names $COMMIT"; exit 1; }
+      - name: Build the OpenAPI documents at this commit
+        run: GEM_COMMIT="$COMMIT" bundle exec rake openapi
+      - name: Tag the commit (never moved)
+        if: matrix.release.action == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$COMMIT" --jq .ref
+      - name: Read the tag back
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          got="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          [ "$got" = "$COMMIT" ] || { echo "::error::rpms-rpc tag $TAG names $got, not $COMMIT"; exit 1; }
+          echo "EXPLICIT SUCCESS: rpms-rpc tag $TAG names $COMMIT"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "The rpms-rpc commit that judged openrpms release \`$TAG\`, tagged from the release's own record."
+            echo
+            echo "- \`$TAG-harness.json\`: which openrpms and rpms-rpc commits judged the release"
+            echo "- \`$TAG-rpms-rpc-live.json\`: what rpms-rpc proved there, per RPC, and the contract verdict"
+            echo "- \`rpc-surface.openapi.json\`, \`client-api.openapi.json\`: the release's RPC surface and this commit's client API"
+            echo
+            echo "A host pins this tag: \`gem \"rpms-rpc\", github: \"lakeraven/rpms-rpc\", tag: \"$TAG\"\`."
+          } > pkg/release/notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file pkg/release/notes.md \
+            "pkg/release/$TAG-harness.json" "pkg/release/$TAG-rpms-rpc-live.json" \
+            pkg/openapi/rpc-surface.openapi.json pkg/openapi/client-api.openapi.json
+      - name: Prove the release carries all four, byte for byte
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/released
+          for f in "release/$TAG-harness.json" "release/$TAG-rpms-rpc-live.json" openapi/rpc-surface.openapi.json openapi/client-api.openapi.json; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$(basename "$f")" --dir tmp/released --clobber
+            cmp "pkg/$f" "tmp/released/$(basename "$f")"
+          done
+          echo "EXPLICIT SUCCESS: rpms-rpc release $TAG carries its records and both OpenAPI documents"

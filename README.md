@@ -59,8 +59,9 @@ rpms-rpc is the conformance suite for openrpms, kept in its own repository, and 
 Its versions are openrpms release names, not semver.
 - `main` is tested by this repository's CI against the latest published openrpms release; a change merges when green.
 - An openrpms release gate checks out rpms-rpc `main` as it stands at the cut and runs its live suite and wire cases against the candidate.
-- When that release publishes, openrpms tags the exact rpms-rpc commit it ran with the release's name, for example `bcer-9.0-20261116-2a9b3fe-ydb`.
+- The gate records that commit in the release's `<tag>-harness.json`. Once the release is published, rpms-rpc tags itself: `.github/workflows/openrpms-tags.yml` reads the record and, when its contract passed, tags the commit with the release's name (for example `bcer-9.0-20261116-2a9b3fe-ydb`) and creates the rpms-rpc release of that name, with the records and the OpenAPI documents attached.
   That tag means "this build, and the client verified against it".
+  The `-ydb` and `-iris` releases of one openrpms commit are cut at different times, so each takes its own tag, which may name different rpms-rpc commits; pin the one for the engine you deploy against.
 - A host pins the rpms-rpc tag that matches the openrpms release it deploys against:
 
 ```ruby
@@ -68,6 +69,7 @@ gem "rpms-rpc", github: "lakeraven/rpms-rpc", tag: "bcer-9.0-20261116-2a9b3fe-yd
 ```
 
 `RpmsRpc::VERSION` is not a compatibility promise; the tag is.
+Which pin lives where, across openrpms, rpms-rpc, lakeraven-ehr and cloud-rpms, is stated once, in openrpms [docs/PINS.md](https://github.com/lakeraven/openrpms/blob/main/docs/PINS.md).
 What the gate holds each release to is the contract in `lib/rpms_rpc/required_rpcs.json` (schema `rpms-rpc-contract.v1`):
 - `modules`: every RPC each public API module sends, which `client.compatibility` checks a server against;
 - `rpcs`: one entry per RPC, naming the public methods that send it, each with its retry-safety class (`read` or a write, from `lib/rpms_rpc/retry_safety.yml`), and the captured replies its parser is tested against.

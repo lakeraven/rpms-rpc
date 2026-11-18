@@ -1,0 +1,10 @@
+{
+  "release": "bcer-9.0-20261116-2a9b3fe-ydb",
+  "harness": {
+    "rpms_ops_commit": "2a9b3fee07790e58dda5c0168666404fb7cb6523",
+    "rpms_rpc_commit": "e05473c76faa4cc757703b9ba5e521068613e1f0",
+    "run_id": "43797872440",
+    "run_attempt": "1"
+  },
+  "about": "What judged this release: the openrpms commit the gate ran from (not the image build commit, which is in the provenance) and the pinned rpms-rpc client (data/sources/harness_pins.tsv)."
+}
