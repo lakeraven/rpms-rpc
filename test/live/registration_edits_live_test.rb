@@ -30,7 +30,11 @@ class RegistrationEditsLiveTest < LiveSpec::Test
   def test_s_reg_21_1_a_changed_address_keeps_the_old_one_ended_on_the_date_moved
     old = fileman("2", "#{ADDRESS_DFN},", ".111;.114;.115;.131")
     before = Reg.address_history(ADDRESS_DFN)
-    moved = server_today - 2
+    # Two days back, unless the patient moved to the current address since: a
+    # move may not predate it, and an earlier run on this container (another
+    # persona, the same day) leaves it at today.
+    moved_to = RpmsRpc::FilemanDateParser.parse_date(fileman("9000001", "#{ADDRESS_DFN},", "7911")["7911"].to_s)
+    moved = [ server_today - 2, moved_to ].compact.max
 
     result = Reg.change_address(ADDRESS_DFN, moved_on: moved, address_line1: "12 LIVE TEST RD", city: "ELSEWHERE")
 
