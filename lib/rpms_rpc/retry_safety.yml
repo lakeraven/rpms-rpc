@@ -21,6 +21,7 @@
 "RpmsRpc::Adt.admissions": read
 "RpmsRpc::Adt.current_location": read
 "RpmsRpc::Adt.discharge_datetime": read
+"RpmsRpc::Adt.movements": read
 "RpmsRpc::Agg.add_patient": non_idempotent_write
 "RpmsRpc::Agg.available?": non_idempotent_write
 "RpmsRpc::Agg.canonical_dfn": read
