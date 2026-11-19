@@ -3,6 +3,7 @@
   "build": "bcer-9.0-20261012-e7923a4-ydb",
   "modules": {
     "RpmsRpc::Adt": [
+      "DDR LISTER",
       "ORWPT ADMITLST",
       "ORWPT DISCHARGE",
       "ORWPT INPLOC"
@@ -2087,6 +2088,7 @@
     },
     "DDR LISTER": {
       "methods": {
+        "RpmsRpc::Adt.movements": "read",
         "RpmsRpc::Authentication.user_security_keys": "read",
         "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
@@ -2165,6 +2167,7 @@
         "RpmsRpc::WaitList.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/adt-movements.yml",
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/health-summary.yml",
