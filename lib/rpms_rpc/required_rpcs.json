@@ -182,6 +182,9 @@
       "BGOVIMM GETVFC",
       "BGOVIMM2 GETELIG"
     ],
+    "RpmsRpc::EmergencyRoom": [
+      "DDR GETS ENTRY DATA"
+    ],
     "RpmsRpc::Encounter": [
       "BEHOENCX CHKVISIT",
       "BEHOENCX FETCH",
@@ -2001,6 +2004,7 @@
         "RpmsRpc::Coverage.delete_private_insurance": "non_idempotent_write",
         "RpmsRpc::Coverage.on_file": "read",
         "RpmsRpc::DdrFileman.gets_entry": "read",
+        "RpmsRpc::EmergencyRoom.visit": "read",
         "RpmsRpc::Immunization.find": "read",
         "RpmsRpc::ImmunizationLot.find": "read",
         "RpmsRpc::ImmunizationLot.list": "read",
@@ -2060,6 +2064,7 @@
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
+        "test/fixtures/captured_replies/er-visit.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/captured_replies/patient-race.yml",

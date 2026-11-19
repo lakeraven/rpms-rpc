@@ -39,6 +39,7 @@ RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
+RpmsRpc::EmergencyRoom.visit	GET /patients/{dfn}/emergency-rooms/visits/{visit_ien}
 RpmsRpc::Encounter.activity_time	GET /encounters/{visit_ien}/activity-time
 RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
 RpmsRpc::Encounter.providers	GET /patients/{dfn}/encounters/{visit_ien}/providers

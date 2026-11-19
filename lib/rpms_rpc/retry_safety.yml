@@ -167,6 +167,7 @@
 "RpmsRpc::ESignature.which_action": read
 "RpmsRpc::Eligibility.codes": read
 "RpmsRpc::Eligibility.for_patient": read
+"RpmsRpc::EmergencyRoom.visit": read
 "RpmsRpc::Encounter.activity_time": read
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
