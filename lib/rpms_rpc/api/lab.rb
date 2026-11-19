@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "time"
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../fileman_date_parser"
@@ -53,6 +54,43 @@ module RpmsRpc
     end
     shape :specimen, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/specimen"
 
+    # The patient's resulted specimens collected from +from+ through +to+
+    # (each a Date or Time; +to+ defaults to today, and a Date covers its
+    # whole day), newest first: each is a #specimen hash plus released_at
+    # (the "Report Released Date/Time:" line, a Time) and status (:final
+    # once released, else :pending). Steps ORWLRR INTERIMG older one
+    # specimen per call, the Labs tab's Most Recent view, from each header's
+    # own COLLECTED, until it answers nothing or a specimen falls before
+    # +from+. INTERIMG lists a chemistry specimen once its DATE REPORT
+    # COMPLETED (#63.04 .03) is set, so an unverified one is never listed.
+    # [] for a bad dfn or range, sending nothing. A header that does not
+    # step older raises Client::RpcError rather than loop.
+    def results(dfn, from:, to: Date.today)
+      floor = instant(from)
+      return [] unless positive_id?(dfn) && floor && instant(to) && instant(to) >= floor
+
+      cursor = to.is_a?(Time) ? fileman(to) : fileman(to + 1)
+      previous = nil
+      found = []
+      loop do
+        lines = DataMapper.lab_specimen.lines!(dfn.to_s, cursor, "1", "1")
+        break if lines.empty?
+
+        read = released(read_specimen(lines))
+        at = instant(read[:collected_at])
+        if at.nil? || (previous && at >= previous)
+          raise Client::RpcError, RpmsRpc.sanitize_error("ORWLRR INTERIMG did not step older: #{lines.first.inspect}")
+        end
+        break if at < floor
+
+        found << read
+        previous = at
+        cursor = lines.first.split("^", -1)[2]
+      end
+      found
+    end
+    shape :results, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/results"
+
     # The patient's lab orders over the site's cover-sheet range
     # (BEHOLRCV DATE RANGE days back, inpatient or outpatient), as
     # VueCentric's lab cover sheet lists them: [{ order_id:, text:,
@@ -94,6 +132,23 @@ module RpmsRpc
     def test_row(pieces)
       { test_ien: positive_id?(pieces[0]) ? pieces[0].to_i : nil, name: presence(pieces[1]), value: presence(pieces[2].to_s.strip),
         flag: presence(pieces[3].to_s.strip), units: presence(pieces[4]), range: presence(pieces[5]), loinc: presence(pieces[14]) }
+    end
+
+    # GRID^LR7OGMG writes $$FMTE^XLFDT(released, "5MPZ"), upper-cased:
+    # "Report Released Date/Time: 11/10/2026 12:00 PM", blank when unset.
+    RELEASED = %r{\AReport Released Date/Time: (\d\d/\d\d/\d{4} \d\d:\d\d [AP]M)\s*\z}
+
+    def released(read)
+      stamp = read[:text].filter_map { |line| line[RELEASED, 1] }.first
+      at = stamp && Time.strptime(stamp, "%m/%d/%Y %I:%M %p")
+      read.merge(released_at: at, status: at ? :final : :pending)
+    end
+
+    def instant(value)
+      case value
+      when Time then value
+      when Date then Time.new(value.year, value.month, value.day)
+      end
     end
 
     def fileman(value)
