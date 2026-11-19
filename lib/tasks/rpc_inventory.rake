@@ -65,6 +65,39 @@ namespace :rpc do
          "#{rows} RPCs, #{tags.values_at(*RpcInventory::ENGINES).join(' + ')}"
   end
 
+  desc "Rewrite the inventory's client lists from their sources (CLOUD_RPMS=, OPENRPMS=, LAKERAVEN_EHR= checkouts; BPRM_XML= file)"
+  task :inventory_clients do
+    root = inventory_tool.call
+    require File.join(root, "tools/rpc_inventory/clients")
+    need = %w[CLOUD_RPMS OPENRPMS LAKERAVEN_EHR BPRM_XML].select { |k| ENV[k].to_s.empty? }
+    abort "EXPLICIT FAILURE: rpc:inventory_clients: give #{need.join(', ')}; no snapshot was changed" unless need.empty?
+
+    dir = ->(k) { File.expand_path(ENV.fetch(k)) }
+    c = RpcInventory::Clients
+    # Every file is built before any is written, so a missing or unreadable source leaves all four as they were.
+    begin
+      sending = RpcInventory.coverage(root)[:methods].reject { |m| m["rpcs"].empty? }
+                            .map { |m| "#{m['module'].delete_prefix('RpmsRpc::')}.#{m['method']}" }
+      files = {
+        "vuecentric-observed.tsv" => c.observed(dir.("CLOUD_RPMS"), dir.("OPENRPMS")),
+        "vuecentric-named.txt" => c.named(dir.("CLOUD_RPMS")),
+        "lakeraven-ehr-methods.txt" => c.lakeraven_ehr(dir.("LAKERAVEN_EHR"), sending),
+        "bprm-entry-points.txt" => c.bprm(dir.("BPRM_XML"))
+      }
+    rescue c::Error, SystemCallError, JSON::ParserError, EncodingError => e
+      abort "EXPLICIT FAILURE: rpc:inventory_clients: #{e.message}; no snapshot was changed"
+    end
+
+    out = File.join(root, RpcInventory::CLIENT_DIR)
+    files.each do |name, body|
+      path = File.join(out, name)
+      File.write(path, body)
+      abort "EXPLICIT FAILURE: rpc:inventory_clients: #{path} does not hold what was generated" unless File.read(path) == body
+    end
+    rows = files.map { |name, body| "#{name} #{body.lines.count { |l| !l.start_with?('#') }}" }
+    puts "EXPLICIT SUCCESS: rpc:inventory_clients wrote #{RpcInventory::CLIENT_DIR}/: #{rows.join(', ')} lines"
+  end
+
   desc "Print the openrpms release pair rpc:inventory would use, as iris=<tag> and ydb=<tag> lines"
   task :inventory_tags do
     inventory_tool.call
