@@ -12,18 +12,19 @@ require "rpms_rpc/api/behavioral_health/reference"
 # in the rest. Each option is tried with one read that files nothing.
 #
 # Who holds what is the build's seed (SEEDPERS), as observed on
-# bcer-9.0-20261116-2a9b3fe-ydb. The operator holds XUPROGMODE, so the broker
+# bcer-9.0-20261119-f67498c-ydb, where the clinician holds the contexts its
+# flows bind (openrpms#1192). The operator holds XUPROGMODE, so the broker
 # lets it run any RPC (CANRUN^CIANBACT, CIANBACT.m:141). When a release changes
 # a persona's menus this spec fails, and HOLDERS moves with the build.
 class LeastPrivilegeLiveTest < LiveSpec::Test
   runs_as "PROV123", "PMD123", "PREG123", "PSCH123", "SYS123"
 
   HOLDERS = {
-    "AGGRPC" => %w[PREG123 PSCH123 SYS123],
-    "BSDXRPC" => %w[PMD123 PREG123 PSCH123 SYS123],
+    "AGGRPC" => %w[PROV123 PREG123 PSCH123 SYS123],
+    "BSDXRPC" => %w[PROV123 PMD123 PREG123 PSCH123 SYS123],
     "BMCRPC" => %w[PROV123 PMD123 SYS123],
-    "AMHGRPC" => %w[SYS123],
-    "BMXRPC" => %w[PMD123 PREG123 PSCH123 SYS123]
+    "AMHGRPC" => %w[PROV123 SYS123],
+    "BMXRPC" => %w[PROV123 PMD123 PREG123 PSCH123 SYS123]
   }.freeze
 
   # One read per option: registration's own field check, scheduling's clinic
