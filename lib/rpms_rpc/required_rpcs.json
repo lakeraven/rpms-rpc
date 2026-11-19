@@ -2270,6 +2270,7 @@
         "RpmsRpc::Problem.details": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/problem-detail.yml",
         "test/fixtures/captured_replies/read-call-formals.yml"
       ]
     },

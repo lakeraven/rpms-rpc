@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/problem"
+require_relative "../captured_replies"
 
 class ProblemTest < Minitest::Test
   DFN = "8791"
@@ -72,30 +73,55 @@ class ProblemTest < Minitest::Test
     assert_equal [], RpmsRpc::Problem.lex_search("   ")
   end
 
-  # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): the patient comes first, so the
-  # mock keys the reply by DFN (#259).
-  def test_details_returns_row_for_ien
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:problem_detail, DFN, [
-        { ien: "5001", status: "ACTIVE", description: "HTN" }
-      ])
-    end
+  # === details (ORQQPL DETAIL) ===
+  #
+  # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): the patient comes first and the
+  # problem IEN third (#259). DETAIL builds a display report, one text line
+  # per Y(I) (ORQQPL.m:26-59), and never reads DFN. The replies are
+  # test/fixtures/captured_replies/problem-detail.yml, captured live as
+  # PROVIDER,TEST on the seeded problem 1 (#821).
 
-    row = RpmsRpc::Problem.details(DFN, "5001")
+  DETAIL_SLUG = "problem-detail"
+  SEEDED_DETAIL = [
+    "*TYPE 2 DIABETES MELLITUS (Invalid Code (not found in the ICD-9-CM system))",
+    "*** The ICD code Invalid Code (not found in the ICD-9-CM system) is currently inactive. ***",
+    " ", "   Onset: 4/10/23", "  Status: ACTIVE", " SC Cond: UNKNOWN", "Exposure: None", " ",
+    "Provider: DEMO,DOCTOR", "  Clinic: ", " ",
+    "Recorded: 11/19/26, by DEMO,DOCTOR", " Entered: 11/19/26, by DEMO,DOCTOR", " Updated: 11/19/26", " ", " "
+  ].join("\n").freeze
 
-    refute_nil row
-    assert_equal "5001", row[:ien]
-    assert_equal "HTN", row[:description]
+  def replay_detail(script)
+    client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  def test_details_returns_nil_for_invalid_ien
-    RpmsRpc.mock! do |m|
+  def detail_calls(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  def test_details_is_the_report_text_for_any_patient
+    %w[details_seed details_other_patient].zip([ 2, 4 ]).each do |flow, dfn|
+      client = replay_detail(CapturedReplies.flow_script(DETAIL_SLUG, flow))
+
+      assert_equal SEEDED_DETAIL, RpmsRpc::Problem.details(dfn, 1), flow
+      assert_equal CapturedReplies.flow_calls(DETAIL_SLUG, flow), detail_calls(client)
     end
+  end
+
+  def test_details_of_a_problem_not_on_file_raises_the_m_error
+    replay_detail("ORQQPL DETAIL" => [ CapturedReplies.raw(DETAIL_SLUG, "unknown_problem") ])
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Problem.details(2, 999_999_999) }
+    assert_includes error.message, "LVUNDEF"
+  end
+
+  def test_details_with_an_invalid_id_reaches_no_wire
+    client = replay_detail(CapturedReplies.flow_script(DETAIL_SLUG, "details_seed"))
 
     assert_nil RpmsRpc::Problem.details(DFN, nil)
     assert_nil RpmsRpc::Problem.details(DFN, "0")
     assert_nil RpmsRpc::Problem.details(nil, "5001")
     assert_nil RpmsRpc::Problem.details("0", "5001")
+    assert_empty detail_calls(client)
   end
 
   def test_audit_history_dispatches_orqqpl_audit_hist
