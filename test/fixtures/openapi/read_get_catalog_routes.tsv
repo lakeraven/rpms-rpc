@@ -60,6 +60,7 @@ RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Lab.cover_sheet_orders	GET /patients/{dfn}/labs/cover-sheet-orders
 RpmsRpc::Lab.result_date_range	GET /patients/{dfn}/labs/result-date-range
+RpmsRpc::Lab.results	GET /patients/{dfn}/labs/results
 RpmsRpc::Lab.specimen	GET /patients/{dfn}/labs/specimen
 RpmsRpc::Location.find	GET /locations/{ien}
 RpmsRpc::Location.search	GET /locations
