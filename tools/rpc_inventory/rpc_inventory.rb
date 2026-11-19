@@ -8,6 +8,7 @@ require_relative "../openrpms_matrix"
 require_relative "../api_coverage/api_coverage"
 require_relative "../openapi/surface"
 require_relative "../openapi/client_api"
+require_relative "../rpc_coverage/rpc_coverage"
 
 # The RPC inventory: one row per RPC across one IRIS and one YottaDB openrpms release, with what rpms-rpc covers.
 #
@@ -20,9 +21,10 @@ require_relative "../openapi/client_api"
 #                   judged it). A tag defaults to the newest published (non-draft) release of that engine.
 #   rpms-rpc        tools/api_coverage (which public methods send each RPC, which live specs call them), its
 #                   captured-reply fixtures, retry_safety.yml (read or write), and the openapi:api and
-#                   openapi:surface addressing (the wrapper's REST verb and path, and the RPC name's own address)
+#                   openapi:surface addressing (the wrapper's REST verb and path, and the RPC name's own address),
+#                   and the reviewed exclusions in data/rpc_coverage/exclusions.yml (a decided "do not wrap")
 #   the clients     data/rpc_inventory/clients/ (VueCentric named and observed, BPRM, lakeraven-ehr) and
-#                   data/rpc_tiers/observed/ (a recorded VueCentric session)
+#                   data/rpc_tiers/observed/ (a recorded VueCentric session); observed lists carry call counts
 #
 # Same inputs, same bytes: rows are byte-sorted by RPC name, every list in a cell is sorted, and nothing reads a
 # clock. The output is not committed (tmp/ is ignored): it is a view of published releases, like openrpms:matrix.
@@ -34,12 +36,17 @@ module RpcInventory
   PERSONAS = %w[least_privilege programmer].freeze
   CLIENT_DIR = "data/rpc_inventory/clients"
   OBSERVED_DIR = "data/rpc_tiers/observed"
+  EXCLUSIONS = "data/rpc_coverage/exclusions.yml"
+  # The reasons a person decided, not the ones each release's reach classes give (those are the reach_* columns).
+  REVIEWED = (RpcCoverage::EXCLUSION_REASONS.keys - RpcCoverage::REACH_REASONS.values).freeze
+  # What an rpms-rpc release carries (.github/workflows/rpc-inventory-release.yml).
+  FILES = %w[rpc-inventory.csv rpc-inventory.md].freeze
 
   COLUMNS = %w[
     rpc package_prefix package
     registered_iris registered_ydb reach_iris reach_ydb contexts entry_point
-    vuecentric bprm lakeraven_ehr
-    wrappers wrapper_paths rpc_path resource operation operation_source read_write
+    vuecentric vuecentric_calls vuecentric_sessions bprm lakeraven_ehr
+    excluded wrappers wrapper_paths rpc_path resource operation operation_source read_write
     live_tests captured_replies
     live_iris live_ydb wire_cases_iris wire_cases_ydb
   ].freeze
@@ -53,8 +60,12 @@ module RpcInventory
     "contexts" => "the #19 broker options whose RPC multiple lists it; one value when the engines agree, else `iris: ...; ydb: ...`",
     "entry_point" => "TAG^ROUTINE, the same way",
     "vuecentric" => "`observed` when a recorded VueCentric session called it, `named` when only the client's binaries name it",
+    "vuecentric_calls" => "how many times the recorded VueCentric sessions called it, all sessions summed; blank when none did",
+    "vuecentric_sessions" => "how many recorded VueCentric sessions called it at least once; blank when none did",
     "bprm" => "`entry-point` when a BPRM stored procedure calls its entry point in process (BPRM sends no RPC)",
     "lakeraven_ehr" => "`yes` when a gem method lakeraven-ehr calls sends it",
+    "excluded" => "rpms-rpc's reviewed decision not to wrap it (data/rpc_coverage/exclusions.yml): " \
+                  "#{REVIEWED.map { |r| "`#{r}`" }.join(' or ')}; blank otherwise, and kept when a wrapper sends it anyway",
     "wrappers" => "the rpms-rpc public methods that send it (tools/api_coverage)",
     "wrapper_paths" => "each wrapper's REST verb and path in the client API document (rake openapi:api)",
     "rpc_path" => "the RPC's own address in the RPC surface document (rake openapi:surface), derived from its name",
@@ -173,16 +184,52 @@ module RpcInventory
     File.readlines(path, chomp: true).map(&:strip).reject { |l| l.empty? || l.start_with?("#") }
   end
 
-  # { vuecentric_named:, vuecentric_observed:, bprm:, lakeraven_ehr_methods: } as sorted name lists.
+  # The rows of a tab-separated file whose header row (after any "#" lines) starts with header, split on tabs.
+  def tsv_rows(path, header)
+    lines = File.readlines(path, chomp: true).reject { |l| l.start_with?("#") || l.strip.empty? }
+    raise "#{path}: the header row is not #{header.join(', ')}" unless lines.first.to_s.split("\t").first(header.size) == header
+
+    lines.drop(1).map { |l| l.split("\t") }
+  end
+
+  def call_count(value, path)
+    n = Integer(value.to_s, 10, exception: false)
+    raise "#{path}: #{value.inspect} is not a call count" unless n&.positive?
+
+    n
+  end
+
+  # { rpc => { calls:, sessions: } } over every recorded VueCentric session, byte-sorted by RPC. A row of
+  # vuecentric-observed.tsv is one RPC in one recording; a file in data/rpc_tiers/observed/ is one session.
+  def observed_calls(root)
+    path = File.join(root, CLIENT_DIR, "vuecentric-observed.tsv")
+    per = tsv_rows(path, %w[rpc recording calls]).map { |rpc, rec, n| [ rpc.to_s.strip, rec.to_s.strip, call_count(n, path) ] }
+    Dir[File.join(root, OBSERVED_DIR, "*.tsv")].sort.each do |f|
+      per.concat(tsv_rows(f, %w[rpc calls]).map { |rpc, n| [ rpc.to_s.strip, File.basename(f, ".tsv"), call_count(n, f) ] })
+    end
+    per.reject { |rpc, _, _| rpc.empty? }.group_by(&:first).sort_by { |rpc, _| rpc.b }.to_h do |rpc, rs|
+      [ rpc, { calls: rs.sum(&:last), sessions: rs.map { |r| r[1] }.uniq.size } ]
+    end
+  end
+
+  # { rpc => reason } for the reviewed exclusions. A reason outside exclusions.yml's vocabulary fails.
+  def reviewed_exclusions(root)
+    all = RpcCoverage.load_exclusions(File.join(root, EXCLUSIONS))
+    bad = all.reject { |_, reason| RpcCoverage::EXCLUSION_REASONS.key?(reason) }
+    raise "#{EXCLUSIONS}: #{bad.first(3).map { |n, r| "#{n} has reason #{r.inspect}" }.join('; ')}, outside its vocabulary" unless bad.empty?
+
+    all.select { |_, reason| REVIEWED.include?(reason) }.sort.to_h
+  end
+
+  # { vuecentric_named:, vuecentric_observed:, bprm:, lakeraven_ehr_methods: } as sorted name lists, and
+  # vuecentric_counts (observed_calls).
   def clients(root)
     dir = File.join(root, CLIENT_DIR)
-    observed = names_in(File.join(dir, "vuecentric-observed.txt"))
-    Dir[File.join(root, OBSERVED_DIR, "*.tsv")].sort.each do |f|
-      observed.concat(File.readlines(f, chomp: true).drop(1).map { |l| l.split("\t").first.to_s.strip }.reject(&:empty?))
-    end
+    counts = observed_calls(root)
     {
       vuecentric_named: names_in(File.join(dir, "vuecentric-named.txt")).uniq.sort,
-      vuecentric_observed: observed.uniq.sort,
+      vuecentric_observed: counts.keys,
+      vuecentric_counts: counts,
       bprm: names_in(File.join(dir, "bprm.txt")).uniq.sort,
       lakeraven_ehr_methods: names_in(File.join(dir, "lakeraven-ehr-methods.txt")).map { |m| m.delete_prefix("RpmsRpc::") }.uniq.sort
     }
@@ -275,7 +322,8 @@ module RpcInventory
 
   # --- the rows -------------------------------------------------------------------------------
 
-  def rows(releases, cov, cli)
+  # excluded: reviewed_exclusions.
+  def rows(releases, cov, cli, excluded)
     by_engine = releases.to_h { |r| [ r.engine, r ] }
     senders = Hash.new { |h, k| h[k] = [] }
     cov[:methods].each do |m|
@@ -320,8 +368,11 @@ module RpcInventory
         "contexts" => agree(rpc.compact.transform_values { |r| r.contexts.sort.join("; ") }),
         "entry_point" => agree(rpc.compact.transform_values { |r| r.entry_point.to_s }),
         "vuecentric" => if observed[name] then "observed" elsif named[name] then "named" else "" end,
+        "vuecentric_calls" => cli[:vuecentric_counts].dig(name, :calls).to_s,
+        "vuecentric_sessions" => cli[:vuecentric_counts].dig(name, :sessions).to_s,
         "bprm" => bprm[name] ? "entry-point" : "",
         "lakeraven_ehr" => ms.any? { |m| lre.include?(m["key"]) } ? "yes" : "",
+        "excluded" => excluded.fetch(name, ""),
         "wrappers" => ms.map { |m| m["key"] }.join("; "),
         "wrapper_paths" => paths.map { |a| "#{a[:verb]} #{a[:path]}" }.uniq.join("; "),
         "rpc_path" => agree(addr.to_h { |e, a| [ e, a[name] && "#{a[name][:verb].upcase} #{a[name][:path]}" ] }),
@@ -381,7 +432,11 @@ module RpcInventory
       live: ENGINES.to_h { |e| [ e, rows.map { |r| r["live_#{e}"] }.reject(&:empty?).tally.sort.to_h ] },
       unwrapped_client: unwrapped.count { |r| client_used?(r) },
       unwrapped_no_client: unwrapped.count { |r| !client_used?(r) },
-      unwrapped_observed: unwrapped.select { |r| r["vuecentric"] == "observed" }.map { |r| r["rpc"] },
+      # Most calls first: [ rpc, calls ].
+      unwrapped_observed: unwrapped.select { |r| r["vuecentric"] == "observed" }
+                                   .sort_by { |r| [ -r["vuecentric_calls"].to_i, r["rpc"].b ] }.map { |r| [ r["rpc"], r["vuecentric_calls"] ] },
+      excluded: rows.map { |r| r["excluded"] }.reject(&:empty?).tally.sort.to_h,
+      excluded_wrapped: rows.reject { |r| r["excluded"].empty? || r["wrappers"].empty? }.map { |r| [ r["rpc"], r["excluded"] ] },
       unwrapped_by_client: {
         "VueCentric observed" => unwrapped.count { |r| r["vuecentric"] == "observed" },
         "VueCentric named only" => unwrapped.count { |r| r["vuecentric"] == "named" },
@@ -450,14 +505,19 @@ module RpcInventory
     lines << ""
     lines << "- #{s[:wrapped]} are sent by a public method (wrapped); #{s[:live_tested]} by a method a live spec calls; #{s[:captured]} have a captured reply a unit test replays."
     lines << "- #{s[:wrapped] - s[:live_tested]} wrapped RPCs have no live spec."
-    lines << "- Uncovered (no wrapper): #{s[:unwrapped_client]} used by a client, #{s[:unwrapped_no_client]} not " \
+    wrapped_anyway = s[:excluded_wrapped].map { |n, why| "`#{n}` (#{why})" }
+    lines << "- Excluded by review, not to be wrapped: #{s[:excluded].empty? ? 'none' : s[:excluded].map { |k, v| "#{k} #{v}" }.join(', ')}; " \
+             "sent by a wrapper anyway: #{wrapped_anyway.empty? ? 'none' : wrapped_anyway.join(', ')}."
+    lines << "- Uncovered (no wrapper):#{s[:unwrapped_client]} used by a client, #{s[:unwrapped_no_client]} not " \
              "(#{s[:unwrapped_by_client].map { |k, v| "#{k} #{v}" }.join(', ')})."
     lines << "- Sent by a wrapper but registered on neither engine: #{list_or_none(s[:unregistered_sent])}."
     lines << "- Live verdicts: #{s[:live].map { |e, t| "#{e} #{t.map { |k, v| "#{k} #{v}" }.join(', ')}" }.join('; ')}."
     lines << "- Read or write (wrapped RPCs): #{s[:read_write].map { |k, v| "#{k} #{v}" }.join(', ')}."
     lines << "- Operations: #{s[:operations].map { |k, v| "#{k} #{v}" }.join(', ')}."
     lines << ""
-    lines << "**VueCentric calls these in a recorded session, and no wrapper sends them** (#{s[:unwrapped_observed].size}): #{list_or_none(s[:unwrapped_observed])}."
+    calls = s[:unwrapped_observed].map { |n, c| "`#{n}` (#{c})" }
+    lines << "**VueCentric calls these in a recorded session, and no wrapper sends them** (#{calls.size}, most calls first, " \
+             "with the calls): #{calls.empty? ? 'none' : calls.join(', ')}."
     lines << ""
     lines << "## Columns"
     lines << ""
@@ -474,7 +534,61 @@ module RpcInventory
   # Both files for releases (each a Release) and a source checkout at root: { "rpc-inventory.csv" =>, ".md" => }.
   # cov: coverage(root), when the caller already has it (the analysis of lib/ takes seconds).
   def render(releases, root, cov: coverage(root))
-    rs = rows(releases, cov, clients(root))
+    rs = rows(releases, cov, clients(root), reviewed_exclusions(root))
     { "rpc-inventory.csv" => csv(rs), "rpc-inventory.md" => markdown(rs, releases) }
+  end
+
+  # --- the release asset (.github/workflows/rpc-inventory-release.yml) --------------------------
+
+  NOTES_BEGIN = "<!-- rpc-inventory -->"
+  NOTES_END = "<!-- /rpc-inventory -->"
+
+  # The rpms-rpc release before tag that carries rpc-inventory.csv (published, not a draft or prerelease), from a
+  # GitHub releases list; nil when there is none.
+  def previous_release(list, tag)
+    this = Array(list).find { |r| r["tag_name"] == tag }
+    before = this && this["published_at"].to_s
+    Array(list).select do |r|
+      r["tag_name"] != tag && r["draft"] == false && r["prerelease"] == false &&
+        Array(r["assets"]).any? { |a| a["name"] == "rpc-inventory.csv" } && (before.to_s.empty? || r["published_at"].to_s < before)
+    end.max_by { |r| r["published_at"].to_s }&.fetch("tag_name")
+  end
+
+  # The release-notes section: which openrpms releases the assets describe, the command that writes the same bytes,
+  # and the columns, against the previous release's header (consumers check the header and fail on a change).
+  # tags: { "iris" =>, "ydb" => }; header: this CSV's first line; previous: nil or { tag:, header: }.
+  def release_notes(tags, header, previous)
+    cols = header.chomp.split(",")
+    lines = [ NOTES_BEGIN, "## RPC inventory", "" ]
+    lines << "`#{FILES.join('` and `')}`: every RPC registered on IRIS `#{tags.fetch('iris')}` and YottaDB `#{tags.fetch('ydb')}`, " \
+             "one row per RPC, with what this release of rpms-rpc covers."
+    lines << "They are the bytes `bundle exec rake rpc:inventory IRIS=#{tags.fetch('iris')} YDB=#{tags.fetch('ydb')}` writes at this release's commit."
+    lines << ""
+    if previous.nil?
+      lines << "Columns (#{cols.size}; the first release to carry the inventory): #{cols.map { |c| "`#{c}`" }.join(', ')}."
+    else
+      before = previous[:header].chomp.split(",")
+      added = cols - before
+      removed = before - cols
+      lines << if added.empty? && removed.empty? && cols == before
+        "Columns: the same #{cols.size} as `#{previous[:tag]}`."
+      elsif added.empty? && removed.empty?
+        "Columns: the same #{cols.size} as `#{previous[:tag]}`, in a new order: #{cols.map { |c| "`#{c}`" }.join(', ')}."
+      else
+        "Columns changed since `#{previous[:tag]}`: added #{list_or_none(added)}; removed or renamed #{list_or_none(removed)}."
+      end
+    end
+    lines << NOTES_END
+    "#{lines.join("\n")}\n"
+  end
+
+  # body with section in place of an earlier inventory section, or appended after a blank line.
+  def splice_notes(body, section)
+    body = body.to_s
+    start = body.index(NOTES_BEGIN)
+    finish = start && body.index(NOTES_END, start)
+    return "#{body[0...start]}#{section.chomp}#{body[(finish + NOTES_END.size)..]}" if finish
+
+    body.strip.empty? ? section : "#{body.rstrip}\n\n#{section}"
   end
 end
