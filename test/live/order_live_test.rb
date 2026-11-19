@@ -6,8 +6,9 @@ require "rpms_rpc/api/ddr_fileman"
 
 # RpmsRpc::Order's order reads against the pinned build (#220): list (ORWORR
 # AGET), unsigned_for_patient (ORWOR UNSIGN), expired_search_start (ORWOR
-# EXPIRED), sheets_for_patient (ORWOR SHEETS) and result_history (ORWOR
-# RESULT HISTORY). They replace the fabricated-reply cases of order_test.rb.
+# EXPIRED), sheets_for_patient (ORWOR SHEETS), result_history (ORWOR
+# RESULT HISTORY) and action_text (ORWOR ACTION TEXT). They replace the
+# fabricated-reply cases of order_test.rb.
 #
 # What the build holds decides what a reply can show: SEEDORD (openrpms#723)
 # puts one unsigned order on file 100, so the list, unsigned and
@@ -135,6 +136,22 @@ class OrderLiveTest < LiveSpec::Test
     text = RpmsRpc::Order.result_history(dfn, order_ien)
     assert_kind_of String, text
     refute_empty text.strip
+  end
+
+  # -- action_text (ORWOR ACTION TEXT) ----------------------------------------
+
+  # ACTXT(ORY,ORIFN) (ORWOR.m:139) takes one actual; a second died in M with
+  # ACTLSTTOOLONG (#823). The build registers the RPC as ARRAY (#8994 .04 = 2)
+  # while ACTXT answers a global name, ^TMP("ORACTXT",$J), so the CIA broker
+  # writes only the local array's subscripts, of which there are none
+  # (CIANBACT.m DATAOUT, OUT): the reply has no lines, and action_text is nil,
+  # for an order on file as for one that is not.
+  def test_action_text_sends_one_actual_and_the_array_registration_delivers_no_lines
+    dfn, order_ien = first_order
+    flunk_if_order_file_empty!(dfn)
+
+    assert_nil RpmsRpc::Order.action_text(order_ien)
+    assert_nil RpmsRpc::Order.action_text(order_iens.max + 1)
   end
 
   private

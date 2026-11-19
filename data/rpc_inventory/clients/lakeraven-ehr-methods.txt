@@ -1,6 +1,6 @@
-# The rpms-rpc public methods lakeraven-ehr calls (app/, lib/, config/; static, at lakeraven-ehr 88d5a2c0b368), as
-# openrpms-ux rpcs/inputs/lakeraven-ehr.tsv carries it (openrpms-ux 6816564aaf5b). tools/rpc_inventory maps each method to the
-# RPCs it sends now. One RpmsRpc::<Module>.<method> per line (prefix dropped), byte-sorted.
+# The rpms-rpc public methods lakeraven-ehr calls (app/, lib/, config/; static), at lakeraven/lakeraven-ehr bc174019e330, keeping those that
+# send an RPC. tools/rpc_inventory maps each to the RPCs it sends now. Written by rake rpc:inventory_clients.
+# One <Module>.<method> per line (RpmsRpc:: dropped), byte-sorted.
 Agg.edit_check
 Allergy.assessment
 Allergy.no_known_allergies
@@ -78,13 +78,18 @@ Referral.for_patient
 Referral.pending
 Registration.add_eligibility_modifier
 Registration.address_history
+Registration.advance_directive_types
+Registration.advance_directives
 Registration.change_address
+Registration.change_advance_directive
 Registration.eligibility_modifier_choices
 Registration.eligibility_modifiers
 Registration.pick_list
 Registration.preferred_name
 Registration.race_ethnicity
 Registration.race_ethnicity_choices
+Registration.record_advance_directive
+Registration.remove_advance_directive
 Registration.remove_eligibility_modifier
 Registration.set_preferred_name
 Registration.set_race_ethnicity

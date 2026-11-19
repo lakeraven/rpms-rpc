@@ -27,11 +27,11 @@ module LiveSpec
   # declare it. The users are the build's published demo personas (SEEDPERS)
   # and its operator. README, "Live personas", says which runs what.
   PERSONAS = {
-    "PROV123" => "PROVIDER,TEST: the clinician the pilot web tier signs on as (chart reads, notes, visits, referrals)",
+    "PROV123" => "PROVIDER,TEST: the clinician the pilot web tier signs on as (chart reads, notes, visits, referrals, Behavioral Health)",
     "PMD123" => "PROFILE,MD: the physician (orders it authored, alerts, clinical writes PROV123 is not given)",
     "PREG123" => "PROFILE,REG: registration (AGGRPC, and BMXRPC for the duplicate lookup)",
     "PSCH123" => "PROFILE,SCHED: scheduling (BSDXRPC)",
-    "SYS123" => "MANAGER,SYSTEM: the operator (Behavioral Health, which no demo persona holds; build setup)"
+    "SYS123" => "MANAGER,SYSTEM: the operator (coverage writes, which need BQIRPC no registration persona holds; build setup)"
   }.freeze
 
   module_function

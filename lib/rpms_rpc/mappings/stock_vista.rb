@@ -1010,9 +1010,8 @@ module RpmsRpc
       m.text_blob :history_text
     end
 
-    # ORWOR ACTION TEXT — text describing the user-facing action available
-    # on an order (release, sign, discontinue, etc). Takes ORDER_IEN and
-    # the action code; returns a free-text blob.
+    # ACTXT(ORY,ORIFN) (ORWOR.m:139): one actual, IFN;ACT. ACT^ORQ20 writes
+    # each later action's activity lines into ^TMP("ORACTXT",$J,n).
     DataMapper.define(:order_action_text) do |m|
       m.rpc "ORWOR ACTION TEXT"
       m.text_blob :action_text
@@ -1035,8 +1034,8 @@ module RpmsRpc
       m.field 1, :label
     end
 
-    # ORWOR TSALL — site-level catalog of order sheets, independent of
-    # patient. One row per sheet: IEN^NAME.
+    # TSALL(LST) (ORWOR.m:44-46): the site's active treating specialties,
+    # file 45.7, not order sheets. One row per specialty: IEN^NAME.
     DataMapper.define(:order_sheets_all) do |m|
       m.rpc "ORWOR TSALL"
       m.field 0, :ien, :integer
