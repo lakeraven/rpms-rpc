@@ -2471,9 +2471,12 @@
     },
     "ORWLRR INTERIMG": {
       "methods": {
+        "RpmsRpc::Lab.results": "read",
         "RpmsRpc::Lab.specimen": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/lab-results.yml"
+      ]
     },
     "ORWLRR NEWOLD": {
       "methods": {

@@ -196,6 +196,7 @@
 "RpmsRpc::ImmunizationRefusal.record": non_idempotent_write
 "RpmsRpc::Lab.cover_sheet_orders": read
 "RpmsRpc::Lab.result_date_range": read
+"RpmsRpc::Lab.results": read
 "RpmsRpc::Lab.specimen": read
 "RpmsRpc::Location.find": read
 "RpmsRpc::Location.search": read
