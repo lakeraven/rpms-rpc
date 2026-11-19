@@ -592,8 +592,38 @@ rake rpc:inventory IRIS=<tag> YDB=<tag>   # pinned: the same tags and checkout g
 
 It downloads each release's `<tag>-rpcs.json`, `<tag>-rpms-rpc-live.json`, `<tag>-harness.json` and `<tag>-conformance-<persona>.jsonl` with `gh` into `tmp/openrpms/<tag>/` (`CACHE=` overrides) once, and writes `tmp/rpc-inventory/` (`OUT=`).
 Nothing is committed: the output is a view of published releases, as `rake openrpms:matrix` is.
-The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source; refresh them when a client changes.
+The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source.
+Refresh them from where each kind of evidence lives when a client changes, then commit the four files:
+
+```sh
+rake rpc:inventory_clients CLOUD_RPMS=<dir> OPENRPMS=<dir> LAKERAVEN_EHR=<dir> BPRM_XML=<file>
+# EXPLICIT SUCCESS: rpc:inventory_clients wrote data/rpc_inventory/clients/: vuecentric-observed.tsv 145, ...
+```
+
+| Snapshot | Source |
+|---|---|
+| `vuecentric-observed.tsv` | the recorded VueCentric sessions, one row per RPC and recording with its calls: CIA activity-log exports in cloud-rpms `evidence/retained/`, `rpc-trace.sh` recordings in cloud-rpms `docs/analyst/rpc-trace/` (kept out of git there) and openrpms `test/fixtures/client-trace/` |
+| `vuecentric-named.txt` | the RPC names the released client's binaries carry, cloud-rpms `scripts/shared/client_named_rpcs.tsv` |
+| `lakeraven-ehr-methods.txt` | the rpms-rpc public methods lakeraven-ehr's `app/`, `lib/` and `config/` call, keeping those that send an RPC |
+| `bprm-entry-points.txt` | the M entry points BPRM's stored procedures call in process, from its stored-procedure XML; the inventory matches them to each release's registered entry points |
+
+Each header names the repository and the last commit that changed what was read, and the sha256 of any file that commit does not pin.
+A source that is missing, is not the named repository, or has uncommitted changes there fails with EXPLICIT FAILURE, and all four snapshots stay as they were.
+The same sources give the same bytes.
+The VueCentric columns count calls: `vuecentric_calls` sums them over the recorded sessions, and `vuecentric_sessions` counts the sessions that made them.
+`excluded` carries rpms-rpc's reviewed decision not to wrap an RPC (`gui_plumbing` or `write_needs_fixture` in `data/rpc_coverage/exclusions.yml`); the reach classes are in `reach_*`.
 The column definitions are in the Markdown and in `tools/rpc_inventory/`.
+
+Each published release carries both files as assets, so a consumer pins one file by the gem's tag and needs no checkout:
+
+```sh
+gh release download <rpms-rpc tag> -R lakeraven/rpms-rpc -p rpc-inventory.csv
+```
+
+`.github/workflows/rpc-inventory-release.yml` writes them at the release's commit for the newest published release of each engine, uploads them and checks the uploaded bytes.
+It adds an "RPC inventory" section to the release notes: both openrpms tags, the `rake rpc:inventory IRIS=<tag> YDB=<tag>` command that writes the same bytes, and the columns added or removed since the previous release that carries the CSV.
+A column change is listed there, so a consumer that checks the header can see why it stopped matching.
+Running it by hand (`workflow_dispatch`) re-attaches them to an existing release, for a pair of tags given or the newest.
 
 ## Order checks
 

@@ -592,36 +592,6 @@ captures:
   raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
     by PROFILE,SCHED.\x1E"
   sha256: 4f2caf4f37db3ccdfdc6ed231142210318cfacd3f283217fa3ab50e041bb86f9
-- name: races_read/1
-  rpc: DDR GETS ENTRY DATA
-  inputs:
-  - FILE: '9000001'
-    IENS: 990009,
-    FIELDS: ".01"
-    FLAGS: I
-  context: race_ethnicity after the replace
-  raw_return: "5\0[Data]\r9000001^990009^.01^990009^\r"
-  sha256: 1bffc8a56f96cf0adcd6840bba1357ee718af7bc890dd9ddd92f648a2f03bcb3
-- name: races_read/2
-  rpc: DDR LISTER
-  inputs:
-  - FILE: '2.02'
-    IENS: ",990009,"
-    FIELDS: "@;.01E;.02I;.02E"
-    FLAGS: IP
-  context: race_ethnicity after the replace
-  raw_return: "6\0[Data]\r2^AMERICAN INDIAN OR ALASKA NATIVE^1^SELF IDENTIFICATION\r14^WHITE^2^PROXY\r"
-  sha256: 931a6ce1b2e8f983b4475b1198e6d413b392ff30f725d4b278a21eb813701782
-- name: races_read/3
-  rpc: DDR LISTER
-  inputs:
-  - FILE: '2.06'
-    IENS: ",990009,"
-    FIELDS: "@;.01E;.02I;.02E"
-    FLAGS: IP
-  context: race_ethnicity after the replace
-  raw_return: "7\0[Data]\r2^NOT HISPANIC OR LATINO^1^SELF IDENTIFICATION\r"
-  sha256: d6c1dfbbb5a5f6c1b9fde9cc12016abc3c8f98340f4eca74a94ba0478eb03953
 - name: races_narrow/1
   rpc: AGG LOCK PATIENT
   inputs:

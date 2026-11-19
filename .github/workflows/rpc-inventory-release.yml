@@ -1,0 +1,88 @@
+name: RPC inventory release assets
+# Attaches the RPC inventory (rake rpc:inventory, tools/rpc_inventory) to the gem's GitHub release, so a consumer
+# (the openrpms-ux RPC use page) pins one published file by the gem's tag instead of running the task:
+#   rpc-inventory.csv   one row per RPC registered on an IRIS and a YottaDB openrpms release, with what rpms-rpc covers
+#   rpc-inventory.md    the same rows with a summary and the column legend
+# The release notes gain an "RPC inventory" section naming both openrpms tags, the command that writes the same
+# bytes at the release's commit, and the columns against the previous release that carries the CSV.
+# Runs when a release is published (the newest published release of each engine); workflow_dispatch re-attaches
+# them to an existing release, optionally for a given pair. Reading openrpms releases needs OPENRPMS_READ_TOKEN
+# while lakeraven/openrpms is private; uploading and editing the release use this repository's own token.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing rpms-rpc release tag to attach the inventory to (e.g. v0.5.0)"
+        required: true
+      iris:
+        description: "openrpms IRIS release tag (blank: the newest published one)"
+        required: false
+        default: ""
+      ydb:
+        description: "openrpms YottaDB release tag (blank: the newest published one)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          # The minor .ruby-version names; setup-ruby takes the newest patch the runner offers.
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Pick the openrpms releases
+        id: tags
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+          IRIS: ${{ inputs.iris }}
+          YDB: ${{ inputs.ydb }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=No access to openrpms releases::OPENRPMS_READ_TOKEN is not set, so the inventory has no release to describe."
+            exit 1
+          fi
+          bundle exec rake rpc:inventory_tags | tee -a "$GITHUB_OUTPUT"
+      - name: Write the inventory
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+        run: |
+          bundle exec rake rpc:inventory IRIS="${{ steps.tags.outputs.iris }}" YDB="${{ steps.tags.outputs.ydb }}" OUT=pkg/rpc-inventory
+      - name: Write the release notes section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle exec rake rpc:inventory_notes RELEASE="$TAG" IRIS="${{ steps.tags.outputs.iris }}" YDB="${{ steps.tags.outputs.ydb }}" \
+            CSV=pkg/rpc-inventory/rpc-inventory.csv NOTES=pkg/release-notes.md
+      - name: Attach the inventory and the notes to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" pkg/rpc-inventory/rpc-inventory.csv pkg/rpc-inventory/rpc-inventory.md --clobber
+          gh release edit "$TAG" --notes-file pkg/release-notes.md
+      - name: Prove the release carries both, byte for byte, and names both tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/released
+          for f in rpc-inventory.csv rpc-inventory.md; do
+            gh release download "$TAG" --pattern "$f" --dir tmp/released --clobber
+            cmp "pkg/rpc-inventory/$f" "tmp/released/$f"
+          done
+          command="rake rpc:inventory IRIS=${{ steps.tags.outputs.iris }} YDB=${{ steps.tags.outputs.ydb }}"
+          gh release view "$TAG" --json body --jq .body | grep -qF "$command"
+          echo "EXPLICIT SUCCESS: $TAG carries rpc-inventory.csv and rpc-inventory.md, and its notes name $command"
