@@ -230,14 +230,29 @@ module RpmsRpc
     end
     shape :clinic_search, resource: "problems", verb: "GET", path: "/problems/clinics/{clinic_ien}/search"
 
+    # The problem's detail report: the display text DETAIL^ORQQPL builds,
+    # one line per Y(I), joined with newlines; nil for an invalid id or when
+    # nothing came back.
+    #
     # Formals: DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21) — the problem IEN is
-    # the third formal, after the patient; ID is declared but never read
-    # (ORQQPL.m:21-45). An IEN-only frame put the IEN in DFN and died in M
-    # on PROBIEN (#259).
+    # the third formal, after the patient; DFN and ID are declared but never
+    # read, so the report is the problem's whatever DFN is sent. An IEN-only
+    # frame put the IEN in DFN and died in M on PROBIEN (#259).
+    #
+    # The lines (ORQQPL.m:26-59): "NARRATIVE (DIAGNOSIS)", an inactive-code
+    # notice when the ICD code is inactive, then labelled lines ("   Onset: ",
+    # "  Status: " with /ACUTE or /CHRONIC, " SC Cond: ", "Exposure: ",
+    # "Provider: ", "  Clinic: ", "Recorded: ", " Entered: ", " Updated: "),
+    # comments and audit history when there are any, and " " spacer lines.
+    # They are text, not a caret row (#821). A problem not on file dies in M
+    # (DETAIL^GMPLUTL2 leaves ORGMPL("NARRATIVE") undefined), and that raises.
     def details(dfn, ien)
       return nil if invalid_id?(dfn) || invalid_id?(ien)
 
-      DataMapper.problem_detail.fetch_one(dfn.to_s, ien.to_s)
+      text = DataMapper.problem_detail.fetch_text(dfn.to_s, ien.to_s)
+      return nil if text.nil? || text.strip.empty?
+
+      text
     end
     shape :details, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/{ien}"
 
