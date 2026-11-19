@@ -784,11 +784,11 @@ A spec that declares no persona fails, and so does one run by hand as a persona 
 
 | Persona | User | Role | Runs |
 |---|---|---|---|
-| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
+| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, alerts, Behavioral Health (AMHGRPC), sign-on and broker behaviour |
 | `PMD123` | PROFILE,MD | the physician | orders (including the unsigned order it authored), alerts, and the clinical writes PROV123 is not given |
 | `PREG123` | PROFILE,REG | registration | patient registration and edits, coverage, tribal enrollment (AGGRPC, and BMXRPC for the duplicate lookup) |
 | `PSCH123` | PROFILE,SCHED | scheduling | clinics, availability, booking, check-in and check-out, wait list (BSDXRPC) |
-| `SYS123` | MANAGER,SYSTEM | the operator | Behavioral Health (AMHGRPC, which no demo persona holds) and build setup |
+| `SYS123` | MANAGER,SYSTEM | the operator | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration persona holds; #814) and build setup |
 
 The demo personas' pairs are the build's published seed pairs; only the operator's is not shown here.
 What each persona is refused outside its role is itself proven: `test/live/least_privilege_live_test.rb` runs as every persona, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers its holders and refuses everyone else.
