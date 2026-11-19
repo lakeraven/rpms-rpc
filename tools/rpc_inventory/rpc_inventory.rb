@@ -23,7 +23,8 @@ require_relative "../rpc_coverage/rpc_coverage"
 #                   captured-reply fixtures, retry_safety.yml (read or write), and the openapi:api and
 #                   openapi:surface addressing (the wrapper's REST verb and path, and the RPC name's own address),
 #                   and the reviewed exclusions in data/rpc_coverage/exclusions.yml (a decided "do not wrap")
-#   the clients     data/rpc_inventory/clients/ (VueCentric named and observed, BPRM, lakeraven-ehr) and
+#   the clients     data/rpc_inventory/clients/ (VueCentric named and observed, BPRM entry points, lakeraven-ehr;
+#                   rake rpc:inventory_clients writes them from their sources, tools/rpc_inventory/clients.rb) and
 #                   data/rpc_tiers/observed/ (a recorded VueCentric session); observed lists carry call counts
 #
 # Same inputs, same bytes: rows are byte-sorted by RPC name, every list in a cell is sorted, and nothing reads a
@@ -62,7 +63,7 @@ module RpcInventory
     "vuecentric" => "`observed` when a recorded VueCentric session called it, `named` when only the client's binaries name it",
     "vuecentric_calls" => "how many times the recorded VueCentric sessions called it, all sessions summed; blank when none did",
     "vuecentric_sessions" => "how many recorded VueCentric sessions called it at least once; blank when none did",
-    "bprm" => "`entry-point` when a BPRM stored procedure calls its entry point in process (BPRM sends no RPC)",
+    "bprm" => "`entry-point` when a BPRM stored procedure calls its registered entry point (TAG^ROUTINE) in process on either engine (BPRM sends no RPC)",
     "lakeraven_ehr" => "`yes` when a gem method lakeraven-ehr calls sends it",
     "excluded" => "rpms-rpc's reviewed decision not to wrap it (data/rpc_coverage/exclusions.yml): " \
                   "#{REVIEWED.map { |r| "`#{r}`" }.join(' or ')}; blank otherwise, and kept when a wrapper sends it anyway",
@@ -221,7 +222,7 @@ module RpcInventory
     all.select { |_, reason| REVIEWED.include?(reason) }.sort.to_h
   end
 
-  # { vuecentric_named:, vuecentric_observed:, bprm:, lakeraven_ehr_methods: } as sorted name lists, and
+  # { vuecentric_named:, vuecentric_observed:, bprm_entry_points:, lakeraven_ehr_methods: } as sorted lists, and
   # vuecentric_counts (observed_calls).
   def clients(root)
     dir = File.join(root, CLIENT_DIR)
@@ -230,7 +231,7 @@ module RpcInventory
       vuecentric_named: names_in(File.join(dir, "vuecentric-named.txt")).uniq.sort,
       vuecentric_observed: counts.keys,
       vuecentric_counts: counts,
-      bprm: names_in(File.join(dir, "bprm.txt")).uniq.sort,
+      bprm_entry_points: names_in(File.join(dir, "bprm-entry-points.txt")).uniq.sort,
       lakeraven_ehr_methods: names_in(File.join(dir, "lakeraven-ehr-methods.txt")).map { |m| m.delete_prefix("RpmsRpc::") }.uniq.sort
     }
   end
@@ -340,7 +341,7 @@ module RpcInventory
     end
     named = cli[:vuecentric_named].to_h { |n| [ n, true ] }
     observed = cli[:vuecentric_observed].to_h { |n| [ n, true ] }
-    bprm = cli[:bprm].to_h { |n| [ n, true ] }
+    bprm = cli[:bprm_entry_points].to_h { |n| [ n, true ] }
 
     names = (by_engine.values.flat_map { |r| r.surface.names } + senders.keys).uniq.sort_by(&:b)
     names.map do |name|
@@ -370,7 +371,7 @@ module RpcInventory
         "vuecentric" => if observed[name] then "observed" elsif named[name] then "named" else "" end,
         "vuecentric_calls" => cli[:vuecentric_counts].dig(name, :calls).to_s,
         "vuecentric_sessions" => cli[:vuecentric_counts].dig(name, :sessions).to_s,
-        "bprm" => bprm[name] ? "entry-point" : "",
+        "bprm" => rpc.values.compact.any? { |r| bprm[r.entry_point.to_s] } ? "entry-point" : "",
         "lakeraven_ehr" => ms.any? { |m| lre.include?(m["key"]) } ? "yes" : "",
         "excluded" => excluded.fetch(name, ""),
         "wrappers" => ms.map { |m| m["key"] }.join("; "),

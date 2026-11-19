@@ -1,8 +1,9 @@
-# RPCs the VueCentric client called in two recorded sessions on YottaDB stacks (2026-09-23 and 2026-10-21): the CIA
-# activity log (#19941.24) exported server side, only sessions of application CIAV VUECENTRIC from a named workstation,
-# as openrpms-ux rpcs/inputs/vuecentric-observed.tsv carries it (openrpms-ux 6816564aaf5b), rows byte for byte.
-# One row per RPC and recording, with how many times that recording called it. data/rpc_tiers/observed/ is a third
-# session; tools/rpc_inventory sums the calls and counts the sessions across both.
+# RPCs the VueCentric client called in a recorded session: the CIA activity log (#19941.24) exported server side, only
+# sessions of application CIAV VUECENTRIC from a named workstation. One row per RPC and recording, with its calls.
+# Written by rake rpc:inventory_clients from lakeraven/cloud-rpms b7358d142804 and lakeraven/openrpms 774d2526d43c:
+#   edit-referral on YDB stack 1016, bcer-9.0-20261015-46dd047-ydb, MANAGER,SYSTEM, 2026-10-21: cloud-rpms docs/analyst/rpc-trace/ (not in git), sha256 bd573cb0363b442ab6b0ee8f59404b48300aff8d0eb4d1f6d0468c82f98b2658
+#   session on YDB stack 0921, MANAGER,SYSTEM, 2026-09-23: cloud-rpms evidence/retained/, sha256 6a1d0d3049ffa2aace71f64b2c8d00db51a9bcb403c0721b00fe32fe498bfd26
+# data/rpc_tiers/observed/ is another session; tools/rpc_inventory sums the calls and counts the sessions across both.
 rpc	recording	calls
 BEHOARCV LIST	session on YDB stack 0921, MANAGER,SYSTEM, 2026-09-23	1
 BEHOART SIGNLIST	edit-referral on YDB stack 1016, bcer-9.0-20261015-46dd047-ydb, MANAGER,SYSTEM, 2026-10-21	1

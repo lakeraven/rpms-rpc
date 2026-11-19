@@ -1,7 +1,6 @@
-# RPC names the released VueCentric client's binaries carry (client release ehr-repository-cehrtt15-20260829): a string
-# scan of its 532 binaries, cloud-rpms scripts/shared/client_named_rpcs.tsv at ce5709d9c9f5, as openrpms-ux rpcs/inputs/
-# vuecentric-named.tsv carries it (openrpms-ux 6816564aaf5b). The client CAN call these; a recorded session shows which it does.
-# Read by tools/rpc_inventory (rake rpc:inventory). One name per line, byte-sorted.
+# RPC names the released VueCentric client's binaries carry (client release ehr-repository-cehrtt15-20260829): a string scan of
+# its binaries, lakeraven/cloud-rpms 130876190de8 scripts/shared/client_named_rpcs.tsv. The client CAN call these; a recorded session shows which it does.
+# Written by rake rpc:inventory_clients. One name per line, byte-sorted.
 AMHBH ENCOUNTER FORM
 AMHBH RECORD DISPLAY
 AMHBH SUICIDE FORM DSP
