@@ -862,7 +862,9 @@ module RpmsRpc
     def legal_name_result(reply, rien_text)
       result = interpret_entry_write(reply)
       return result if result.nil?
-      return result.merge(written: :unknown) unless result[:success]
+      unless result[:success]
+        return result.merge(message: legal_name_server_text(result[:message]), written: :unknown)
+      end
 
       returned = parse_reply(reply)[:records].first[:rien].to_s
       return result if returned == rien_text
@@ -870,6 +872,9 @@ module RpmsRpc
       { success: false, error: :legal_name_unverified, written: true,
         message: "LEGL answered success for RIEN #{returned.inspect}, not #{rien_text}" }
     end
+
+    # The server's bytes as a new UTF-8 String, each invalid byte one U+FFFD.
+    def legal_name_server_text(bytes) = String.new(bytes.to_s).force_encoding(Encoding::UTF_8).scrub("�")
 
     # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.
     def interpret_entry_write(reply)
