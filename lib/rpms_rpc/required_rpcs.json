@@ -2069,6 +2069,7 @@
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/registration-race-ethnicity.yml",
         "test/fixtures/captured_replies/tribal.yml",
         "test/fixtures/wire_captures/ddr-gets-entry-data.yml"
       ]
@@ -2166,6 +2167,7 @@
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
+        "test/fixtures/captured_replies/registration-race-ethnicity.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
@@ -2474,7 +2476,9 @@
       "methods": {
         "RpmsRpc::Order.action_text": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/order-reads.yml"
+      ]
     },
     "ORWOR EXPIRED": {
       "methods": {
@@ -2487,6 +2491,7 @@
         "RpmsRpc::Order.result": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/order-reads.yml",
         "test/fixtures/captured_replies/read-call-formals.yml"
       ]
     },
@@ -2506,7 +2511,9 @@
       "methods": {
         "RpmsRpc::Order.all_sheets": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/order-reads.yml"
+      ]
     },
     "ORWOR UNSIGN": {
       "methods": {
