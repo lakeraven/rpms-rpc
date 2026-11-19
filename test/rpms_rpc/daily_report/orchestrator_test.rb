@@ -9,11 +9,13 @@ require "rpms_rpc/daily_report"
 # rpms-rpc#365: orchestration with injected collaborators (release lookup, runner, docker, clock, writer).
 class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
-  PROV123_ACCESS = "SENTINEL-PROV123-ACCESS-SECRET"
-  PROV123_VERIFY = "SENTINEL-PROV123-VERIFY-SECRET"
-  SYS123_ACCESS = "SENTINEL-SYS123-ACCESS-SECRET"
-  SYS123_VERIFY = "SENTINEL-SYS123-VERIFY-SECRET"
-  SECRET_PATTERN = /#{PROV123_ACCESS}|#{PROV123_VERIFY}|#{SYS123_ACCESS}|#{SYS123_VERIFY}/
+  PERSONAS = RpmsRpc::DailyReport::LIVE_PERSONAS
+  SIGN_ON = PERSONAS.to_h do |p|
+    [ p, [ "SENTINEL-#{p}-ACCESS-SECRET", "SENTINEL-#{p}-VERIFY-SECRET" ] ]
+  end.freeze
+  PROV123_ACCESS, PROV123_VERIFY = SIGN_ON.fetch("PROV123")
+  SYS123_ACCESS, SYS123_VERIFY = SIGN_ON.fetch("SYS123")
+  SECRET_PATTERN = Regexp.union(SIGN_ON.values.flatten)
   LATEST = { tag: "bcer-9.0-20261101-latest-ydb", published_at: "2026-11-01T00:00:00Z", image: "ghcr.io/lakeraven/rpms-ydb:bcer-9.0-20261101-latest-ydb" }
   DIGEST_PINNED_LATEST = {
     tag: "bcer-9.0-20990101-abc1234-ydb",
@@ -26,6 +28,11 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       Finished in 0.01s, 100 runs/s, 100 assertions/s.
       1 runs, 1 assertions, 0 failures, 0 errors, 0 skips
     OUT
+  end
+
+  # One passing summary per suite: rake test, then each live persona.
+  def passing_runs(count = 1 + PERSONAS.size)
+    Array.new(count) { { stdout: passing_minitest } }
   end
 
   def failing_minitest
@@ -169,12 +176,9 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def persona_sign_on_env(overrides = {})
     {
       "BROKER_HOST" => "127.0.0.1",
-      "BROKER_PORT" => "19300",
-      "PROV123_ACCESS" => PROV123_ACCESS,
-      "PROV123_VERIFY" => PROV123_VERIFY,
-      "SYS123_ACCESS" => SYS123_ACCESS,
-      "SYS123_VERIFY" => SYS123_VERIFY
-    }.merge(overrides)
+      "BROKER_PORT" => "19300"
+    }.merge(SIGN_ON.each_with_object({}) { |(p, (access, verify)), acc| acc["#{p}_ACCESS"] = access; acc["#{p}_VERIFY"] = verify })
+     .merge(overrides)
   end
 
   def refute_secrets_in(*texts)
@@ -188,11 +192,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       root: ROOT,
       env: env,
       releases: FakeReleases.new(latest: LATEST),
-      runner: FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ]),
+      runner: FakeRunner.new(passing_runs),
       docker: FakeDocker.new(image: "ghcr.io/lakeraven/rpms-ydb:bcer-9.0-20261030-under-ydb"),
       broker_probe: FakeBrokerProbe.new([ true ]),
       clock: FakeClock.new([ Time.utc(2026, 10, 30, 12, 0, 0), Time.utc(2026, 10, 30, 12, 0, 10),
@@ -257,20 +257,23 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     end
   end
 
-  def test_runs_test_and_live_for_both_personas_with_expected_env
+  def test_runs_test_and_live_once_per_live_persona_with_its_own_pair
     Dir.mktmpdir do |diffs|
       daily = File.join(diffs, "rpc-coverage/daily")
       FileUtils.mkdir_p(daily)
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner)
 
       assert_equal 0, orch.run
 
-      assert_equal 3, runner.calls.size
+      assert_equal 1 + PERSONAS.size, runner.calls.size
+      assert_equal PERSONAS, runner.calls.drop(1).map { |call| call[:env]["PERSONA"] }
+      runner.calls.drop(1).each do |call|
+        persona = call[:env]["PERSONA"]
+        assert_equal %w[rake test:live], call[:argv]
+        assert_equal SIGN_ON.fetch(persona), [ call[:env]["RPMS_ACCESS"], call[:env]["RPMS_VERIFY"] ], persona
+        assert_equal(persona == "PROV123" ? "development" : nil, call[:env]["VISTA_RPC_ENV"], persona)
+      end
       unit = runner.calls[0]
       assert_equal %w[rake test], unit[:argv]
       refute unit[:env].key?("PERSONA")
@@ -290,7 +293,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_equal PROV123_VERIFY, prov[:env]["RPMS_VERIFY"]
       refute_equal SYS123_ACCESS, prov[:env]["RPMS_ACCESS"]
 
-      sys = runner.calls[2]
+      sys = runner.calls.last
       assert_equal %w[rake test:live], sys[:argv]
       assert_equal "SYS123", sys[:env]["PERSONA"]
       refute sys[:env].key?("VISTA_RPC_ENV")
@@ -304,19 +307,16 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs(PERSONAS.size))
       env = persona_sign_on_env("PROV123_ACCESS" => nil, "PROV123_VERIFY" => nil)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
 
       assert_equal 1, orch.run
 
-      assert_equal 2, runner.calls.size
+      assert_equal PERSONAS.size, runner.calls.size
       assert_equal %w[rake test], runner.calls[0][:argv]
-      assert_equal "SYS123", runner.calls[1][:env]["PERSONA"]
-      assert_equal SYS123_ACCESS, runner.calls[1][:env]["RPMS_ACCESS"]
+      assert_equal PERSONAS - [ "PROV123" ], runner.calls.drop(1).map { |call| call[:env]["PERSONA"] }
+      assert_equal SYS123_ACCESS, runner.calls.last[:env]["RPMS_ACCESS"]
 
       report = writer.writes.map(&:last).join("\n")
       assert_match(/missing PROV123_ACCESS\/PROV123_VERIFY/i, report)
@@ -329,17 +329,14 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs(PERSONAS.size))
       env = persona_sign_on_env("SYS123_ACCESS" => "  ", "SYS123_VERIFY" => "")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
 
       assert_equal 1, orch.run
 
-      assert_equal 2, runner.calls.size
-      assert_equal "PROV123", runner.calls[1][:env]["PERSONA"]
+      assert_equal PERSONAS.size, runner.calls.size
+      assert_equal PERSONAS - [ "SYS123" ], runner.calls.drop(1).map { |call| call[:env]["PERSONA"] }
 
       report = writer.writes.map(&:last).join("\n")
       assert_match(/missing SYS123_ACCESS\/SYS123_VERIFY/i, report)
@@ -350,11 +347,8 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_exit_nonzero_when_any_suite_fails
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: failing_minitest, success: false },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: failing_minitest, success: false } ] +
+                              passing_runs(PERSONAS.size - 1))
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner)
 
       assert_equal 1, orch.run
@@ -366,11 +360,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
       io_writer = StringIOWriter.new
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, summary_writer: io_writer)
 
       orch.run
@@ -404,6 +394,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_match(/127\.0\.0\.1:19301/, plan)
       assert_match(/127\.0\.0\.1:19302:9101/, plan)
       assert_match(/bcer-9\.0-20261101-latest-ydb/, plan)
+      PERSONAS.each { |persona| assert_includes plan, "rake test:live PERSONA=#{persona}" }
       assert_empty runner.calls
       assert_empty docker.runs
       assert_empty docker.removes
@@ -417,20 +408,12 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       docker = FakeDocker.new
       env = persona_sign_on_env("FRESH" => "1")
 
-      runner_ok = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner_ok = FakeRunner.new(passing_runs)
       orchestrator(rpms_diffs_dir: diffs, runner: runner_ok, docker: docker, env: env, broker_probe: FakeBrokerProbe.new([ true ])).run
       assert_equal [ [ "rpms-rpc-daily-report-test", true ] ], docker.removes
 
       docker2 = FakeDocker.new
-      runner_fail = FakeRunner.new([
-        { stdout: failing_minitest, success: false },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner_fail = FakeRunner.new([ { stdout: failing_minitest, success: false } ] + passing_runs(PERSONAS.size))
       orchestrator(rpms_diffs_dir: diffs, runner: runner_fail, docker: docker2, env: env,
                    broker_probe: FakeBrokerProbe.new([ true ])).run
       assert_equal [ [ "rpms-rpc-daily-report-test", true ] ], docker2.removes
@@ -460,11 +443,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_exit_nonzero_when_minitest_output_cannot_be_parsed
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: "bundler exploded before minitest\n" },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new([ { stdout: "bundler exploded before minitest\n" } ] + passing_runs(PERSONAS.size))
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner)
 
       assert_equal 1, orch.run
@@ -474,11 +453,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_rake_test_child_never_receives_live_disposable_or_persona_sign_on_keys
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       env = persona_sign_on_env("LIVE_DISPOSABLE" => "1", "BROKER_PROTOCOL" => "xwb")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env)
 
@@ -496,11 +471,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_fresh_live_children_receive_live_disposable_on_loopback_broker
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       env = persona_sign_on_env("FRESH" => "1")
       orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env,
                    broker_probe: FakeBrokerProbe.new([ true ])).run
@@ -517,7 +488,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_fresh_container_publishes_bmx_and_live_children_receive_its_port
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: passing_minitest }, { stdout: passing_minitest } ])
+      runner = FakeRunner.new(passing_runs)
       docker = FakeDocker.new
       orchestrator(rpms_diffs_dir: diffs, runner: runner, docker: docker, env: persona_sign_on_env("FRESH" => "1"),
                    broker_probe: FakeBrokerProbe.new([ true ])).run
@@ -533,7 +504,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_existing_broker_passes_the_operators_bmx_port_to_live_children
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: passing_minitest }, { stdout: passing_minitest } ])
+      runner = FakeRunner.new(passing_runs)
       orchestrator(rpms_diffs_dir: diffs, runner: runner, env: persona_sign_on_env("BMX_PORT" => "19400")).run
 
       runner.calls.drop(1).each { |call| assert_equal "19400", call[:env]["BMX_PORT"] }
@@ -543,22 +514,14 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_existing_broker_passes_live_disposable_only_when_operator_set
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: persona_sign_on_env)
       orch.run
       runner.calls.drop(1).each do |call|
         refute call[:env].key?("LIVE_DISPOSABLE")
       end
 
-      runner2 = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner2 = FakeRunner.new(passing_runs)
       orch2 = orchestrator(rpms_diffs_dir: diffs, runner: runner2,
                            env: persona_sign_on_env("LIVE_DISPOSABLE" => "1"))
       orch2.run
@@ -571,17 +534,12 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_broker_protocol_passes_through_to_live_children_when_set
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       env = persona_sign_on_env("BROKER_PROTOCOL" => "bmx")
       orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env).run
 
       refute runner.calls[0][:env].key?("BROKER_PROTOCOL")
-      assert_equal "bmx", runner.calls[1][:env]["BROKER_PROTOCOL"]
-      assert_equal "bmx", runner.calls[2][:env]["BROKER_PROTOCOL"]
+      runner.calls.drop(1).each { |call| assert_equal "bmx", call[:env]["BROKER_PROTOCOL"] }
     end
   end
 
@@ -594,11 +552,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new([
-        { stdout: ZERO_RUNS },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new([ { stdout: ZERO_RUNS } ] + passing_runs(PERSONAS.size))
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer)
 
       assert_equal 1, orch.run
@@ -612,11 +566,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       docker = FakeDocker.new(image: nil)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, docker: docker)
 
@@ -719,11 +669,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       FileUtils.mkdir_p(daily)
       writer = FakeWriter.new
       releases = FakeReleases.new(latest: DIGEST_PINNED_LATEST)
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       env = persona_sign_on_env("FRESH" => "1")
       orch = orchestrator(
         rpms_diffs_dir: diffs,
@@ -745,11 +691,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   def test_fresh_build_env_matching_release_tag_is_accepted_when_image_is_digest
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new(passing_runs)
       tag = DIGEST_PINNED_LATEST.fetch(:tag)
       env = persona_sign_on_env("FRESH" => "1", "BUILD" => tag)
       orch = orchestrator(
@@ -761,7 +703,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       )
 
       assert_equal 0, orch.run
-      assert_equal 3, runner.calls.size
+      assert_equal 1 + PERSONAS.size, runner.calls.size
     end
   end
 
@@ -927,8 +869,10 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
 
       assert_equal 1, runner.calls.size, "only rake test runs; live suites error without runner children"
       report = writer.writes.map(&:last).join("\n")
-      assert_match(/missing PROV123_ACCESS\/PROV123_VERIFY/i, report)
-      assert_match(/missing SYS123_ACCESS\/SYS123_VERIFY/i, report)
+      PERSONAS.each do |persona|
+        assert_match(/missing #{persona}_ACCESS\/#{persona}_VERIFY/, report)
+        assert_match(/\| rake test:live \(#{persona}\) \|/, report, "#{persona} has its row even without a pair")
+      end
     end
   end
 
@@ -963,16 +907,19 @@ def test_each_suite_links_a_redacted_log_beside_the_report_even_when_codes_equal
     FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
     writer = FakeWriter.new
     failing_live = "#{failing_minitest}persona PROV123 signed on with PROV123!!\n"
-    runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: failing_live }, { stdout: passing_minitest } ])
-    env = persona_sign_on_env("PROV123_ACCESS" => "PROV123", "PROV123_VERIFY" => "PROV123!!",
-                              "SYS123_ACCESS" => "SYS123", "SYS123_VERIFY" => "SYS123!!")
-    orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
+    runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: failing_live } ] + passing_runs(PERSONAS.size - 1))
+    demo = PERSONAS.each_with_object({}) { |p, acc| acc["#{p}_ACCESS"] = p; acc["#{p}_VERIFY"] = "#{p}!!" }
+    orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: persona_sign_on_env(demo))
 
     assert_equal 1, orch.run
 
     report_path, report = writer.writes.find { |path, _| path.end_with?(".md") }
     links = report.scan(/\[log\]\(([^)]+)\)/).flatten
-    assert_equal 3, links.size, "one log link per suite that ran: #{report}"
+    assert_equal 1 + PERSONAS.size, links.size, "one log link per suite that ran: #{report}"
+    PERSONAS.each do |persona|
+      assert_match(/^\| rake test:live \(#{persona}\) \|/, report, "a demo access code is the persona's name, and its row keeps it")
+      refute_includes report, "#{persona}!!"
+    end
     written = writer.writes.to_h
     links.each do |link|
       assert_equal File.basename(link), link, "the link is a sibling file name"
