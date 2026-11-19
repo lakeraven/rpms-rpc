@@ -17,14 +17,15 @@
 # digest-pinned image; a different BUILD= is an error on a real run and on
 # a dry run. A dry run that still cannot resolve a release writes the error
 # and exits non-zero. An unknown build exits non-zero.
-# Sign-on: PROV123_ACCESS, PROV123_VERIFY, SYS123_ACCESS, SYS123_VERIFY.
-# Those values are handed only to that persona's rake test:live child.
+# Sign-on: <PERSONA>_ACCESS and <PERSONA>_VERIFY for each live persona
+# (PROV123, PMD123, PREG123, PSCH123, SYS123; README, Live personas).
+# Each pair is handed only to that persona's rake test:live child.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
 # (RPMS_DIFFS_DIR selects the checkout). Each suite's output, redacted like
 # the report, is kept beside it as <date>-<build>.<suite id>.log and linked
 # from the suite's row (#757). The task exits with the report status.
 namespace :report do
-  desc "Run rake test and rake test:live for PROV123 and SYS123, and write rpc-coverage/daily/<date>-<build>.md"
+  desc "Run rake test and rake test:live once per live persona, and write rpc-coverage/daily/<date>-<build>.md"
   task :daily do
     require "rpms_rpc/daily_report"
 
