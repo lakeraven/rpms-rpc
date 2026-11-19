@@ -12,7 +12,8 @@ require "rpms_rpc/api/coverage"
 # CMS example MBI 1EG4TE5MK73; FileMan subfile IENS are child-first (mien,dfn,);
 # assert row present before each delete, then gone after.
 class CoverageWriteLiveTest < LiveSpec::Test
-  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  # Registration (PREG123) holds AGGRPC but not BQIRPC on bcer-9.0-20261119-f67498c-ydb, and this
+  # sends BQI PATIENT INSURANCE, so the operator runs it until a release gives registration BQIRPC (#814).
   runs_as "SYS123"
   writes!
 
