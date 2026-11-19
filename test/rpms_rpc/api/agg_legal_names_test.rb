@@ -416,6 +416,52 @@ class AggLegalNamesTest < Minitest::Test
                    written: :unknown }, result)
   end
 
+  # LEGL's error text is the server's bytes. It is the one refusal that follows
+  # a write, so it has to reach the caller as UTF-8 text JSON can carry: a crash
+  # in JSON.generate would lose written: :unknown.
+  def test_legl_rejection_with_utf8_text_serialises_and_keeps_written_unknown
+    seed_owner(RIEN, DFN)
+    seed_legl("-1^SYNTH\xC3\xA9 not valid^^")
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
+
+    assert_equal({ success: false, error: :agg_rejected, written: :unknown }, result.except(:message))
+    assert_equal Encoding::UTF_8, result[:message].encoding, "valid UTF-8 error text is UTF-8, not ASCII-8BIT"
+    assert_equal "SYNTHé not valid", result[:message], "valid UTF-8 error text is kept, not replaced"
+    assert_serialisable_refusal(result, "LEGL error text holding UTF-8 bytes")
+    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
+  end
+
+  def test_legl_rejection_with_invalid_bytes_serialises_and_keeps_written_unknown
+    seed_owner(RIEN, DFN)
+    seed_legl("-1^SYNTH".b + "\xFF\xC3".b + " not valid^^".b)
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
+    message = result[:message]
+
+    assert_equal({ success: false, error: :agg_rejected, written: :unknown }, result.except(:message))
+    assert_equal Encoding::UTF_8, message.encoding, "error text with invalid bytes is UTF-8, not ASCII-8BIT"
+    assert_predicate message, :valid_encoding?, "the invalid bytes were replaced"
+    assert message.start_with?("SYNTH"), "the text before the invalid bytes is kept (#{message.inspect})"
+    assert message.end_with?(" not valid"), "the text after the invalid bytes is kept (#{message.inspect})"
+    refute_includes message.bytes, 0xFF, "byte 0xFF does not reach the caller"
+    assert_equal "SYNTH�� not valid", message, "one replacement character for each invalid byte"
+    assert_serialisable_refusal(result, "LEGL error text holding invalid bytes")
+    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
+  end
+
+  def test_legl_rejection_with_ascii_text_serialises_and_keeps_written_unknown
+    seed_owner(RIEN, DFN)
+    seed_legl("-1^AGGLNMC not a valid parameter for this update^^")
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
+
+    assert_equal({ success: false, error: :agg_rejected, written: :unknown }, result.except(:message))
+    assert_equal "AGGLNMC not a valid parameter for this update", result[:message]
+    assert_serialisable_refusal(result, "LEGL error text in ASCII")
+    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
+  end
+
   def test_header_only_legl_reply_is_agg_empty_reply_with_written_unknown
     seed_owner(RIEN, DFN)
     seed_legl(nil)
@@ -445,6 +491,17 @@ class AggLegalNamesTest < Minitest::Test
       assert_kind_of String, result[:message]
       refute result.key?(:ien), row
     end
+  end
+
+  def test_success_for_another_rien_with_high_bytes_serialises
+    seed_owner(RIEN, DFN)
+    seed_legl("1^^4\xC3\xA9")
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
+
+    assert_equal({ success: false, error: :legal_name_unverified, written: true }, result.except(:message))
+    assert_serialisable_refusal(result, "a success row whose RIEN holds high bytes")
+    assert_equal true, JSON.parse(JSON.generate(result))["written"]
   end
 
   # -- 7-10 --------------------------------------------------------------------
