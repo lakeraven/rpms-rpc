@@ -1383,25 +1383,33 @@
         "RpmsRpc::Notifications.inbox": "non_idempotent_write",
         "RpmsRpc::Notifications.remove": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ ALRMSG": {
       "methods": {
         "RpmsRpc::Notifications.message": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ ALRPP": {
       "methods": {
         "RpmsRpc::Notifications.remove": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ FORWARD": {
       "methods": {
         "RpmsRpc::Notifications.forward": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BGOCC GET": {
       "methods": {

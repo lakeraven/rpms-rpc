@@ -14,8 +14,8 @@ require_relative "../captured_replies"
 # No patient on the build has portal access, a reconciled immunization or a
 # CCD referral, so what RPMS answers here is the "none" case for each. The
 # access message, the count arithmetic and the referral row layout are not
-# proven by a reply RPMS sent; the MockClient seeds this file used to carry
-# for them were the fake's, not the server's.
+# proven by a reply RPMS sent; the seeds this file used to carry for them
+# were the in-memory fake's, not the server's.
 class PhrTest < Minitest::Test
   SLUG = "phr"
   INVALID_IDS = [ nil, "", 0, -5, "abc" ].freeze
