@@ -2133,6 +2133,7 @@
         "test/fixtures/captured_replies/er-visit.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
+        "test/fixtures/captured_replies/patient-address-contact.yml",
         "test/fixtures/captured_replies/patient-race.yml",
         "test/fixtures/captured_replies/practitioner-detail.yml",
         "test/fixtures/captured_replies/problem-write.yml",
