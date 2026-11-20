@@ -4,7 +4,6 @@ require "minitest/autorun"
 require "json"
 require "set"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/order"
 
