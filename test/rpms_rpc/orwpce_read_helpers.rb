@@ -61,7 +61,6 @@ module OrwpceReadHelpers
   # The note-ownership read (#531). Not an ORWPCE read and not a promoted
   # capture, so it stays out of IN_SCOPE_RPCS; ClinicalEvent still requires it.
   NOTE_PATIENT_RPC = "TIU GET ALERT INFO"
-  NOTE_PATIENT_MAPPING = :tiu_note_patient
   NOTE_PATIENT_CONTEXT = "OR CPRS GUI CHART"
   NOTE_KEYED_RPCS = [ "ORWPCE GET VISIT", "ORWPCE HASVISIT", "ORWPCE PCE4NOTE" ].freeze
   REQUIRED_RPCS = (IN_SCOPE_RPCS + [ NOTE_PATIENT_RPC ]).freeze
@@ -113,16 +112,6 @@ module OrwpceReadHelpers
     def authenticated? = true
 
     def served_rpcs(names) = names.to_set
-  end
-
-  # The reply GETALRT^TIUSRVR gives for a note on file: note^DFN^tab.
-  def note_owner_reply(note_ien, dfn)
-    "#{note_ien}^#{dfn}^903"
-  end
-
-  # Seed a MockClient with the note's patient, as verbatim wire lines.
-  def seed_note_owner(mock, note_ien, dfn)
-    mock.seed_raw_lines(NOTE_PATIENT_MAPPING, note_ien, [ note_owner_reply(note_ien, dfn) ])
   end
 
   def note_patient_calls(client)
