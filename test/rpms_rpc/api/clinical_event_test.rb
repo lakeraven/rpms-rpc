@@ -5,7 +5,11 @@ require "json"
 require "rpms_rpc"
 require "rpms_rpc/compatibility"
 require "rpms_rpc/retry_safety"
+require "set"
+require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/build_surface"
 require_relative "../orwpce_read_helpers"
+require_relative "../captured_replies"
 
 CLINICAL_EVENT_AVAILABLE = begin
   require "rpms_rpc/api/clinical_event"
@@ -56,12 +60,33 @@ class ClinicalEventTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = client }
   end
 
-  # A capture of a positive note names its patient in inputs[1]. Note 0 has
-  # no note to own, and the same note seeded twice is the same seed.
-  def seed_capture_note_owner(mock, capture)
-    note, dfn, = capture.fetch("inputs")
-    seed_note_owner(mock, note, dfn) if note.to_i.positive?
+  SLUG = "clinical-event"
+  LOCK_PATH = File.join(OrwpceReadHelpers::ROOT, "data/fingerprints/rpms-ops.lock.yml")
+
+  # The pinned build's registry: ClinicalEvent asks the client which RPCs
+  # the server serves before each read, and the build serves every one.
+  def self.served
+    @served ||= begin
+      tag = RpmsRpc::Conformance::InventoryLock.load(LOCK_PATH).entries.keys.first
+      RpmsRpc::Conformance::BuildSurface.load(File.join(OrwpceReadHelpers::ROOT, "data/inventories", tag), tag).names.to_set
+    end
   end
+
+  # A CiaClient answering a flow recorded on the pinned build
+  # (test/fixtures/captured_replies/clinical-event.yml, spec
+  # tools/captured_replies/clinical-event.rb), and the registry as the build has it.
+  class BuildReplay < CapturedReplies::ReplayCiaClient
+    def served_rpcs(names) = names.to_set & ClinicalEventTest.served
+  end
+
+  def replay(flow)
+    @flow = flow
+    use(BuildReplay.new(CapturedReplies.flow_script(SLUG, flow)))
+    RpmsRpc.client
+  end
+
+  def replayed = RpmsRpc.client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def assert_sent_as_recorded = assert_equal(CapturedReplies.flow_calls(SLUG, @flow), replayed, @flow)
 
   # -- broker parameter order (from capture inputs) ---------------------------
 
@@ -429,38 +454,26 @@ class ClinicalEventTest < Minitest::Test
 
   # -- lock polarity (reads only) -------------------------------------------
 
-  READ_METHODS = [
-    [ :visit_for_note, [ NOTE_IEN, DFN, VISIT_STRING ] ],
-    [ :has_visit?, [ NOTE_IEN, DFN, "", "" ] ],
-    [ :visit_status, [ NOTE_IEN, DFN, "", "" ] ],
-    [ :note_visit_string, [ NOTE_IEN ] ],
-    [ :pce_for_note, [ NOTE_IEN, DFN, VISIT_STRING ] ],
-    [ :immunization_types, [] ],
-    [ :skin_test_types, [] ],
-    [ :exam_types, [] ],
-    [ :education_topics, [] ],
-    [ :health_factor_types, [] ]
-  ].freeze
+  READ_FLOWS = {
+    visit_for_note: [ "visit_for_note_3", [ NOTE_IEN, DFN, VISIT_STRING ] ],
+    has_visit?: [ "has_visit_3", [ NOTE_IEN, DFN, "", "" ] ],
+    visit_status: [ "has_visit_3", [ NOTE_IEN, DFN, "", "" ] ],
+    note_visit_string: [ "note_visit_string_3", [ NOTE_IEN ] ],
+    pce_for_note: [ "pce_for_note_3", [ NOTE_IEN, DFN, VISIT_STRING ] ],
+    immunization_types: [ "immunization_types", [] ],
+    skin_test_types: [ "skin_test_types", [] ],
+    exam_types: [ "exam_types", [] ],
+    education_topics: [ "education_topics", [] ],
+    health_factor_types: [ "health_factor_types", [] ]
+  }.freeze
 
-  READ_METHODS.each do |method, args|
+  READ_FLOWS.each do |method, (flow, args)|
     define_method("test_#{method}_never_sends_a_write_or_lock_rpc") do
-      RpmsRpc.mock! do |m|
-        m.seed_scalar(:pce_get_visit, NOTE_IEN, "4")
-        m.seed_scalar(:pce_has_visit, NOTE_IEN, "0")
-        m.seed_scalar(:pce_note_visit_string, NOTE_IEN, "3;3260902.0255;A")
-        m.seed_collection(:pce_immunization_types, [ { ien: "1", name: "SYNTH" } ])
-        m.seed_collection(:pce_skin_test_types, [ { ien: "2", name: "PPD" } ])
-        m.seed_collection(:pce_exam_types, [ { ien: "28", name: "FOOT INSPECTION" } ])
-        m.seed_collection(:pce_education_topics, [ { ien: "5991", name: "SYNTH" } ])
-        m.seed_collection(:pce_health_factor_types, [ { ien: "25", name: "SYNTH" } ])
-        m.seed_keyed_collection(:pce_for_note, NOTE_IEN, [ { record_type: "HDR", visit_string: "x" } ])
-        seed_note_owner(m, NOTE_IEN, DFN) if GUARDED_METHODS.include?(method)
-      end
+      replay(flow)
       clinical_event.public_send(method, *args)
 
-      write_calls = RpmsRpc.client.received_calls.select { |c| c[:rpc].match?(WRITE_RPC_PATTERN) }
-      assert_empty write_calls,
-                   "#{method} must not send write/lock RPCs; got #{write_calls.map { |c| c[:rpc] }.join(", ")}"
+      write_calls = replayed.map(&:first).grep(WRITE_RPC_PATTERN)
+      assert_empty write_calls, "#{method} must not send write/lock RPCs; got #{write_calls.join(", ")}"
     end
   end
 
@@ -513,102 +526,70 @@ class ClinicalEventTest < Minitest::Test
     end
   end
 
-  # Wire-backed API returns (integration of mapping + capture semantics) --------
+  # Wire-backed API returns, on the build's replies -----------------------------
 
-  def test_visit_for_note_returns_visit_ien_from_capture_shape
-    cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").first
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-      seed_capture_note_owner(m, cap)
-    end
-    assert_equal 4, clinical_event.visit_for_note(*cap.fetch("inputs"))
+  def test_visit_for_note_returns_the_visit_ien_the_build_reads_from_the_note
+    replay("visit_for_note_3")
+
+    assert_equal 4, clinical_event.visit_for_note("3", "4", "")
+    assert_sent_as_recorded
   end
 
-  def test_visit_for_note_lookup_by_location_minus_one_reply_returns_nil
-    cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
-      c.fetch("inputs").first == "0"
-    end
-    refute_nil cap
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-      seed_capture_note_owner(m, cap)
-    end
-    assert_nil clinical_event.visit_for_note(*cap.fetch("inputs"))
+  def test_visit_for_note_lookup_by_location_finding_none_returns_nil
+    replay("visit_for_note_lookup")
+
+    assert_nil clinical_event.visit_for_note("0", "990003", "6;3260312.09;A")
+    assert_sent_as_recorded
   end
 
-  def test_note_visit_string_returns_parsed_visit_string_from_capture
-    cap = load_unmapped_capture("ORWPCE NOTEVSTR").fetch("captures").first
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_note_visit_string, cap.fetch("inputs").first,
-                    cia_data_body(cap.fetch("raw_return")))
-    end
-    row = clinical_event.note_visit_string(cap.fetch("inputs").first)
+  def test_a_note_asked_for_another_patient_is_refused_before_orwpce
+    replay("visit_for_note_other_patient")
+
+    error = assert_raises(clinical_event::NotePatientMismatchError) { clinical_event.visit_for_note("3", "5", "") }
+    assert_equal :mismatch, error.reason
+    assert_empty orwpce_calls_sent
+    assert_sent_as_recorded
+  end
+
+  def test_note_visit_string_returns_the_parsed_visit_string
+    replay("note_visit_string_3")
+
+    row = clinical_event.note_visit_string("3")
     assert_equal 3, row[:location_ien]
     assert_equal "3260902.0255", row[:datetime_raw]
     assert_equal "A", row[:service_category]
+    assert_sent_as_recorded
   end
 
-  def test_has_visit_returns_true_for_hasvisit_capture_notes
-    load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").each do |cap|
-      next if cap.fetch("context").include?("none found")
-
-      RpmsRpc.mock! do |m|
-        m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-        seed_capture_note_owner(m, cap)
-      end
-      assert clinical_event.has_visit?(*cap.fetch("inputs")), cap.fetch("context")
+  def test_has_visit_is_true_for_notes_with_a_visit
+    %w[3 5].each do |note|
+      replay("has_visit_#{note}")
+      assert clinical_event.has_visit?(note, "4", "", ""), note
+      assert_sent_as_recorded
     end
   end
 
-  def test_visit_status_returns_stand_alone_from_hasvisit_capture
-    cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").first
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-      seed_capture_note_owner(m, cap)
-    end
-    assert_equal :stand_alone, clinical_event.visit_status(*cap.fetch("inputs"))
+  def test_visit_status_returns_stand_alone_for_a_visit_not_tied_to_an_appointment
+    replay("has_visit_3")
+
+    assert_equal :stand_alone, clinical_event.visit_status("3", "4", "", "")
   end
 
-  def test_visit_status_returns_none_from_hasvisit_none_found_capture
-    cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").find do |c|
-      c.fetch("context").include?("none found")
-    end
-    refute_nil cap
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-      seed_capture_note_owner(m, cap)
-    end
-    assert_equal :none, clinical_event.visit_status(*cap.fetch("inputs"))
-    refute clinical_event.has_visit?(*cap.fetch("inputs"))
-  end
-
-  def test_has_visit_and_visit_status_treat_synthetic_one_as_visit_with_appointment
-    # ORWPCE.m:123 ($$VST2APPT^PXAPI): no seeded visit on the pinned image is
-    # appointment-linked, so "1" is exercised synthetically.
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_has_visit, [ NOTE_IEN, DFN, "", "" ], "1")
-      seed_note_owner(m, NOTE_IEN, DFN)
-    end
-    assert clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
-    assert_equal :appointment, clinical_event.visit_status(NOTE_IEN, DFN, "", "")
-  end
-
-  def test_has_visit_and_visit_status_treat_synthetic_minus_one_as_no_visit
+  # HASVISIT answers -1 for a location lookup that finds no visit.
+  def test_has_visit_and_visit_status_read_minus_one_as_no_visit
     lookup = [ "0", "990003", LOCATION, VISIT_DATETIME ]
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_has_visit, lookup, "-1")
-    end
+    replay("has_visit_lookup")
     refute clinical_event.has_visit?(*lookup)
+    assert_sent_as_recorded
+
+    replay("has_visit_lookup")
     assert_equal :none, clinical_event.visit_status(*lookup)
   end
 
   def test_pce_for_note_rich_capture_header_author_and_modeled_fields
-    cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").first
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_for_note, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
-      seed_capture_note_owner(m, cap)
-    end
-    bundle = clinical_event.pce_for_note(*cap.fetch("inputs"))
+    replay("pce_for_note_3")
+
+    bundle = clinical_event.pce_for_note("3", "4", "")
     header = bundle.fetch(:header)
 
     refute header.key?(:visit_ien)
@@ -623,28 +604,18 @@ class ClinicalEventTest < Minitest::Test
 
     imm = bundle.fetch(:immunizations).find { |r| r[:ien] == "272" }
     assert_equal "Influenza, adjuvanted, trivalent, injectable, preservative free", imm[:name]
+    assert_sent_as_recorded
   end
 
   def test_pce_for_note_note5_author_ien_is_not_visit_ien_from_get_visit
-    pce_cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").find do |c|
-      c.fetch("inputs").first == "5"
-    end
-    visit_cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
-      c.fetch("inputs").first == "5"
-    end
-    refute_nil pce_cap
-    refute_nil visit_cap
-
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:pce_for_note, pce_cap.fetch("inputs"), cia_data_body(pce_cap.fetch("raw_return")))
-      seed_capture_note_owner(m, pce_cap)
-      m.seed_scalar(:pce_get_visit, visit_cap.fetch("inputs"), cia_data_body(visit_cap.fetch("raw_return")))
-      seed_capture_note_owner(m, visit_cap)
-    end
-
-    header = clinical_event.pce_for_note(*pce_cap.fetch("inputs")).fetch(:header)
+    replay("pce_for_note_5")
+    header = clinical_event.pce_for_note("5", "4", "").fetch(:header)
     refute header.key?(:visit_ien)
     assert_equal 4, header[:author_ien]
-    assert_equal 5, clinical_event.visit_for_note(*visit_cap.fetch("inputs"))
+
+    replay("visit_for_note_5")
+    assert_equal 5, clinical_event.visit_for_note("5", "4", "")
   end
+
+  def orwpce_calls_sent = replayed.map(&:first).grep(/\AORWPCE /)
 end
