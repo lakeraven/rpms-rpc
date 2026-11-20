@@ -533,7 +533,8 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG BUILD WINDOW DISPLAY": {
@@ -655,6 +656,7 @@
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
       ]
     },
@@ -777,7 +779,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG UPDATE PRIVATE INSUR": {
@@ -810,7 +813,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
-        "test/fixtures/captured_replies/registration-refused-validation.yml"
+        "test/fixtures/captured_replies/registration-refused-validation.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG WINDOW TABLE LOOKUP": {
@@ -2241,6 +2245,7 @@
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
@@ -3047,7 +3052,8 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "XUS CVC": {
@@ -3068,6 +3074,7 @@
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/user-management.yml"
       ]
     },
@@ -3078,7 +3085,8 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     }
   }
