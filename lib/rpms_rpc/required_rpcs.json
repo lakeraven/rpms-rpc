@@ -580,13 +580,17 @@
       "methods": {
         "RpmsRpc::Agg.check_sensitive_patient": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG ERROR SCREEN": {
       "methods": {
         "RpmsRpc::Agg.error_screen": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG GET INSURANCE DATA": {
       "methods": {
@@ -649,6 +653,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
       ]
@@ -657,7 +662,9 @@
       "methods": {
         "RpmsRpc::Agg.edit_check": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG PATIENT LANGUAGES": {
       "methods": {
@@ -678,7 +685,9 @@
       "methods": {
         "RpmsRpc::Agg.send_sensitive_notify": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG UNLOCK PATIENT": {
       "methods": {
@@ -3032,6 +3041,7 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
@@ -3051,6 +3061,7 @@
         "RpmsRpc::UserManagement.find": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/user-management.yml"
@@ -3061,6 +3072,7 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
