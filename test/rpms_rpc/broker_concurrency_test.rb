@@ -222,7 +222,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     # inside exchange's per-frame lock, so it can never widen that gap: without
     # this hook the outer `synchronize_wire` can be deleted outright and these
     # assertions still pass, which makes them evidence for nothing.
-    client.define_singleton_method(:signon_duz) do
+    client.define_singleton_method(:signon_identity) do
       sleep 0.05 # let the other lane's AUTH land here, if anything lets it
       super()
     end
