@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
+require_relative "free_ssn"
 require "rpms_rpc/api/patient"
 require "securerandom"
 
@@ -9,6 +10,8 @@ require "securerandom"
 # files a duplicate SSN. Creates synthetic patients on a disposable container;
 # there is no supported patient-delete RPC, so discard the container afterwards.
 class RegistrationWindowValidationLiveTest < LiveSpec::Test
+  include FreeSsn
+
   runs_as "PREG123"
   writes!
 
@@ -25,26 +28,6 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
     end
     flunk "no free synthetic 1902 birth date for #{attrs[:name_last]}"
   end
-
-  SSN_TRIES = 10
-
-  # An SSN no patient on the container holds. A container that already ran
-  # the suite holds earlier runs' patients (#810), so an SSN is drawn until
-  # AG's own SSN check, the one that refuses a duplicate, accepts it.
-  def fresh_ssn
-    tried = Array.new(SSN_TRIES) do
-      ssn = draw_ssn
-      checked = RpmsRpc::Agg.validate_field(window: RpmsRpc::Agg::NEW_PATIENT_WINDOW,
-                                            params: { "AGGPTSSN" => ssn, "AGGNOSSN" => "", "DFN" => "" })
-      flunk "AG gave no answer checking SSN #{ssn} (AGG WINDOW DATA VALIDATION)" unless checked
-      return ssn if checked[:valid]
-
-      "#{ssn} (#{checked[:message]})"
-    end
-    flunk "every SSN tried is already on a patient: #{tried.join(', ')}"
-  end
-
-  def draw_ssn = "6660#{format('%05d', rand(100_000))}"
 
   def candidates(attrs)
     RpmsRpc.with_client(lookup_client) do

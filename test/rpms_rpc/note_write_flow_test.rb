@@ -7,6 +7,7 @@ require "rpms_rpc"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/api/progress_note"
 require "rpms_rpc/api/e_signature"
+require_relative "captured_replies"
 
 # Issue #564 / #224 (TIU note writes): NoteWriteFlow drives create → lock →
 # set text → read-back → unlock → sign through the public API with a
@@ -564,15 +565,19 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     "#{GET_TEXT_CIA_FRAME}\x00#{payload}"
   end
 
+  # The TEXT list ProgressNote.update_text sends for NOTE_TEXT: the body a
+  # read-back must hold. Replayed from the replies the build gave a note filed
+  # as PROFILE,MD (test/fixtures/captured_replies/note-write-flow-text.yml), and
+  # the frame the gem sends must be the one it sent live.
   def wrapped_note_body_rows
-    note_ien = "1"
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
+    flow = CapturedReplies.flow("note-write-flow-text", "update_text")
+    note_ien = flow.first.fetch("raw_return").b.byteslice(2..)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("note-write-flow-text", "update_text"))
+    RpmsRpc.configure { |c| c.client = client }
     RpmsRpc::ProgressNote.update_text(note_ien, note_text)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
+    call = client.calls.find { |c| c[:rpc] == SET_TEXT_RPC }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
+    assert_equal flow.last.fetch("inputs"), call[:params], "update_text must send the TEXT list it sent live"
 
     tiux = call[:params][1]
     tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
@@ -609,20 +614,8 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     result
   end
 
-  def wrapped_read_back_payload(note_ien)
-    body_lines = nil
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
-    RpmsRpc::ProgressNote.update_text(note_ien, note_text)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
-    flunk "TIU SET DOCUMENT TEXT was not called" unless call
-
-    tiux = call[:params][1]
-    body_lines = tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
-                     .sort_by { |k, _| k[1] }
-                     .map(&:last)
+  def wrapped_read_back_payload(_note_ien)
+    body_lines = wrapped_note_body_rows
     header = [
       "LOCAL TITLE: Progress Note",
       "STANDARD TITLE: Progress Note",
