@@ -65,7 +65,7 @@ These are the consequences for any host, stated as the shape the gem is designed
 
 ### The in-memory fake
 
-**Removed** (2026-11-20, [rpms-rpc#624](https://github.com/lakeraven/rpms-rpc/issues/624), which closes [rpms-rpc#362](https://github.com/lakeraven/rpms-rpc/issues/362)).
+**Removed** (2026-11-20, [rpms-rpc#908](https://github.com/lakeraven/rpms-rpc/pull/908) for [rpms-rpc#624](https://github.com/lakeraven/rpms-rpc/issues/624), which closes [rpms-rpc#362](https://github.com/lakeraven/rpms-rpc/issues/362)).
 `MockClient`, `MockFhirClient`, `RpmsRpc.mock!` and `RpmsRpc.mock_fhir!` were a fake of RPMS shipped as part of the gem.
 They were first deprecated as a host test double, then deleted, with the `DataMapper` formatting that seeded them, once the gem's own tests stopped using them.
 Under host rule 3 a host fakes its own port, not RPMS, and covers RPMS behaviour against a container of the pinned build.
