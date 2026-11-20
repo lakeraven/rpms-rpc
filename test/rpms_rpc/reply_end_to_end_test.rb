@@ -5,7 +5,7 @@ require "rpms_rpc"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
 require "rpms_rpc/cia_client"
-require "rpms_rpc/mock_client"
+require_relative "captured_replies"
 
 # rpms-rpc#463, panel round: the altered flag has to reach the HOST, not stop
 # at #call_rpc. A host reads identity-bearing text (an allergen name, a patient
@@ -37,10 +37,6 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
     def setsockopt(*); end
   end
 
-  def setup
-    RpmsRpc.mock!
-  end
-
   def teardown
     RpmsRpc.reset!
   end
@@ -57,10 +53,27 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
 
   # -- 1. Allergy rows carry the flag, and equal-looking allergens are each flagged
 
-  def test_two_distinct_altered_allergens_each_say_they_were_altered
-    RpmsRpc.client.seed_raw_lines(:allergy_list, "7", [ "1^PENICILL\xCDN^SEVERE^".b, "2^PENICILL\xCEN^MILD^".b ])
+  # A clean reply: ORQQAL LIST as the build answered it for the seed patient
+  # (data-mapper-fetch.yml, flow allergies_for_patient).
+  def replay_allergies
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("data-mapper-fetch", "allergies_for_patient"))
+    RpmsRpc.configure { |c| c.client = client }
+    client
+  end
 
-    rows = RpmsRpc::Allergy.for_patient(7)
+  # No build stores an allergen whose bytes are not UTF-8, so these replies
+  # are SYNTHETIC bytes in the captured row layout (IEN^ALLERGEN^SEVERITY^SIGNS),
+  # read through CiaClient's own reply grammar.
+  def replay_allergy_rows(*rows)
+    client = CapturedReplies::ReplayCiaClient.new("ORQQAL LIST" => [ ("5\x00" + rows.map { |row| "#{row}\r" }.join).b ])
+    RpmsRpc.configure { |c| c.client = client }
+    client
+  end
+
+  def test_two_distinct_altered_allergens_each_say_they_were_altered
+    replay_allergy_rows("1^PENICILL\xCDN^^HIVES".b, "2^PENICILL\xCEN^^HIVES".b)
+
+    rows = RpmsRpc::Allergy.for_patient(2)
 
     assert_equal 2, rows.size
     assert_equal rows[0][:allergen], rows[1][:allergen], "the two distinct byte strings now look identical"
@@ -69,21 +82,21 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
   end
 
   def test_a_clean_allergy_row_is_not_altered_and_an_altered_neighbour_is
-    RpmsRpc.client.seed_raw_lines(:allergy_list, "7", [ "1^PENICILLIN^SEVERE^".b, "2^SULFA\xCD^MILD^".b ])
+    replay_allergy_rows("1^PENICILLIN^^HIVES", "2^SULFA\xCD^^HIVES".b)
 
-    rows = RpmsRpc::Allergy.for_patient(7)
+    rows = RpmsRpc::Allergy.for_patient(2)
 
     assert_equal [ false, true ], rows.map { |row| row[:altered] }
     assert_equal "PENICILLIN", rows[0][:allergen]
   end
 
   def test_allergy_assessment_rows_keep_their_existing_keys_and_add_altered
-    RpmsRpc.client.seed_raw_lines(:allergy_list, "7", [ "1^PENICILLIN^SEVERE^".b ])
+    client = replay_allergies
 
-    row = RpmsRpc::Allergy.assessment(7)[:allergies].first
+    row = RpmsRpc::Allergy.assessment(2)[:allergies].first
 
-    assert_equal %i[allergen altered ien severity signs], row.keys.sort
-    assert_equal false, row[:altered]
+    assert_equal({ ien: "1", allergen: "PENICILLIN", severity: nil, signs: "HIVES", altered: false }, row)
+    assert_equal [ [ "ORQQAL LIST", [ "2" ] ] ], client.calls.map { |c| [ c[:rpc], c[:params] ] }
   end
 
   # -- 2. Patient.lookup rows carry the flag, over every route a reply can take
@@ -149,16 +162,6 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
     assert_equal Encoding::UTF_8, raw.encoding
   end
 
-  def test_mock_global_array_reply_is_valid_utf8_with_the_alteration_recorded
-    RpmsRpc.client.seed_raw_lines(:patient_lookup_agg, "DO", [ "3^DO\xC9,JANE^1^2^3".b ])
-
-    raw = RpmsRpc.client.call_rpc_global_array("AGG LOOKUP PATIENTS", "DO")
-
-    lines = raw.is_a?(Array) ? raw : raw.to_s.split("\n")
-    assert lines.all? { |line| line.encoding == Encoding::UTF_8 && line.valid_encoding? }
-    assert RpmsRpc::Reply.altered?(raw)
-  end
-
   # -- 4. Client#call_rpc_lines
 
   class StandIn < RpmsRpc::Client
@@ -180,26 +183,6 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
     assert_kind_of RpmsRpc::Reply, lines
     assert lines.all? { |line| line.encoding == Encoding::UTF_8 && line.valid_encoding? }
     assert_equal [ 1 ], lines.altered_lines
-  end
-
-  # -- 5. MockClient#call_rpc on a String seed keeps the flag
-
-  def test_mock_call_rpc_on_a_string_seed_with_an_invalid_byte_reads_as_altered
-    RpmsRpc.client.seed_text(:bmc_patient_face_sheet, "1", "caf\xE9 SYNTHETIC".b)
-
-    reply = RpmsRpc.client.call_rpc(RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name, "1")
-
-    assert_equal "caf� SYNTHETIC", reply
-    assert RpmsRpc::Reply.altered?(reply), "a String the mock altered must say so"
-  end
-
-  def test_mock_call_rpc_on_a_clean_string_seed_is_unaltered
-    RpmsRpc.client.seed_text(:bmc_patient_face_sheet, "1", "PLAIN SYNTHETIC")
-
-    reply = RpmsRpc.client.call_rpc(RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name, "1")
-
-    assert_equal "PLAIN SYNTHETIC", reply
-    assert_equal false, RpmsRpc::Reply.altered?(reply)
   end
 
   # -- 6. Reply hardening
