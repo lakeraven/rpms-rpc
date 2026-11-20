@@ -239,6 +239,9 @@ module RpmsRpc
     # when given: a clerk recording a Medicare card has not always taken one.
     def add_medicare(dfn, name:, number:, effective_on:, roi_on: nil, suffix: nil, ends_on: nil, part: nil,
                      client: RpmsRpc.client)
+      raise ArgumentError, "name: (the name on the Medicare card) is required" if name.to_s.strip.empty?
+      raise ArgumentError, "number: (the Medicare number) is required" if number.to_s.strip.empty?
+
       header_params = {
         "AGGMCROI" => roi_on,
         "AGGMCNME" => name,
@@ -253,8 +256,14 @@ module RpmsRpc
       filed = medicare_update(dfn, proc: "A", definition: MEDICARE_WINDOW, params: header_params, client: client)
       return filed unless filed && filed[:success]
 
-      filed_eligibility = medicare_update(dfn, proc: "A", definition: MEDICARE_ELIGIBILITY_WINDOW,
-                                          params: eligibility_params, client: client)
+      begin
+        filed_eligibility = medicare_update(dfn, proc: "A", definition: MEDICARE_ELIGIBILITY_WINDOW,
+                                            params: eligibility_params, client: client)
+      rescue StandardError => e
+        # The row may or may not have been filed; the header is left.
+        return { success: false, error: :eligibility_outcome_unknown, rolled_back: false, header_left: true,
+                 message: "#{e.class}: #{e.message}" }
+      end
       return filed_eligibility if positive_piece?(filed_eligibility, :mien)
 
       medicare_eligibility_failure(filed_eligibility)
@@ -299,7 +308,7 @@ module RpmsRpc
       end
 
       listed = medicare_eligibility_rows(id, client)
-      if !listed.is_a?(Hash) || listed[:error] || listed[:entries].any?
+      if !listed.is_a?(Hash) || listed[:error] || listed[:more] || listed[:entries].any?
         return verification_failed("medicare eligibility rows for patient #{id} could not be confirmed empty",
                                    rien: nil, mien: nil)
       end
@@ -769,7 +778,8 @@ module RpmsRpc
       return false unless text.match?(CALENDAR_DATE)
 
       parsed = Date.strptime(text, "%m/%d/%Y")
-      parsed.strftime("%m/%d/%Y") == text
+      # FileMan years are 1700 + YYY (001-999); DATE^AGGUL1 cannot hold others.
+      parsed.strftime("%m/%d/%Y") == text && (1701..2699).cover?(parsed.year)
     rescue ArgumentError
       false
     end
