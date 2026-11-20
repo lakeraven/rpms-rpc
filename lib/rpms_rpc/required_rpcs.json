@@ -2017,7 +2017,8 @@
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml"
       ]
     },
     "DDR GETS ENTRY DATA": {
@@ -2215,6 +2216,7 @@
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
