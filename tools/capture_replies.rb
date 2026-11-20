@@ -181,6 +181,8 @@ spec.fetch(:flows, {}).each do |flow_name, flow|
     entry["broker"] = "bmx" if bmx
     entry["signed_on_as"] = pair.fetch(:signed_on_as) if flow[:as]
     params = [ "<withheld: an encrypted credential>" ] if Array(flow[:withhold]).include?(rpc)
+    # A sent frame that is not UTF-8 (a $C(175) line join, say) is kept as !binary, like a reply.
+    params = params.map { |param| param.is_a?(String) ? yaml_bytes(param.b) : param }
     captures << entry.merge("inputs" => params, "context" => flow.fetch(:about),
                             "raw_return" => yaml_bytes(raw), "sha256" => Digest::SHA256.hexdigest(raw))
   end

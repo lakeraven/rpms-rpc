@@ -1,0 +1,33 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgu-mailman-message.rb.
+---
+rpc: BGU MAILMAN MESSAGE
+entry_point: EN^BGUMAIL
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:22:22Z'
+note: 'Run on a throwaway container: each flow sends a MailMan message of synthetic
+  text.'
+captures:
+- name: sent/1
+  rpc: BGU MAILMAN MESSAGE
+  inputs:
+  - !binary |-
+    U3ludGhldGljIGxpbmUgb25lr1N5bnRoZXRpYyBsaW5lIHR3bw==
+  - Synthetic subject
+  - BILLING
+  context: a two-line message to the BILLING mail group
+  raw_return: "5\01\rOK\r"
+  sha256: 2c69aacadfb25dbf08be2e6236eeb423d8ce8668b307eb1bff8b886852b27510
+- name: group_not_on_file/1
+  rpc: BGU MAILMAN MESSAGE
+  inputs:
+  - Synthetic line one
+  - Synthetic subject
+  - NOSUCH GROUP
+  context: a message to NOSUCH GROUP, a mail group the build does not have
+  raw_return: "5\01\rOK\r"
+  sha256: 2c69aacadfb25dbf08be2e6236eeb423d8ce8668b307eb1bff8b886852b27510

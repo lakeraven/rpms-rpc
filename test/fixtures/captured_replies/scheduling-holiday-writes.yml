@@ -1,0 +1,116 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb scheduling-holiday-writes.rb.
+---
+rpc: DDR FILER
+entry_point: FILEC^DDR3
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:07:30Z'
+note: Run on a throwaway container, flows in order. The build has no HOLIDAY (#40.5)
+  entry in 2031.
+captures:
+- name: add/1
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 40.5^.01^+1,^3310704
+    2: 40.5^2^+1,^LIVESPEC INDEPENDENCE
+  - ''
+  - 1: '3310704'
+  context: 'add_holiday: 2031-07-04, LIVESPEC INDEPENDENCE'
+  raw_return: "5\0[Data]\r+1,^3310704\r"
+  sha256: 18fe1dd523415462a06a641ec17460cd64a2bb2e224a62e7357f29d774c2bb4d
+- name: add_again/1
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 40.5^.01^+1,^3310704
+    2: 40.5^2^+1,^LIVESPEC INDEPENDENCE
+  - ''
+  - 1: '3310704'
+  context: 'add_holiday: 2031-07-04 again, already on file'
+  raw_return: "5\0[Data]\r+1,^3310704\r[BEGIN_diERRORS]\r302^1^40.5^3310704,^^2\rFILE^40.5\rIENS^3310704,\rEntry
+    '3310704,' already exists.\r[END_diERRORS]\r"
+  sha256: 332319ee14de12786557dd665d394b67a373cfceb91b1ac1de98dc1ba4fcd25a
+- name: add_december/1
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 40.5^.01^+1,^3311225
+    2: 40.5^2^+1,^LIVESPEC WINTER
+  - ''
+  - 1: '3311225'
+  context: 'add_holiday: 2031-12-25, LIVESPEC WINTER'
+  raw_return: "5\0[Data]\r+1,^3311225\r"
+  sha256: 0fbe4d71c415944be101aaedb10b271fcca566ba1c7553a60782197487b4f1c6
+- name: remove/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '40.5'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '1'
+    FROM: '3310703'
+    XREF: B
+  context: 'remove_holiday: 2031-07-04'
+  raw_return: "5\0[Misc]\rMORE^3310704^\r[Data]\r3310704^3310704\r"
+  sha256: 310963676609bcbd4b154814b5f129debfd5c7bdf6a443068228806570f2bd1c
+- name: remove/2
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 40.5^.01^3310704,^@
+  - ''
+  - {}
+  context: 'remove_holiday: 2031-07-04'
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: remove_again/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '40.5'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '1'
+    FROM: '3310703'
+    XREF: B
+  context: 'remove_holiday: 2031-07-04 again; the next holiday on file is 2031-12-25'
+  raw_return: "5\0[Data]\r3311225^3311225\r"
+  sha256: 63ece32e3a38cfe1263b4554b5058c2b201d31be6a61380a9c4ccfd4a1851f55
+- name: remove_december/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '40.5'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '1'
+    FROM: '3311224'
+    XREF: B
+  context: 'remove_holiday: 2031-12-25'
+  raw_return: "5\0[Data]\r3311225^3311225\r"
+  sha256: 63ece32e3a38cfe1263b4554b5058c2b201d31be6a61380a9c4ccfd4a1851f55
+- name: remove_december/2
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 40.5^.01^3311225,^@
+  - ''
+  - {}
+  context: 'remove_holiday: 2031-12-25'
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: remove_none_after/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '40.5'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '1'
+    FROM: '3311225'
+    XREF: B
+  context: 'remove_holiday: 2031-12-26, with no holiday on file after it'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82

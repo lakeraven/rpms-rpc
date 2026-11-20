@@ -1617,7 +1617,9 @@
       "methods": {
         "RpmsRpc::Bgu.send_mailman_message": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/bgu-mailman-message.yml"
+      ]
     },
     "BMC ADD C32 PRINT LOG": {
       "methods": {
@@ -1967,7 +1969,9 @@
       "methods": {
         "RpmsRpc::Busa.log_security_audit": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/busa-log.yml"
+      ]
     },
     "CIANBRPC CANRUN": {
       "methods": {
@@ -2025,7 +2029,8 @@
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml"
       ]
     },
     "DDR GETS ENTRY DATA": {
@@ -2223,6 +2228,7 @@
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
@@ -2253,13 +2259,17 @@
       "methods": {
         "RpmsRpc::DgSensitive.check_access": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/dg-sensitive.yml"
+      ]
     },
     "DG SENSITIVE RECORD BULLETIN": {
       "methods": {
         "RpmsRpc::DgSensitive.record_bulletin": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/dg-sensitive.yml"
+      ]
     },
     "OREVNTX PAT": {
       "methods": {
@@ -2696,7 +2706,9 @@
       "methods": {
         "RpmsRpc::Adt.admissions": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/adt-reads.yml"
+      ]
     },
     "ORWPT APPTLST": {
       "methods": {
@@ -2722,7 +2734,9 @@
       "methods": {
         "RpmsRpc::Adt.discharge_datetime": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/adt-reads.yml"
+      ]
     },
     "ORWPT FULLSSN": {
       "methods": {
@@ -2745,7 +2759,10 @@
       "methods": {
         "RpmsRpc::Adt.current_location": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/adt-reads-unlinked-ward.yml",
+        "test/fixtures/captured_replies/adt-reads.yml"
+      ]
     },
     "ORWPT LIST ALL": {
       "methods": {
