@@ -515,6 +515,9 @@
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
+      "GMV ADD VM",
+      "GMV EXTRACT REC",
+      "GMV GET VITAL TYPE IEN",
       "ORQQVI VITALS",
       "ORWU DT"
     ],
@@ -2290,6 +2293,24 @@
         "test/fixtures/captured_replies/dg-sensitive.yml"
       ]
     },
+    "GMV ADD VM": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "unclassified"
+      },
+      "replies": []
+    },
+    "GMV EXTRACT REC": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "unclassified"
+      },
+      "replies": []
+    },
+    "GMV GET VITAL TYPE IEN": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "unclassified"
+      },
+      "replies": []
+    },
     "OREVNTX PAT": {
       "methods": {
         "RpmsRpc::Order.delayed_events": "read"
@@ -2840,7 +2861,8 @@
         "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
-        "RpmsRpc::Vital.add": "non_idempotent_write"
+        "RpmsRpc::Vital.add": "non_idempotent_write",
+        "RpmsRpc::Vital.add_stock": "unclassified"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml",
