@@ -9,6 +9,7 @@ require "rpms_rpc/api/scheduling"
 # then cleared and read back again. The reply's first piece is a success flag
 # with the polarity inverted from the other BSDX writes (1 success).
 class SchedulingNoShowLiveTest < LiveSpec::Test
+  runs_as "PSCH123"
   writes!
 
   PATIENT = 3

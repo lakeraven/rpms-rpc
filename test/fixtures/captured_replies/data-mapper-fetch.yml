@@ -1,0 +1,81 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb data-mapper-fetch.rb.
+---
+rpc: ORWPT SELECT
+entry_point: SELECT^ORWPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:21:20Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: select/1
+  rpc: ORWPT SELECT
+  inputs:
+  - '2'
+  context: patient_select.fetch_one of DFN 2
+  raw_return: "5\0USER,TEST^M^2850505^^^^^A^0^^0^0^^^41^0"
+  sha256: a2fe7635bc9ed1f4d3981fd2a369c2524602788fc94bad0f4681a52922b995cf
+- name: select_unknown/1
+  rpc: ORWPT SELECT
+  inputs:
+  - '999999999'
+  context: patient_select.fetch_one of DFN 999999999, not on file
+  raw_return: "5\0-1^^^^^Patient is unknown to CPRS."
+  sha256: 153ea6abac6474380d4bed46d11e3b6b37b9bc298e25822b4dc9baf7ab37936f
+- name: list_from_demo/1
+  rpc: ORWPT LIST ALL
+  inputs:
+  - DEMO
+  - '1'
+  context: patient_list.fetch_many from the name DEMO
+  raw_return: "5\04^DEMO,PATIENT ONE^^^^DEMO,PATIENT ONE\r990030^DRIFT,SAM^^^^DRIFT,SAM\r990055^ECHO,EMERSON^^^^ECHO,EMERSON\r990005^ECHO,MORGAN^^^^ECHO,MORGAN\r990031^EMBER,AVERY^^^^EMBER,AVERY\r990032^FLINT,REESE^^^^FLINT,REESE\r990056^FOXTROT,BLAIR^^^^FOXTROT,BLAIR\r990006^FOXTROT,TAYLOR^^^^FOXTROT,TAYLOR\r990007^GOLF,JAMIE^^^^GOLF,JAMIE\r990033^GROVE,SKYLER^^^^GROVE,SKYLER\r990034^HARBOR,ROWAN^^^^HARBOR,ROWAN\r990008^HOTEL,DREW^^^^HOTEL,DREW\r990009^INDIA,QUINN^^^^INDIA,QUINN\r990035^IVORY,EMERSON^^^^IVORY,EMERSON\r990010^JULIETT,SAM^^^^JULIETT,SAM\r990011^KILO,AVERY^^^^KILO,AVERY\r990036^LARKSPUR,BLAIR^^^^LARKSPUR,BLAIR\r990012^LIMA,REESE^^^^LIMA,REESE\r990013^MIKE,SKYLER^^^^MIKE,SKYLER\r990037^MOSSGATE,SAGE^^^^MOSSGATE,SAGE\r3^MOUSE,MICKEY
+    M^^^^MOUSE,MICKEY M\r990038^NIGHTSHADE,FINLEY^^^^NIGHTSHADE,FINLEY\r990014^NOVEMBER,ROWAN^^^^NOVEMBER,ROWAN\r990015^OSCAR,EMERSON^^^^OSCAR,EMERSON\r990039^OSPREY,HAYDEN^^^^OSPREY,HAYDEN\r990016^PAPA,BLAIR^^^^PAPA,BLAIR\r990040^PINECREST,MARLOWE^^^^PINECREST,MARLOWE\r990041^QUARRY,CASEY^^^^QUARRY,CASEY\r990017^QUEBEC,SAGE^^^^QUEBEC,SAGE\r990042^RIDGEMONT,ALEX^^^^RIDGEMONT,ALEX\r990018^ROMEO,FINLEY^^^^ROMEO,FINLEY\r990043^SALTMARSH,JORDAN^^^^SALTMARSH,JORDAN\r990019^SIERRA,HAYDEN^^^^SIERRA,HAYDEN\r990020^TANGO,MARLOWE^^^^TANGO,MARLOWE\r990044^THISTLEDOWN,RILEY^^^^THISTLEDOWN,RILEY\r990045^UNDERHILL,MORGAN^^^^UNDERHILL,MORGAN\r990021^UNIFORM,CASEY^^^^UNIFORM,CASEY\r2^USER,TEST^^^^USER,TEST\r990046^VANTAGE,TAYLOR^^^^VANTAGE,TAYLOR\r990022^VICTOR,ALEX^^^^VICTOR,ALEX\r990023^WHISKEY,JORDAN^^^^WHISKEY,JORDAN\r990047^WINDROW,JAMIE^^^^WINDROW,JAMIE\r990024^XRAY,RILEY^^^^XRAY,RILEY\r990025^YANKEE,MORGAN^^^^YANKEE,MORGAN\r"
+  sha256: bb3b2d92a46ec4314237cf5b5963f7fe3a3d4aba7872c140cc4932f55067c9fa
+- name: list_past_the_end/1
+  rpc: ORWPT LIST ALL
+  inputs:
+  - ZZZZZ
+  - '1'
+  context: patient_list.fetch_many from ZZZZZ, after every name
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: allergies/1
+  rpc: ORQQAL LIST
+  inputs:
+  - '2'
+  context: allergy_list.fetch_many of DFN 2
+  raw_return: "5\01^PENICILLIN^^HIVES\r"
+  sha256: 838138eeebfe8230532553a887cfd0756798bb4ca4944aaebb85035eb279cc53
+- name: allergies_for_patient/1
+  rpc: ORQQAL LIST
+  inputs:
+  - '2'
+  context: Allergy.for_patient of DFN 2
+  raw_return: "5\01^PENICILLIN^^HIVES\r"
+  sha256: 838138eeebfe8230532553a887cfd0756798bb4ca4944aaebb85035eb279cc53
+- name: sensitive/1
+  rpc: ORWPT SELCHK
+  inputs:
+  - '2'
+  context: patient_sensitive.fetch_scalar of DFN 2
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: report_text/1
+  rpc: ORWRP REPORT TEXT
+  inputs:
+  - '4'
+  - IHS
+  - '999'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: report_text.fetch_text of the IHS report with HSTYPE 999, not on file,
+    for DFN 4
+  raw_return: "5\0An error was encountered generating this report.\rThe error was:
+    HEADER+5^APCHS0, Global variable undefined: ^APCHSCTL(999,150372994,-%YDB-E-GVUNDEF\r\r***
+    END * CONFIDENTIAL PATIENT INFORMATION -- 11/20/2026  3:21 AM  [] ********\r"
+  sha256: 1ef56a1b764db7af1f6190e567402b8e55a0e4440a8aa60814876ab06bc61710

@@ -139,7 +139,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     { rpc: "ORQQAL LIST", mapping: :allergy_list, kind: "fields",
       inputs: [ "2" ], evidence: :live },
     { rpc: "ORWPS ACTIVE", mapping: :medication_active, kind: "text_blob",
-      inputs: [ "2" ], evidence: :no_data },
+      inputs: [ "2" ], evidence: :live },
     { rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields",
       inputs: [ "2" ], evidence: :live }
   ].freeze
@@ -489,7 +489,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
   end
 
   def test_pinned_release_is_the_issue_224_build
-    assert_equal "bcer-9.0-20261012-e7923a4-ydb", PINNED_RELEASE
+    assert_equal "bcer-9.0-20261119-f67498c-ydb", PINNED_RELEASE
   end
 
   # Intent: the pilot checklist exists and names every slice RPC with an explicit status.

@@ -10,6 +10,7 @@ require "rpms_rpc/api/ddr_fileman"
 # filed first through DDR FILER and read back, so the read is proven against a
 # stored value and not only the build's own; everything filed is put back.
 class RegistrationParametersLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   FILE = RpmsRpc::RegistrationParameters::FILE

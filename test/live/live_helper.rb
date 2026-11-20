@@ -2,15 +2,15 @@
 
 # Live specs (ADR 0009): Ruby tests that call the gem's real API over the wire
 # against a fresh, disposable container of the pinned build. They assert shape
-# and invariants, run once per persona, and are run by `rake test:live`, never
-# by `rake test`.
+# and invariants, run as the persona whose role they prove, and are run by
+# `rake test:live`, never by `rake test`.
 #
 # Env (all required; a spec FAILS without them, it never skips: a live spec
 # is loaded only by `rake test:live` or by path, so a missing setting is a
 # mistake, not an opt-out):
 #   BROKER_HOST, BROKER_PORT   the broker of the target
 #   RPMS_ACCESS, RPMS_VERIFY   the persona's sign-on pair (never logged)
-#   PERSONA                    which user that is, e.g. PROV123 or SYS123
+#   PERSONA                    which user that is, one of LiveSpec::PERSONAS
 # The staging pair PROV123 also needs VISTA_RPC_ENV=development (Client's
 # credential guard).
 #
@@ -38,6 +38,14 @@
 # the spec with what is missing and what to do. The one acceptable skip is
 # skip_tracked("#NNN", why), which names a tracked issue; the run's summary
 # lists those by issue. A bare `skip` in a live spec fails the spec.
+#
+# Least privilege (#452). Each spec declares the persona whose role it proves
+# (`runs_as "PSCH123"`; several when the spec is about every persona, such as
+# the keys a user holds). A run signs on as one persona and runs only the
+# specs that declare it: another persona's spec loads and runs none of its
+# tests, and the summary counts it. A spec that declares no persona, or one
+# run by hand as another persona, fails, naming who it runs as. What a persona
+# is refused outside its role is proven by least_privilege_live_test.rb.
 #
 # A spec that WRITES declares `writes!`. It runs only when the target is
 # declared disposable (LIVE_DISPOSABLE=1) and is on this machine (a loopback
@@ -76,6 +84,22 @@ module LiveSpec
         @broker || (superclass.respond_to?(:broker) ? superclass.broker : "cia")
       end
 
+      # Declare the persona(s) whose role this spec proves (#452).
+      def runs_as(*names)
+        @runs_as = names.map(&:to_s).freeze unless names.empty?
+        @runs_as
+      end
+
+      def runs_as?(name) = Array(runs_as).include?(name.to_s)
+
+      # A run as another persona loads the spec and runs none of its tests. A
+      # spec that declares no persona runs, so its setup can say so.
+      def runnable_methods
+        return super if runs_as.nil? || runs_as?(ENV["PERSONA"])
+
+        []
+      end
+
       # Declare that this spec signs on itself: connect, but do not sign on.
       def connect_only! = (@connect_only = true)
       def connect_only? = @connect_only == true
@@ -92,6 +116,14 @@ module LiveSpec
       unless self.class.broker == LiveSpec.protocol
         flunk "#{self.class} is written for the #{self.class.broker} broker and this run speaks " \
               "#{LiveSpec.protocol}: set BROKER_PROTOCOL=#{self.class.broker} and its broker's port"
+      end
+      if self.class.runs_as.nil?
+        flunk "#{self.class} declares no persona: add runs_as \"<PERSONA>\", the persona whose role it proves " \
+              "(one of #{LiveSpec::PERSONAS.keys.join(', ')}; README, Live personas)"
+      end
+      unless self.class.runs_as?(persona)
+        flunk "#{self.class} runs as #{self.class.runs_as.join(', ')}, and this run signs on as #{persona}: " \
+              "run it as #{self.class.runs_as.first}"
       end
       if self.class.writes? && (reason = LiveSpec.write_refusal)
         flunk "live spec writes, refused: #{reason}"
@@ -217,6 +249,7 @@ module LiveSpec
       io.puts format("%-9s %s", "backend", "#{@env['BROKER_HOST']}:#{@env['BROKER_PORT']} (#{LiveSpec.protocol(@env)})")
       io.puts format("%-9s %s", "build", LiveSpec.build_label(@env))
       io.puts format("%-9s %s", "persona", @env["PERSONA"])
+      io.puts format("%-9s %d spec classes run as this persona; %d run as another", "specs", *spec_classes_split) if live_run?
       io.puts format("%-9s %d runs, %d assertions, %d failures, %d errors, %d skips",
                      "result", count, assertions, failures, errors, skips)
       skipped_by_issue.each do |issue, tests|
@@ -228,6 +261,14 @@ module LiveSpec
     end
 
     private
+
+    # [this persona's spec classes, other personas' spec classes] loaded in
+    # this process.
+    def spec_classes_split
+      specs = Minitest::Runnable.runnables.grep(Class).select { |klass| klass < LiveSpec::Test }
+      mine = specs.count { |klass| klass.runs_as.nil? || klass.runs_as?(@env["PERSONA"]) }
+      [ mine, specs.size - mine ]
+    end
 
     # Machine-readable copy of the block above, for release:live_guard.
     # The path and the build identity come from LiveSummary, the same helper

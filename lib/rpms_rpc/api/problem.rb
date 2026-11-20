@@ -216,10 +216,20 @@ module RpmsRpc
     # broker that does not serve the RPC raises RpcNotAvailableError, and one
     # that serves it but not to this user raises RpcRefusedError (#363).
 
+    # Candidate problems from the Lexicon: LEXSRCH^ORQQPL1 answers one
+    # "lexicon IEN^text^ICD code^ICD IEN^coding system" row per match
+    # (ORQQPL1.m: ien^.01^icd^icdifn^system), then a last line with the
+    # match count ("669 matches found"), which is not a row. A piece the
+    # build leaves empty is nil. LEXSRCH fills the ICD pieces only for a
+    # Lexicon entry whose text names an ICD-9-CM, DSM-IV or Title 38 code;
+    # on the pinned build no "diabetes" entry does.
+    #
+    #   lex_search(text) => [{ ien:, description:, code:, code_ien:, coding_system: }, ...]
     def lex_search(text)
       return [] if text.to_s.strip.empty?
 
-      Array(DataMapper.problem_lex_search.fetch_many(text.to_s))
+      mapper = DataMapper.problem_lex_search
+      mapper.lines!(text.to_s).select { |line| line.include?("^") }.map { |line| mapper.parse_one(line) }
     end
     shape :lex_search, resource: "problems", verb: "GET", path: "/problems/lex-search"
 
@@ -230,28 +240,54 @@ module RpmsRpc
     end
     shape :clinic_search, resource: "problems", verb: "GET", path: "/problems/clinics/{clinic_ien}/search"
 
+    # The problem's detail report: the display text DETAIL^ORQQPL builds,
+    # one line per Y(I), joined with newlines; nil for an invalid id or when
+    # nothing came back.
+    #
     # Formals: DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21) — the problem IEN is
-    # the third formal, after the patient; ID is declared but never read
-    # (ORQQPL.m:21-45). An IEN-only frame put the IEN in DFN and died in M
-    # on PROBIEN (#259).
+    # the third formal, after the patient; DFN and ID are declared but never
+    # read, so the report is the problem's whatever DFN is sent. An IEN-only
+    # frame put the IEN in DFN and died in M on PROBIEN (#259).
+    #
+    # The lines (ORQQPL.m:26-59): "NARRATIVE (DIAGNOSIS)", an inactive-code
+    # notice when the ICD code is inactive, then labelled lines ("   Onset: ",
+    # "  Status: " with /ACUTE or /CHRONIC, " SC Cond: ", "Exposure: ",
+    # "Provider: ", "  Clinic: ", "Recorded: ", " Entered: ", " Updated: "),
+    # comments and audit history when there are any, and " " spacer lines.
+    # They are text, not a caret row (#821). A problem not on file dies in M
+    # (DETAIL^GMPLUTL2 leaves ORGMPL("NARRATIVE") undefined), and that raises.
     def details(dfn, ien)
       return nil if invalid_id?(dfn) || invalid_id?(ien)
 
-      DataMapper.problem_detail.fetch_one(dfn.to_s, ien.to_s)
+      text = DataMapper.problem_detail.fetch_text(dfn.to_s, ien.to_s)
+      return nil if text.nil? || text.strip.empty?
+
+      text
     end
     shape :details, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/{ien}"
 
+    # The problem's change history: HIST^ORQQPL2 answers a count line, then
+    # one "date^text" row per change, the date as the build prints it
+    # ("11/20/26"); or the single line NONE when the problem has none
+    # (ORQQPL2.m:10-11). Neither the count nor NONE is a row.
+    #
+    #   audit_history(ien) => [{ date: "11/20/26", text: "PROBLEM removed by ..." }, ...]
     def audit_history(ien)
       return [] if invalid_id?(ien)
 
-      Array(DataMapper.problem_audit_history.fetch_many(ien.to_s))
+      mapper = DataMapper.problem_audit_history
+      mapper.lines!(ien.to_s).select { |line| line.include?("^") }.map { |line| mapper.parse_one(line) }
     end
     shape :audit_history, resource: "problems", verb: "GET", path: "/problems/{ien}/audit-history"
 
+    # The problem's active notes: GETCOMM^ORQQPL2 answers one line per note,
+    # the note's text alone (ORQQPL2.m:131-139), across every facility.
+    #
+    #   comments(ien) => [{ comment: "..." }, ...]
     def comments(ien)
       return [] if invalid_id?(ien)
 
-      Array(DataMapper.problem_comments.fetch_many(ien.to_s))
+      DataMapper.problem_comments.lines!(ien.to_s).map { |line| { comment: line } }
     end
     shape :comments, resource: "problems", verb: "GET", path: "/problems/{ien}/comments"
 

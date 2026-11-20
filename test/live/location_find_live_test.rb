@@ -13,6 +13,7 @@ require "rpms_rpc/api/ddr_fileman"
 # The spec lists the build's locations with DDR LISTER and checks find
 # against each one, so it holds on any build that has a location.
 class LocationFindLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
 
   def test_find_returns_each_listed_location

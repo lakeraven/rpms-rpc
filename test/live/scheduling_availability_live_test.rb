@@ -9,6 +9,7 @@ require "rpms_rpc/api/scheduling_setup"
 # BY DATE (rpms-ux S-SCH-14, lakeraven-ehr#806). Read back with BSDX CREATE
 # ASGND SLOT SCHED, the read the open-time search uses.
 class SchedulingAvailabilityLiveTest < LiveSpec::Test
+  runs_as "PSCH123"
   writes!
 
   CLINIC_NAME = "DEMO IHS CLINIC"

@@ -94,16 +94,31 @@ module RpmsRpc
     # inpatient pharmacy (PSOORRL.m:53).
     MEDICATION_ID = /\A\d+[A-Z]*;[A-Z]\z/
 
-    # Detail text for one medication on a patient's list. Underlying RPC:
-    # ORQQPS DETAIL. Formals: DETAIL(ORY,ORPT,ORMED) (ORQQPS.m:56): the
-    # patient, then the medication's id from ORQQPS LIST (see
-    # {MEDICATION_ID}); both go over the wire. A frame with the id alone
-    # left ORMED undefined and the call died in M (#678). A medication the
-    # patient does not have answers "No detailed information found."
-    # (ORQQPS.m:63), returned as the text it is. nil, with nothing sent,
-    # for a DFN that is not a positive integer or a medication id not of that shape.
+    # The start date find lists a patient's medications from: FileMan date 1,
+    # before any record, so the list is the patient's whole history.
+    HISTORY_START = "1"
+
+    # Detail text for one medication on a patient's list. Underlying RPCs:
+    # ORQQPS LIST, then ORQQPS DETAIL. Formals: DETAIL(ORY,ORPT,ORMED)
+    # (ORQQPS.m:56): the patient, then the medication's id from ORQQPS LIST
+    # (see {MEDICATION_ID}); both go over the wire. A frame with the id alone
+    # left ORMED undefined and the call died in M (#678).
+    #
+    # DETAIL does not check that the id is the patient's: OEL^PSOORRL reads
+    # ^PSRX(IFN) by the id alone (PSOORRL.m:52-58), so DETAIL for one patient
+    # and another patient's prescription answers that prescription (seen live
+    # on bcer-9.0-20261119-f67498c-ydb, rpms-rpc#837). So find first lists the
+    # patient's medications over their whole history (ORQQPS LIST from
+    # FileMan date 1: OCL^PSOORRL starts 120 days back, and inpatient today,
+    # only when the start is empty) and sends DETAIL only for an id on that
+    # list. nil for an id the patient's list does not give, with only the list
+    # sent; nil, with nothing sent, for a DFN that is not a positive integer
+    # or a medication id not of that shape. An id on the list whose detail the
+    # build cannot find answers DETAIL's "No detailed information found."
+    # (ORQQPS.m:63), returned as the text it is.
     def find(dfn, medication_id)
       return nil unless dfn.to_s.match?(/\A[1-9]\d*\z/) && medication_id.to_s.match?(MEDICATION_ID)
+      return nil unless DataMapper.medication_list.fetch_many(dfn.to_s, HISTORY_START, "").any? { |row| row[:id] == medication_id.to_s }
 
       DataMapper.medication_detail.fetch_text(dfn.to_s, medication_id.to_s)
     end

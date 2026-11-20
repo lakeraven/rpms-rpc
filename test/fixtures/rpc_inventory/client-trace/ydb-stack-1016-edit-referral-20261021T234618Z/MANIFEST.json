@@ -1,0 +1,15 @@
+{
+  "source": "vuecentric",
+  "workflow": "edit-referral",
+  "stack": "ydb-stack-1016",
+  "release": "bcer-9.0-20261015-46dd047-ydb",
+  "option": "CIAV VUECENTRIC",
+  "user": "MANAGER,SYSTEM",
+  "sessions": 1,
+  "calls": 140,
+  "distinct_rpcs": 58,
+  "first_at": "2026-10-21T23:14:37",
+  "last_at": "2026-10-21T23:15:22",
+  "masked_params": {},
+  "recorded_by": "cloud-rpms scripts/shared/rpc-trace.sh (CIA ACTIVITY LOG #19941.24)"
+}

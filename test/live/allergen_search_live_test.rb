@@ -10,6 +10,7 @@ require "rpms_rpc/fileman_date_parser"
 # goes into Allergy.save unchanged, and #120.8 holds the agent and the pointer
 # the search gave. It WRITES against a disposable local container only.
 class AllergenSearchLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   # An isolated synthetic patient no other live spec writes to.

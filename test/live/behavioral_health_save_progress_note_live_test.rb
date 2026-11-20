@@ -9,6 +9,8 @@ require "rpms_rpc/api/ddr_fileman"
 # RpmsRpc::BehavioralHealth.save_progress_note over AMHG SAVE PROGRESS NOTES
 # (PN^AMHGSVF, rpms-rpc#539). WRITES on a disposable container only.
 class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
+  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   writes!
 
   DFN = 990_033

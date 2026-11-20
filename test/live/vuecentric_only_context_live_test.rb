@@ -31,6 +31,7 @@ require "rpms_rpc/server_clock"
 # patient, vaccine and day edits the first (REFSET2^BGOUTL2), so it is dated a
 # random past day, as in empty_reply_writes_live_test.rb.
 class VuecentricOnlyContextLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   OTHER_OPTION = "OR CPRS GUI CHART"
   DFN = 4 # DEMO,PATIENT ONE, the build's seeded patient
 
@@ -80,6 +81,7 @@ class VuecentricOnlyContextLiveTest < LiveSpec::Test
 end
 
 class VuecentricOnlyContextWriteLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   OTHER_OPTION = VuecentricOnlyContextLiveTest::OTHER_OPTION

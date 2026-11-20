@@ -8,14 +8,19 @@ require "rpms_rpc/fileman_date_parser"
 
 # Order.save unreleased (ORWDX SAVE, #455), read back through Order.list and
 # ORDER (#100) via DDR. Order.check (ORWDXC ACCEPT, #454) is a separate live
-# test. Order.sign_and_release (ORWDX SEND, #456) signs and releases a saved
+# test: it orders the drug of an active prescription again, for the same
+# patient, and must see the duplicate-drug check fire (#847).
+# Order.sign_and_release (ORWDX SEND, #456) signs and releases a saved
 # order and is read back from file 100. OR GXTEXT WORD PROCESSING ORDER
 # WRITES against a disposable local container.
 #
 # The sign-and-release spec needs the persona's electronic signature code in
-# RPMS_ESIG (never logged). Without it the spec skips, tracked by #456, rather
-# than pass or fail on a code it was never given.
+# RPMS_ESIG (never logged; rake report:daily passes <PERSONA>_ESIG, #848).
+# Every PMD123 run supplies it (README, Running the live specs), so a run
+# without it fails and says so, rather than skip and leave signing unproven
+# (#851).
 class OrderWriteLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   writes!
 
   DFN = 990_034 # synthetic patient; not used by other live order specs
@@ -24,9 +29,10 @@ class OrderWriteLiveTest < LiveSpec::Test
 
   ORDER_SNIPPET = "rpms-rpc live spec order write readback"
 
-  # First N active #101.43 rows per package suffix (field 2 ends with ;99ORD or ;99PSP).
-  ORDERABLE_PROBE_LIMIT = 5
-  ORDERABLE_PACKAGE_SUFFIXES = { "OR" => "99ORD", "PS" => "99PSP" }.freeze
+  # PRESCRIPTION (#52) field 100 STATUS: 0 is ACTIVE.
+  RX_STATUS_ACTIVE = "0"
+  # ORDER CHECKS (#100.8) entry the duplicate-drug check files under.
+  DUPLICATE_DRUG_CHECK = "DUPLICATE DRUG ORDER"
 
   def test_save_leaves_an_unreleased_order_on_file
     dialog = resolve_dialog!
@@ -81,7 +87,7 @@ class OrderWriteLiveTest < LiveSpec::Test
 
   def test_sign_and_release_releases_a_saved_order_and_reads_it_back
     esig = ENV["RPMS_ESIG"].to_s
-    skip_tracked("#456", "RPMS_ESIG (#{persona}'s signature code) is not set; ORWDX SEND is not live-proven") if esig.empty?
+    flunk "RPMS_ESIG is missing: set it to #{persona}'s electronic signature code (rake report:daily: #{persona}_ESIG)" if esig.strip.empty?
 
     dialog = resolve_dialog!
     prompts = resolve_dialog_prompts!(dialog.fetch(:name))
@@ -116,42 +122,37 @@ class OrderWriteLiveTest < LiveSpec::Test
     puts "\n#{persona}: order #{saved[:ien]} signed and released on DFN #{DFN} (status #{internal})"
   end
 
-  def test_order_checks_return_check_rows
+  # USID^ORWDXC reads an outpatient drug item's PkgInfo as a DRUG (#50) IEN
+  # (ORDRUG=+$P(ORITMX,U,3)), not the #50.7 IEN in the orderable's ID, so the
+  # spec sends the prescription's own drug. An empty ACCEPT reply means the
+  # checks are unknown, never that there is nothing to report: it fails here.
+  def test_order_checks_flag_a_duplicate_of_an_active_prescription
     location = resolve_hospital_location!
-    start = server_now_fm
-    build = LiveSpec.build_label
-    tried = []
+    rx = active_prescription!
+    orderable = drug_orderable!(rx.fetch(:drug))
+    duplicate_ien = order_check_ien!(DUPLICATE_DRUG_CHECK)
 
-    ORDERABLE_PACKAGE_SUFFIXES.each do |package, suffix|
-      active_orderable_rows(suffix, ORDERABLE_PROBE_LIMIT).each do |row|
-        item = order_check_item_for(row, package)
-        next if item.nil?
-
-        label = "101.43 IEN #{row[:ien]} package #{package}"
-        tried << label
-
-        2.times do
-          check = RpmsRpc::Order.check(
-            DFN,
-            filler_id: "OR",
-            location: location,
-            items: [ item ],
-            start: start
-          )
-          next unless check.available? && check.checks.any?
-
-          assert_order_check_rows!(check)
-          puts "\n#{persona}: ORWDXC ACCEPT returned #{check.checks.size} check row(s) for #{label}"
-          return
-        end
-      end
-    end
-
-    detail = tried.empty? ? "no active #101.43 orderables for OR/PS packages" : tried.join(", ")
-    skip_tracked(
-      "#383",
-      "#{detail} returned no ORWDXC check rows on #{build}; order checks are not live-proven"
+    check = RpmsRpc::Order.check(
+      rx.fetch(:dfn),
+      filler_id: "PS",
+      location: location,
+      items: [ { orderable_item: orderable.fetch(:ien), package: "PS", package_info: rx.fetch(:drug) } ],
+      start: server_now_fm
     )
+
+    assert check.available?,
+           "ORWDXC ACCEPT for #{orderable.fetch(:name)} on DFN #{rx.fetch(:dfn)} is not a usable answer " \
+           "(#{check.inspect}); an empty or failed reply is unknown, not \"no problems\""
+    assert_order_check_rows!(check)
+    duplicate = check.checks.find { |row| row.check_ien == duplicate_ien }
+    refute_nil duplicate,
+               "no #{DUPLICATE_DRUG_CHECK} (#100.8 IEN #{duplicate_ien}) row for #{orderable.fetch(:name)} on " \
+               "DFN #{rx.fetch(:dfn)}, which holds active prescription #{rx.fetch(:number)}; rows=#{check.checks.inspect}"
+    assert_match(/duplicate drug order/i, duplicate.text)
+    assert_includes duplicate.text, orderable.fetch(:name), duplicate.text
+
+    puts "\n#{persona}: ORWDXC ACCEPT flagged #{orderable.fetch(:name)} (drug #{rx.fetch(:drug)}) as a duplicate " \
+         "of prescription #{rx.fetch(:number)} on DFN #{rx.fetch(:dfn)}: #{duplicate.text}"
   end
 
   private
@@ -167,37 +168,54 @@ class OrderWriteLiveTest < LiveSpec::Test
     end
   end
 
-  # Field 7 = "1" marks inactive on #101.43; field 2 ends with ;99ORD or ;99PSP.
-  def active_orderable_rows(suffix, limit)
-    listed = RpmsRpc::DdrFileman.lister(file: "101.43", fields: ".01;2;7", flags: "IP", max: 2000)
+  # The first ACTIVE PRESCRIPTION (#52): its patient (field 2), DRUG (#50,
+  # field 6) and RX # (.01).
+  def active_prescription!
+    listed = RpmsRpc::DdrFileman.lister(file: "52", fields: ".01;2;6;100", flags: "IP", max: 500)
+    flunk "DDR LISTER on PRESCRIPTION (#52) gave no reply" if listed.nil?
+    flunk "DDR LISTER on PRESCRIPTION (#52) answered an error" if listed[:error]
+
+    row = listed[:entries].find do |entry|
+      number, dfn, drug, status = entry[:pieces]
+      status.to_s == RX_STATUS_ACTIVE && dfn.to_s.match?(/\A\d+\z/) && drug.to_s.match?(/\A\d+\z/) && !number.to_s.empty?
+    end
+    flunk "no ACTIVE prescription (#52 field 100 = 0) with a patient and a drug on this build: " \
+          "the duplicate-drug order check has nothing to duplicate" if row.nil?
+
+    number, dfn, drug, = row[:pieces]
+    { number: number.to_s, dfn: dfn.to_i, drug: drug.to_s }
+  end
+
+  # The active ORDERABLE ITEM (#101.43) for a DRUG (#50): the drug's
+  # PHARMACY ORDERABLE ITEM (#50.7, field 2.1) is the orderable's ID
+  # (field 2) "<#50.7 IEN>;99PSP".
+  def drug_orderable!(drug)
+    entry = RpmsRpc::DdrFileman.gets_entry(file: "50", iens: "#{drug},", fields: "2.1", flags: "IE")
+    flunk "DDR GETS on DRUG (#50) #{drug} gave no reply" if entry.nil?
+    flunk "DDR GETS on DRUG (#50) #{drug} answered an error" if entry[:error]
+
+    pharmacy_item = entry[:fields].dig("2.1", :internal).to_s
+    flunk "DRUG (#50) #{drug} has no PHARMACY ORDERABLE ITEM (field 2.1)" unless pharmacy_item.match?(/\A\d+\z/)
+
+    listed = RpmsRpc::DdrFileman.lister(file: "101.43", fields: ".01;2;7", flags: "IP", max: 5000)
     flunk "DDR LISTER on ORDERABLE ITEM (#101.43) gave no reply" if listed.nil?
     flunk "DDR LISTER on ORDERABLE ITEM (#101.43) answered an error" if listed[:error]
 
-    rows = []
-    listed[:entries].each do |row|
-      break if rows.size >= limit
+    row = listed[:entries].find { |e| e[:pieces][1].to_s == "#{pharmacy_item};99PSP" && e[:pieces][2].to_s != "1" }
+    flunk "no active ORDERABLE ITEM (#101.43) with ID #{pharmacy_item};99PSP for DRUG (#50) #{drug}" if row.nil?
 
-      next if row[:pieces][2].to_s == "1"
-      next unless row[:pieces][1].to_s.end_with?(";#{suffix}")
-
-      rows << row
-    end
-    rows
+    { ien: row[:ien].to_s, name: row[:pieces][0].to_s.strip }
   end
 
-  def order_check_item_for(row, package)
-    ien = row[:ien].to_s
-    return nil unless ien.match?(/\A\d+\z/)
+  def order_check_ien!(name)
+    listed = RpmsRpc::DdrFileman.lister(file: "100.8", fields: ".01", flags: "IP", max: 500)
+    flunk "DDR LISTER on ORDER CHECKS (#100.8) gave no reply" if listed.nil?
+    flunk "DDR LISTER on ORDER CHECKS (#100.8) answered an error" if listed[:error]
 
-    case package
-    when "OR"
-      { orderable_item: ien, package: "OR", package_info: "" }
-    when "PS"
-      drug = row[:pieces][1].to_s.split(";").first
-      return nil unless drug.match?(/\A\d+\z/)
+    row = listed[:entries].find { |e| e[:pieces].first.to_s == name }
+    flunk "no ORDER CHECKS (#100.8) entry named #{name.inspect} on this build" if row.nil?
 
-      { orderable_item: ien, package: "PS", package_info: drug }
-    end
+    row[:ien].to_s
   end
 
   def resolve_dialog!

@@ -1,0 +1,110 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb tribal.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-18T17:32:44Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: enrollment/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990001,
+    FIELDS: ".07;1108;1109;1110;1111;1112;1118"
+    FLAGS: IE
+  context: 'enrollment: the #9000001 tribal fields of DFN 990001'
+  raw_return: "5\0[Data]\r9000001^990001^.07^SYN990001^SYN990001\r9000001^990001^1108^803^INDIAN
+    - TRIBE UNSPECIFIED\r9000001^990001^1109^1/4^1/4\r9000001^990001^1110^1/2^1/2\r9000001^990001^1111^1^INDIAN/ALASKA
+    NATIVE\r9000001^990001^1112^D^DIRECT ONLY\r9000001^990001^1118^STONE MESA^STONE
+    MESA\r"
+  sha256: 1706023845f9274b96fdc469ebf8331757630f3d06b784f7ac43a5bdde0bfe4f
+- name: enrollment_unknown/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 999999999,
+    FIELDS: ".07;1108;1109;1110;1111;1112;1118"
+    FLAGS: IE
+  context: 'enrollment: DFN 999999999, which is not on file'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: eligibility/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990001,
+    FIELDS: 1111;1112
+    FLAGS: IE
+  context: 'eligibility: classification and status of DFN 990001'
+  raw_return: "5\0[Data]\r9000001^990001^1111^1^INDIAN/ALASKA NATIVE\r9000001^990001^1112^D^DIRECT
+    ONLY\r"
+  sha256: 65467e04a41f73790811b53b266dea825b7d93ed3d3ce1de09944c18a4210680
+- name: validate_valid/1
+  rpc: DDR VALIDATOR
+  inputs:
+  - FILE: '9000001'
+    IENS: ''
+    FIELD: ".07"
+    VALUE: SYN12345
+  context: 'validate: SYN12345 against #9000001 .07''s input transform'
+  raw_return: "5\0[FILLER]\r[Data]\rSYN12345\rSYN12345\r"
+  sha256: 73e9415f6888c1d0b6a9ca02fcba9a0a512c2ff3f8b71413d387af0601db76a5
+- name: validate_invalid/1
+  rpc: DDR VALIDATOR
+  inputs:
+  - FILE: '9000001'
+    IENS: ''
+    FIELD: ".07"
+    VALUE: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  context: 'validate: a 40-character value, longer than .07 accepts'
+  raw_return: "5\0[FILLER]\r[Data]\r^\r\r[BEGIN_diERRORS]\r701^1^9000001^^.07^3\r3^XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\rFIELD^.07\rFILE^9000001\rThe
+    value 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' for field TRIBAL ENROLLMENT NO.
+    in file PATIENT is not valid.\r[END_diERRORS]\r[BEGIN_diHELP]\r9000001^.07^?^1\rAnswer
+    must be 1-16 characters in length.\r[END_diHELP]\r"
+  sha256: 0b22115fa84a969af373e790e08b1555b8e13bbaa1f6a95458fb9cbedcc37a7a
+- name: tribes/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.03'
+    FIELDS: "@;.01"
+    PART: KWETH
+    XREF: B
+  context: 'tribes: names starting KWETH on the B index'
+  raw_return: "5\0[Data]\r697^KWETHLUK, INC.\r532^KWETHLUK, ORGANIZED VILLAGE OF KWETHLUK\r"
+  sha256: 6114cc9dec14412321b60ef2795e864ecedfa897589da429d3882f0dc79503bf
+- name: tribe_info/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.03'
+    IENS: 697,
+    FIELDS: ".01;.02"
+    FLAGS: IE
+  context: 'tribe_info: TRIBE 697, KWETHLUK, INC.'
+  raw_return: "5\0[Data]\r9999999.03^697^.01^KWETHLUK, INC.^KWETHLUK, INC.\r9999999.03^697^.02^815^815\r"
+  sha256: abfe69185e64753c3cc1dc0bbc8f9c683d3c3317b53bc85acf53107c72f3b3c1
+- name: service_unit/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.22'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: IE
+  context: 'service_unit: SERVICE UNIT 1'
+  raw_return: "5\0[Data]\r9999999.22^1^.01^NON SERVICE UNIT^NON SERVICE UNIT\r"
+  sha256: 1866a65dbd991b375a105027c381d2747ec576c8a270f3f47205ccf563e60919
+- name: communities/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.05'
+    FIELDS: "@;.01;.02;.03"
+    PART: STONEHAM
+    XREF: B
+  context: 'communities: names starting STONEHAM on the B index'
+  raw_return: "5\0[Data]\r10663^STONEHAM^MIDDLESEX^MASSACHUSETTS\r"
+  sha256: b90049dc9f6c6545ccc9022b3ecb1d22b5ee91884fd6a3eb347972f117f01cf7

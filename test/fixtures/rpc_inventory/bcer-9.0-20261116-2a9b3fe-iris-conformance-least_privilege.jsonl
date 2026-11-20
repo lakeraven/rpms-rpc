@@ -1,0 +1,54 @@
+{"id":"lp-vim-info","rpc":"CIAVCXUS VIMINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-progmode-key","rpc":"ORWU HASKEY","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-patient-list","rpc":"ORWPT LIST ALL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":44,"pass":true,"detail":null,"secs":0.33,"captured":{"dfn":"990051"}}
+{"id":"lp-patient-appointments","rpc":"ORWPT APPTLST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-progress-notes","rpc":"TIU DOCUMENTS BY CONTEXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-orders","rpc":"ORWORR AGET","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-problem-list","rpc":"ORQQPL LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.32,"captured":{"problem":"133"}}
+{"id":"lp-template-roots","rpc":"TIU TEMPLATE GETROOTS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.32,"captured":{"template":"1"}}
+{"id":"lp-hospital-locations","rpc":"BSDX HOSPITAL LOCATION","context":"BSDXRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: BSDX HOSPITAL LOCATION","secs":0.32}
+{"id":"lp-user-info","rpc":"XUS GET USER INFO","context":"CIAV VUECENTRIC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: XUS GET USER INFO","secs":0.32}
+{"id":"lp-vim-registry","rpc":"CIAVMCFG GETREG","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2492,"pass":true,"detail":null,"secs":0.36}
+{"id":"lp-vim-info-2","rpc":"CIAVCXUS VIMINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-site-info","rpc":"BEHOSICX SITEINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":11,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-person-search","rpc":"ORWU NEWPERS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-cprs-user-info","rpc":"ORWU USERINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-community-alerts","rpc":"BQI GET COMM ALERTS SPLASH","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-orders-expired-start","rpc":"ORWOR EXPIRED","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-patient-select","rpc":"ORWPT SELECT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-patient-id-info","rpc":"ORWPT ID INFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-patient-info","rpc":"BEHOPTCX PTINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-patient-bdp","rpc":"BEHOPTPC GETBDP","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-patient-cwad","rpc":"BEHOCACV CWAD","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-allergies","rpc":"ORQQAL LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-vitals","rpc":"ORQQVI VITALS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-medications","rpc":"ORQQPS LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-immunization-summary","rpc":"BEHOCIR GETTXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-imaging-exams","rpc":"ORWRA IMAGING EXAMS1","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-patient-tribal-fields","rpc":"DDR GETS ENTRY DATA","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":8,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-admissions","rpc":"ORWPT ADMITLST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.34}
+{"id":"lp-inpatient-location","rpc":"ORWPT INPLOC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-phr-status","rpc":"BEHOCCD PHR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-phr-counts","rpc":"BEHOCIR GETNUM","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-order-sheets","rpc":"ORWOR SHEETS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-orders-unsigned","rpc":"ORWOR UNSIGN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-problem-provider-list","rpc":"ORQQPL PROVIDER LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-reminders-list","rpc":"ORQQPX REMINDERS LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.35}
+{"id":"lp-bh-visits","rpc":"AMHG GET VISITS","context":"AMHGRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: AMHG GET VISITS","secs":0.32}
+{"id":"lp-bh-treatment-plans","rpc":"AMHG GET TREATMENT PLANS","context":"AMHGRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: AMHG GET TREATMENT PLANS","secs":0.32}
+{"id":"lp-bh-suicide-forms","rpc":"AMHG GET SUICIDE FORMS","context":"AMHGRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: AMHG GET SUICIDE FORMS","secs":0.33}
+{"id":"lp-allergy-defaults","rpc":"ORWDAL32 DEF","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":38,"pass":true,"detail":null,"secs":0.35}
+{"id":"lp-symptom-search","rpc":"ORWDAL32 SYMPTOMS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":44,"pass":true,"detail":null,"secs":0.4}
+{"id":"lp-problem-lex-search","rpc":"ORQQPL PROBLEM LEX SEARCH","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":101,"pass":true,"detail":null,"secs":1.28}
+{"id":"lp-refusal-reasons","rpc":"BGOREF GETREA","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":21,"pass":true,"detail":null,"secs":0.38}
+{"id":"lp-tribes","rpc":"DDR LISTER","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":807,"pass":true,"detail":null,"secs":0.36}
+{"id":"lp-order-sheets-all","rpc":"ORWOR TSALL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":5,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-clinic-setup","rpc":"BSDX CLINIC SETUP","context":"BSDXRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: BSDX CLINIC SETUP","secs":0.33}
+{"id":"lp-appointments","rpc":"BSDX ALL APPOINTMENTS","context":"BSDXRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: BSDX ALL APPOINTMENTS","secs":0.32}
+{"id":"lp-referral-purposes","rpc":"BMC GET PURPOSE OF REF API","context":"BMCRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.36}
+{"id":"lp-health-summary-types","rpc":"BMC HEALTH SUMMARY TYPE","context":"BMCRPC","expect":"answered","verdict":"answered","rows":20,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-problem-audit-history","rpc":"ORQQPL AUDIT HIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-template-items","rpc":"TIU TEMPLATE GETITEMS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":5,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-template-boilerplate","rpc":"TIU TEMPLATE GETBOIL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"lp-template-text","rpc":"TIU TEMPLATE GETTEXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.33}
+{"id":"lp-snomed-type-ahead","rpc":"BSTS SEARCH TYPE AHEAD","context":"BSTSRPC","expect":"broker_error","verdict":"broker_error","rows":0,"pass":true,"detail":"4 Access denied for remote procedure: BSTS SEARCH TYPE AHEAD","secs":0.33}

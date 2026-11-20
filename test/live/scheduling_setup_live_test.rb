@@ -12,6 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 # prevents access goes in through the scheduling client's own BSDX ADD/EDIT
 # ACCESS TYPE, and the clinic's #44 fields through DDR FILER, put back after.
 class SchedulingSetupLiveTest < LiveSpec::Test
+  runs_as "PSCH123"
   writes!
 
   PREVENTS = "LIVE SPEC PREVENTS"

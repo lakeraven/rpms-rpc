@@ -50,9 +50,14 @@
 # is written only when no fixture file exists yet.
 # wire:capture_writes is the separate scheduling-write path: it aborts unless
 # LIVE_DISPOSABLE=1 and the broker is loopback, and the read-back is the proof.
+# It provisions as the setup persona and writes as the scheduling persona,
+# PSCH123, whose role scheduling is (#626).
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
   SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+  # The scheduling-write capture: the setup persona and the scheduling slice's
+  # pilot, PROFILE,SCHED (rpms-rpc#626). Both must record a DUZ and a division.
+  SCHEDULING_WRITE_PERSONAS = %w[SYS123 PSCH123].freeze
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
   ADD_WRITE_RPC = "BSDX ADD NEW APPOINTMENT"
   # Check-in, cancel, and no-show are proven only when read_before shows the
@@ -330,6 +335,14 @@ namespace :wire do
     abort "wire:capture: captures must sign on as a synthetic persona"
   end
 
+  # A fixture names who signed on: a synthetic persona, or the scheduling
+  # pilot (WireCapture::FIXTURE_PERSONAS). The value is never in the message.
+  def require_fixture_persona!(persona)
+    return persona if RpmsRpc::WireCapture::FIXTURE_PERSONAS.include?(persona)
+
+    abort "wire:capture: a fixture must name a synthetic persona"
+  end
+
   def fixture_data(entry, release, captured_at, signed_on_as)
     {
       "rpc" => entry.rpc,
@@ -337,9 +350,9 @@ namespace :wire do
       "kind" => entry.kind,
       "release_tag" => release,
       "captured_at" => captured_at,
-      # README synthetic persona only (SYS123 / PROV123). The verify code is
+      # A synthetic persona or the scheduling pilot (FIXTURE_PERSONAS). The verify code is
       # never a fixture field.
-      "signed_on_as" => require_synthetic_persona!(signed_on_as),
+      "signed_on_as" => require_fixture_persona!(signed_on_as),
       "cite" => entry.cite,
       "note" => entry.note,
       "pieces" => entry.pieces.map do |p|
@@ -486,7 +499,7 @@ namespace :wire do
     end
 
     persona = capture["signed_on_as"].to_s
-    unless SYNTHETIC_PERSONAS.include?(persona)
+    unless SCHEDULING_WRITE_PERSONAS.include?(persona)
       warn "SKIP #{entry.rpc}: signed_on_as is not a synthetic persona (existing fixture kept)"
       return false
     end
@@ -529,7 +542,6 @@ namespace :wire do
       "read_back" => read_back
     )
     return false unless attach_read_before(entry, capture, data)
-    return false unless attach_persona_probe(entry, capture, data)
 
     begin
       RpmsRpc::WireCapture::Fixture.new(data)
@@ -579,11 +591,11 @@ namespace :wire do
     mapped = {}
     division.each do |persona, value|
       key = persona.to_s
-      return nil unless SYNTHETIC_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+      return nil unless SCHEDULING_WRITE_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
 
       mapped[key] = value
     end
-    return nil unless SYNTHETIC_PERSONAS.all? { |persona| mapped.key?(persona) }
+    return nil unless SCHEDULING_WRITE_PERSONAS.all? { |persona| mapped.key?(persona) }
 
     mapped
   end
@@ -611,7 +623,7 @@ namespace :wire do
     mapped = {}
     duz.each do |persona, value|
       key = persona.to_s
-      return nil unless SYNTHETIC_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+      return nil unless SCHEDULING_WRITE_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
 
       mapped[key] = value
     end
@@ -650,27 +662,6 @@ namespace :wire do
         "sha256" => Digest::SHA256.hexdigest(raw)
       }
     end
-  end
-
-  # The ADD fixture carries PROV123's refused booking. The other three writes
-  # do not. A missing or non-synthetic probe keeps the previous ADD fixture.
-  def attach_persona_probe(entry, capture, data)
-    return true unless entry.rpc == ADD_WRITE_RPC
-
-    probe = capture["persona_probe"]
-    unless probe.is_a?(Hash) && !probe["raw"].to_s.empty? && SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
-      warn "SKIP #{entry.rpc}: persona_probe missing or not a synthetic persona (existing fixture kept)"
-      return false
-    end
-
-    raw = probe["raw"]
-    data["persona_probe"] = {
-      "signed_on_as" => probe["signed_on_as"],
-      "inputs" => probe["inputs"],
-      "raw_return" => raw,
-      "sha256" => Digest::SHA256.hexdigest(raw)
-    }
-    true
   end
 
   def write_fixture_header(entry, data)

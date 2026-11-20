@@ -1,0 +1,45 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb adt-movements.rb.
+---
+rpc: DDR LISTER
+entry_point: LISTC^DDR
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-19T23:18:38Z'
+note: Run on a throwaway container. Before the run, DFN 4 was admitted, switched bed
+  and discharged there through stock $$ADD^BDGAPI (no RPC reaches it; openrpms#1231);
+  the build ships no stay.
+captures:
+- name: one_stay/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '405'
+    FIELDS: "@;.01I;.02I;.02E;.04E;.06E;.07E;.09E;.14I;.17I"
+    FLAGS: IP
+    MAX: "*"
+    FROM: '0'
+    PART: '4'
+    XREF: C
+    SCREEN: I $P(^(0),U,3)=4
+  context: 'movements(dfn: 4): one admission, its specialty movement and its discharge'
+  raw_return: "5\0[Data]\r1^3261117.23^1^ADMISSION^DIRECT^DEMO WARD^101-B^^1^3\r2^3261117.23^6^SPECIALTY
+    TRANSFER^PROVIDER/SPECIALTY CHANGE^^^GENERAL MEDICINE^1^\r3^3261118.23^3^DISCHARGE^REGULAR
+    DISCHARGE^^^^1^\r"
+  sha256: a44a56057edf8cd8b951f04cbfab107ea87bf55e8e28bce10815dd59f13ce425
+- name: no_stay/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '405'
+    FIELDS: "@;.01I;.02I;.02E;.04E;.06E;.07E;.09E;.14I;.17I"
+    FLAGS: IP
+    MAX: "*"
+    FROM: '0'
+    PART: '990012'
+    XREF: C
+    SCREEN: I $P(^(0),U,3)=990012
+  context: 'movements(dfn: 990012): a patient never admitted'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82

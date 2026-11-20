@@ -18,6 +18,7 @@ require "securerandom"
 # Creates one synthetic patient: run on a disposable container and discard it.
 # Needs BMX_PORT (the container's 9101). PROFILE,REG holds AGGRPC.
 class RegistrationLookupBmxLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   FAULT_PAIR = { "1BAD" => "X" }.freeze # not a valid M local: S @NAME=VALUE faults (AGGPTLKP.m:39)

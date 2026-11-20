@@ -1,0 +1,22 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb adt-reads-unlinked-ward.rb.
+---
+rpc: ORWPT INPLOC
+entry_point: INPLOC^ORWPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:16:00Z'
+note: Run on the throwaway container of adt-reads.rb, after DEMO WARD's field 44 (HOSPITAL
+  LOCATION FILE POINTER) was cleared through stock FILE^DIE; the build links every
+  ward it ships.
+captures:
+- name: inploc_admitted_unlinked_ward
+  inputs:
+  - '990013'
+  context: 'ORWPT INPLOC for DFN 990013: admitted to DEMO WARD, whose hospital location
+    link was cleared'
+  raw_return: "5\00^DEMO WARD^M"
+  sha256: 7273ad9a7b1ec137f3dab3dd3c7635e4f09782b67669c9d041dd438992764d95
