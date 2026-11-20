@@ -2234,6 +2234,7 @@
       "replies": [
         "test/fixtures/captured_replies/allergy-save.yml",
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
@@ -2695,13 +2696,16 @@
       "methods": {
         "RpmsRpc::Patient.search": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml"
+      ]
     },
     "ORWPT SELECT": {
       "methods": {
         "RpmsRpc::Patient.find": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/wire_captures/orwpt-select.yml"
       ]
     },
@@ -2720,6 +2724,7 @@
         "RpmsRpc::HealthSummary.generate_selective": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/health-summary.yml"
       ]
     },
