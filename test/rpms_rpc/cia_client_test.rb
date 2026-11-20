@@ -46,9 +46,11 @@ class RpmsRpc::CiaClientTest < Minitest::Test
 
   # A refused sign-on leaves NOTHING bound. Asserting only `duz` is vacuous:
   # @duz is assigned after the gate, so it is nil on every refusal path whether
-  # or not state was cleared. @authenticated, @session_uid, @current_context and
-  # @signon_user are set BEFORE the identity read — they are what a refusal has
-  # to unwind, and what a missing clear_signon_state would leave behind.
+  # or not state was cleared. @authenticated, @session_uid and @current_context
+  # are set BEFORE the identity read — they are what a refusal has to unwind,
+  # and what a missing clear_signon_state would leave behind. @signon_user is
+  # set from that read (#849) and must be nil on every refusal too, including a
+  # re-auth that follows a successful sign-on.
   def assert_signed_off(client)
     refute client.authenticated?, "a refused sign-on must not stay authenticated"
     assert_nil client.duz
@@ -467,6 +469,33 @@ end
     assert_equal "63", c.duz
   end
 
+  # #849: Kernel greets a user with a NICK NAME by the nickname, so the name
+  # comes from VIMINFO's piece 2 (#200 .01), not the greeting. The three
+  # replies are verbatim from PROV123's sign-on on
+  # bcer-9.0-20261119-f67498c-ydb-demo, 2026-11-19 (the echoes restamped from
+  # 2, 3, 4: the live connect took sequence 1).
+  NICKNAME_AUTH_REPLY = "1\x000\r9^DEMO.IHS.GOV^DEMO IHS CLINIC\r\rGood morning TEST\r     " \
+                        "You last signed on today at 00:38\r"
+  NICKNAME_VIMINFO_REPLY = "2\x00200^PROVIDER,TEST^1800;1800;60^0^0"
+  NICKNAME_DIVGET_REPLY = "3\x007819\r7819^DEMO IHS CLINIC^8904\r"
+
+  def test_signon_names_a_user_greeted_by_nickname_from_viminfo
+    c = connected_client([ NICKNAME_AUTH_REPLY + EOD, NICKNAME_VIMINFO_REPLY + EOD, NICKNAME_DIVGET_REPLY + EOD ])
+    result = c.authenticate("SYN123", "SYN123!!")
+    assert_equal "PROVIDER,TEST", result[:user]
+    assert_equal "PROVIDER,TEST", c.signon_user
+    assert_equal 200, result[:duz]
+    assert_match(/Good morning TEST\s+You last/, result[:greeting])
+  end
+
+  # The name is the server's answer even when the greeting carries one:
+  # VIMINFO names USER,DEMO here and the greeting another user.
+  def test_signon_user_is_viminfo_name_not_the_greeting
+    greeting = AUTH_REPLY.sub("USER,DEMO", "OTHER,NAME")
+    c = connected_client([ greeting + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
+    assert_equal "USER,DEMO", c.authenticate("SYN123", "SYN123!!")[:user]
+  end
+
   # #293: sign-on binds the division DIVGET lists, and a one-division user
   # needs no DIVSET (DIVGET already set DUZ(2) to its choice).
   def test_authenticate_binds_the_division_divget_lists
@@ -547,7 +576,7 @@ end
   # \x00 DATA flag) framed by hand — split on "\x00", fall back to the whole
   # raw — leaves the echo as line 1, and a bare digit echo reads as a positive
   # DUZ. Sign-on would then attest identity "2" for a user the broker never
-  # resolved. #parse_cia_reply exists to make that unrepresentable; signon_duz
+  # resolved. #parse_cia_reply exists to make that unrepresentable; signon_identity
   # must go through it.
   def test_authenticate_never_mints_the_sequence_echo_into_a_duz
     c = connected_client([ AUTH_REPLY + EOD, "2" + EOD ]) # seq echo only, no flag
