@@ -453,6 +453,7 @@
 "RpmsRpc::UserManagement.find": read
 "RpmsRpc::UserManagement.search": read
 "RpmsRpc::Vital.add": non_idempotent_write
+"RpmsRpc::Vital.add_stock": non_idempotent_write
 "RpmsRpc::Vital.build_save_payload": read
 "RpmsRpc::Vital.for_patient": read
 "RpmsRpc::Vital.grid": read

@@ -288,6 +288,37 @@ module RpmsRpc
       m.rpc "ORQQPL USER PROB LIST"
     end
 
+    # GMV GET VITAL TYPE IEN — TYPE^GMVUTL8 (GMVUTL8.m:30-37): the FILE
+    # 120.51 IEN for a vital type NAME (the "B" index, not the
+    # abbreviation), or -1 / 0 when there is none.
+    DataMapper.define(:gmv_vital_type_ien) do |m|
+      m.rpc "GMV GET VITAL TYPE IEN"
+      m.context "OR CPRS GUI CHART"
+      m.scalar :type_ien
+    end
+
+    # GMV ADD VM — EN1^GMVDCSAV(RESULT,GMVDATA) (GMVDCSAV.m:14-30): one
+    # FILE 120.5 row per call. GMVDATA is
+    # DATETIME^DFN^TYPE_IEN;READING;O2^LOCATION_IEN^DUZ*QUAL:QUAL.
+    # A clean save leaves RESULT empty; a FileMan error adds
+    # "ERROR: <text>" lines (MSG/FMERROR, GMVDCSAV.m:80-97).
+    DataMapper.define(:gmv_add_vm) do |m|
+      m.rpc "GMV ADD VM"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :message
+    end
+
+    # GMV EXTRACT REC — GETVM^GMVGETD (GMVGETD.m:17-31), param
+    # DFN^END^ABBREVIATION^START. Rows are "<120.5 IEN>^MM/DD/YY@HH:MM
+    # <type> <reading>..." (GMVGETD2.m:9-36); none in range is the single
+    # row "0^NO ... ENTERED WITHIN THIS PERIOD" (GMVGETD.m:28).
+    DataMapper.define(:gmv_extract_rec) do |m|
+      m.rpc "GMV EXTRACT REC"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :ien
+      m.field 1, :text
+    end
+
     # ORQQVI VITALS — the patient's MOST RECENT vital per type, optionally
     # within a date range. NOT full history: the #8994 registry dispatches
     # this RPC name to FASTVIT^ORQQVI
