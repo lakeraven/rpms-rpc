@@ -2309,7 +2309,9 @@
       "methods": {
         "RpmsRpc::Problem.audit_history": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/problem-orqqpl-reads.yml"
+      ]
     },
     "ORQQPL CLIN SRCH": {
       "methods": {
@@ -2356,13 +2358,17 @@
       "methods": {
         "RpmsRpc::Problem.comments": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/problem-orqqpl-reads.yml"
+      ]
     },
     "ORQQPL PROBLEM LEX SEARCH": {
       "methods": {
         "RpmsRpc::Problem.lex_search": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/problem-orqqpl-reads.yml"
+      ]
     },
     "ORQQPL PROVIDER LIST": {
       "methods": {
