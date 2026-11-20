@@ -97,7 +97,7 @@ class OrwpceReadWireTest < Minitest::Test
     mapping = mapping_for("ORWPCE NOTEVSTR")
     expected = [
       { location_ien: 3, datetime_raw: "3260902.0255", service_category: "A" },
-      { location_ien: 7, datetime_raw: "3260904.2344", service_category: "T" }
+      { location_ien: 11, datetime_raw: "3260904.2344", service_category: "T" }
     ]
     load_unmapped_capture("ORWPCE NOTEVSTR").fetch("captures").zip(expected).each do |cap, exp|
       row = mapping.parse_visit_string(cia_data_body(cap.fetch("raw_return")))
@@ -307,7 +307,7 @@ class OrwpceReadWireTest < Minitest::Test
     cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures")[1]
     bundle = mapping_for("ORWPCE PCE4NOTE").parse_note_bundle(cia_data_lines(cap.fetch("raw_return")))
 
-    assert_equal "7;3260904.2344;T", bundle.dig(:header, :visit_string)
+    assert_equal "11;3260904.2344;T", bundle.dig(:header, :visit_string)
     assert_equal 1, bundle.fetch(:providers).size
     assert_equal "MANAGER,SYSTEM", bundle.fetch(:providers).first[:name]
     assert_equal "CHART REVIEW", bundle.dig(:visit, :hospital_location_name)
