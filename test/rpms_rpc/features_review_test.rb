@@ -47,7 +47,8 @@ class FeaturesReviewTest < Minitest::Test
 
   def test_review_511_pin_ddr_lister_and_gets_entry_data_golden_document_scmc_ooo_option
     ddr = { "class" => "client-callable", "routine_present" => true, "tag_present" => true,
-            "contexts" => [ "SCMC PCMM GUI WORKSTATION", "CIAV VUECENTRIC", "XU EPCS EDIT DATA" ], "exemptions" => [] }
+            "contexts" => [ "XQAL GUI ALERTS", "SCMC PCMM GUI WORKSTATION", "CIAV VUECENTRIC", "MWVS MEDICAL DOMAIN WEB SVCS",
+                            "XU EPCS EDIT DATA", "LR REGISTRATION CONTEXT" ], "exemptions" => [] }
     assert_equal ddr, pinned_reach("DDR LISTER")
     assert_equal ddr, pinned_reach("DDR GETS ENTRY DATA")
     assert_equal({ "class" => "out-of-order", "routine_present" => true, "tag_present" => true,

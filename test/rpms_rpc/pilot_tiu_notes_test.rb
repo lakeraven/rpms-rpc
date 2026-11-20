@@ -396,7 +396,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   end
 
   def test_pinned_release_is_the_issue_224_build
-    assert_equal "bcer-9.0-20261012-e7923a4-ydb", PINNED_RELEASE
+    assert_equal "bcer-9.0-20261119-f67498c-ydb", PINNED_RELEASE
   end
 
   def test_catalog_has_write_entries_for_every_tiu_rpc_with_non_blank_cite

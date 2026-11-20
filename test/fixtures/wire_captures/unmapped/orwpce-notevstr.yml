@@ -1,22 +1,22 @@
-# Unmapped wire capture: ORWPCE NOTEVSTR, from a fresh bcer-9.0-20261012-e7923a4-ydb broker (synthetic data only).
+# Unmapped wire capture: ORWPCE NOTEVSTR, from a fresh bcer-9.0-20261119-f67498c-ydb broker (synthetic data only).
 # raw_return bytes are verbatim and sealed by sha256; do not hand-edit. See README.md beside this file.
 ---
 rpc: ORWPCE NOTEVSTR
 entry_point: NOTEVSTR^ORWPCE
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
-client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 45125a7)
-captured_at: '2026-10-22T07:46:26Z'
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 8fd3f941)
+captured_at: '2026-11-20T00:19:17Z'
 captures:
 - inputs:
   - '3'
   context: note 3 (synthetic DFN 4), linked to visit 4
   ack: data
-  raw_return: "5\03;3260902.0255;A"
-  sha256: 6154a85ee19e4ce130319765913807141f67dc789e87ed1a51797ef61c83e5d5
+  raw_return: "9\03;3260902.0255;A"
+  sha256: e3b9423f25dfa86c08c715999919a13863648fe3a871bc087cf0b6dce6605127
 - inputs:
   - '5'
   context: note 5 (synthetic DFN 4), linked to visit 5 at CHART REVIEW
   ack: data
-  raw_return: "6\07;3260904.2344;T"
-  sha256: 0f61a87f38a970a895574f121b57d9d3dc93117b2642bc879e888c3a4f9decbb
+  raw_return: "1\011;3260904.2344;T"
+  sha256: 1ace8e46723030e4cdd8a41c50d4bbbb997edb586cbc4d393fabf51d4e3a3290

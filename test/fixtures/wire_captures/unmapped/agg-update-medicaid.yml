@@ -1,11 +1,14 @@
-# Unmapped wire capture: AGG UPDATE MEDICAID, synthetic patient 990048 on bcer-9.0-20261012-e7923a4-ydb.
+# Unmapped wire capture: AGG UPDATE MEDICAID, synthetic patient 990048 on bcer-9.0-20261119-f67498c-ydb.
 ---
 rpc: AGG UPDATE MEDICAID
 entry_point: UPD^AGGUPMCD
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
-client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 6723a7f)
-captured_at: '2026-10-31T00:56:28Z'
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 8fd3f941)
+captured_at: '2026-11-20T00:19:17Z'
+note: The eligibility add answers no data row on this build. These inputs file the header with no
+  number and no STATE, and the eligibility row's AA cross-reference subscripts by STATE, so
+  UPD^AGGUPMCD's trap answers nothing (rpms-rpc#705; Coverage.add_medicaid now requires both).
 captures:
 - inputs:
   - '990048'
@@ -16,16 +19,16 @@ captures:
   - ''
   context: add header (AGGUPMCD.m:49-52)
   ack: data
-  raw_return: "3\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^14^\x1E\x1F"
-  sha256: a5ffdc4374978e6580767a96cfea02acedc886efefb592e9b88618b6f10b7221
+  raw_return: "7\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^\x1E"
+  sha256: 5d6c2148ab384d0d78f8e42e3c98121bec1f09885b2926005d064668613fa844
 - inputs:
   - '990048'
   - A
   - Medicaid Eligibility
-  - '13'
+  - '3'
   - ''
   - "AGGMDESD=10/31/2026\x1CAGGMDECV=FULL"
   context: add eligibility (AGGUPMCD.m:54-58)
   ack: data
-  raw_return: "4\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^13^3261031\x1E\x1F"
-  sha256: df27df42d27cdd3e3957c8671fc2f6dca537a73db0a879cc86c651e6bdb11398
+  raw_return: "8\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E"
+  sha256: e6057cf6b80d4662c4736e618dab82e4bb18de2413b3765c56fb595b09472439

@@ -40,7 +40,7 @@ class PinnedBuildSignatureTest < Minitest::Test
       assert_match(/\Asha256:[0-9a-f]{64}\z/, entry["artifact_sha256"].to_s, "#{tag}: artifact_sha256")
       assert_match(/\A[0-9a-f]{40}\z/, entry["inventory_tool_commit"].to_s, "#{tag}: inventory_tool_commit")
       # The image a -ydb release pins, by digest (openrpms#727), is the artifact the lock names.
-      assert_equal "ghcr.io/lakeraven/rpms-ydb@#{entry['artifact_sha256']}", entry["image"], "#{tag}: image" if parts[:engine] == "yottadb"
+      assert_equal "ghcr.io/lakeraven/openrpms@#{entry['artifact_sha256']}", entry["image"], "#{tag}: image" if parts[:engine] == "yottadb"
       assert_equal RpmsRpc::Conformance::BuildSurface::REACH_CLASSES.sort & entry["reach_classes"].keys, entry["reach_classes"].keys.sort,
                    "#{tag}: reach_classes names only reach classes"
       assert_equal entry["rpcs"], entry["reach_classes"].values.sum, "#{tag}: every pinned RPC has one reach class"

@@ -60,8 +60,9 @@ module RpmsRpc
     # The patient's resulted specimens collected from +from+ through +to+
     # (each a Date or Time; +to+ defaults to today, and a Date covers its
     # whole day), newest first: each is a #specimen hash plus released_at
-    # (the "Report Released Date/Time:" line, a Time) and status (:final
-    # once released, else :pending). Steps ORWLRR INTERIMG older one
+    # (the "Report Released Date/Time:" line, a Time, midnight when it has
+    # the date alone) and status (:final once released, else :pending).
+    # Steps ORWLRR INTERIMG older one
     # specimen per call, the Labs tab's Most Recent view, from each header's
     # own COLLECTED, until it answers nothing or a specimen falls before
     # +from+. INTERIMG lists a chemistry specimen once its DATE REPORT
@@ -137,14 +138,31 @@ module RpmsRpc
         flag: presence(pieces[3].to_s.strip), units: presence(pieces[4]), range: presence(pieces[5]), loinc: presence(pieces[14]) }
     end
 
-    # GRID^LR7OGMG writes $$FMTE^XLFDT(released, "5MPZ"), upper-cased:
-    # "Report Released Date/Time: 11/10/2026 12:00 PM", blank when unset.
-    RELEASED = %r{\AReport Released Date/Time: (\d\d/\d\d/\d{4} \d\d:\d\d [AP]M)\s*\z}
+    # GRID^LR7OGMG writes $$UP^XLFSTR($$FMTE^XLFDT(released, "5MPZ")):
+    # month and day padded, the hour not ("11/19/2026 1:12 AM",
+    # "11/10/2026 12:00 PM"), the date alone when DATE REPORT COMPLETED
+    # carries no time ("11/19/2026"), and nothing when it is unset (an
+    # unverified specimen). FMTE writes .24, the midnight that ends a day,
+    # as "12:00 AM" of that same day, so that one value reads a day early.
+    # A released line in any other shape raises rather than read as pending.
+    RELEASED = %r{\AReport Released Date/Time:(.*)\z}
+    RELEASED_AT = { %r{\A\d\d/\d\d/\d{4} \d{1,2}:\d\d [AP]M\z} => "%m/%d/%Y %I:%M %p", %r{\A\d\d/\d\d/\d{4}\z} => "%m/%d/%Y" }.freeze
 
     def released(read)
-      stamp = read[:text].filter_map { |line| line[RELEASED, 1] }.first
-      at = stamp && Time.strptime(stamp, "%m/%d/%Y %I:%M %p")
-      read.merge(released_at: at, status: at ? :final : :pending)
+      stamp = read[:text].filter_map { |line| line[RELEASED, 1] }.first.to_s.strip
+      return read.merge(released_at: nil, status: :pending) if stamp.empty?
+
+      at = released_at(stamp)
+      raise Client::RpcError, RpmsRpc.sanitize_error("ORWLRR INTERIMG answered released #{stamp.inspect}") unless at
+
+      read.merge(released_at: at, status: :final)
+    end
+
+    def released_at(stamp)
+      format = RELEASED_AT.find { |shape, _| shape.match?(stamp) }&.last
+      format && Time.strptime(stamp, format)
+    rescue ArgumentError # an imprecise date ("01/00/2026"), which .03's %DT="ETX" refuses
+      nil
     end
 
     def instant(value)
