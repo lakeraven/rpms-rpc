@@ -5,13 +5,14 @@ require "digest"
 require "yaml"
 require "rpms_rpc/bmx_client"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
 
 # rpms-rpc#476: the wire carries stored bytes as they are, and a stored high
 # byte that is not UTF-8 is replaced and reported, never passed on silently.
 #
 # The inputs are live captures (test/fixtures/wire_charset/captures.yml): the
 # raw reply bytes of #8994 XWB CREATE CONTEXT's description, read over CIA and
-# over BMX on a released build. Its two bullets are stored as the single byte
+# over BMX on a YottaDB release, and over XWB on an IRIS release (#659). Its two bullets are stored as the single byte
 # 0xB7. Nothing here is hand-written bytes.
 class RpmsRpc::WireCharsetTest < Minitest::Test
   DIR = File.expand_path("../fixtures/wire_charset", __dir__)
@@ -47,11 +48,15 @@ class RpmsRpc::WireCharsetTest < Minitest::Test
     client.call_rpc("DDR GETS ENTRY DATA")
   end
 
+  def xwb_reply
+    wired(RpmsRpc::XwbClient.new, [ "\x00\x00".b + capture("xwb") + RpmsRpc::Client::EOT ]).call_rpc("DDR GETS ENTRY DATA")
+  end
+
   def bmx_reply
     wired(RpmsRpc::BmxClient.new, [ "\x00\x00".b + capture("bmx") + RpmsRpc::Client::EOT ]).call_rpc("BMX SQL")
   end
 
-  %w[cia bmx].each do |transport|
+  %w[cia bmx xwb].each do |transport|
     define_method("test_the_#{transport}_capture_is_the_recorded_bytes") do
       entry = MANIFEST.dig("captures", transport)
       bytes = capture(transport)
@@ -70,6 +75,16 @@ class RpmsRpc::WireCharsetTest < Minitest::Test
 
   def test_cia_replaces_and_reports_only_the_bullet_lines
     assert_replaced_and_reported(cia_reply, cia_body.split("\r".b))
+  end
+
+  def test_xwb_replaces_and_reports_only_the_bullet_lines
+    assert_replaced_and_reported(xwb_reply, capture("xwb").split("\r\n".b))
+  end
+
+  # The same stored text on both engines: IRIS over XWB and YottaDB over CIA give
+  # the same lines, and only the line terminator differs (CR LF against CR).
+  def test_xwb_on_iris_and_cia_on_yottadb_carry_the_same_lines
+    assert_equal cia_body.split("\r".b), capture("xwb").split("\r\n".b)
   end
 
   def test_bmx_replaces_and_reports_only_the_bullet_lines
