@@ -60,6 +60,14 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def raw(name) = CapturedReplies.raw(SLUG, name)
 
+  # The lock polls without their half-second pauses.
+  def without_lock_pauses(mod)
+    mod.define_singleton_method(:save_guard_pause) { nil }
+    yield
+  ensure
+    mod.singleton_class.remove_method(:save_guard_pause)
+  end
+
   def use(script)
     @client = ContextReplay.new(script.transform_values { |names| names.map { |n| raw(n) } })
     RpmsRpc.configure { |cfg| cfg.client = @client }
@@ -67,8 +75,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   # The captured screening save; any capture can stand in for one step.
-  def replay_screening(lock: "lock", visit: "visit_before", provider: "provider", save: "save_screening")
-    use(DDR_LOCK => [ lock, "unlock" ],
+  def replay_screening(lock: "lock", visit: "visit_before", provider: "provider", save: "save_screening", polls: 1)
+    use(DDR_LOCK => [ *[ lock ] * polls, "unlock" ],
         DDR_GETS => [ visit, provider, "visit_after_screening" ],
         RPC_SCREENING => [ save ])
   end
@@ -122,7 +130,14 @@ class BehavioralHealthWellnessTest < Minitest::Test
   # Every request is the one the build answered: the lock and unlock NODE, the
   # visit IENS, the provider read, the writes and the MSR read.
   def test_each_request_is_the_one_the_capture_answered
-    inputs = ->(names) { names.map { |n| self.class.capture(n).fetch("inputs") } }
+    # The gem polls the lock with a zero timeout (#629); the build answers an
+    # uncontended lock the same way at any timeout.
+    inputs = lambda do |names|
+      names.map do |n|
+        got = self.class.capture(n).fetch("inputs")
+        n == "lock" ? [ got.first.merge("TIMEOUT" => "0") ] : got
+      end
+    end
     sent = -> { @client.calls.select { |c| c[:rpc].is_a?(String) }.map { |c| c[:params] } }
 
     replay_screening
@@ -164,9 +179,11 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_a_lock_another_session_holds_is_refused_before_any_read_and_released
     [ -> { W.save_screening(RECORD_IEN, patient: PATIENT, screenings: ALCOHOL) },
       -> { W.save_measurements(RECORD_IEN, patient: PATIENT, measurements: PHQ9) } ].each do |save|
-      replay_screening(lock: "lock_held_elsewhere")
+      replay_screening(lock: "lock_held_elsewhere", polls: RpmsRpc::BehavioralHealth::SaveGuard::LOCK_ATTEMPTS)
 
-      err = assert_refused_before_write(/was not acquired/i) { save.call }
+      err = without_lock_pauses(W) do
+        assert_refused_before_write(/was not acquired/i) { save.call }
+      end
 
       refute_match(/may have been filed/i, err.message)
       refute_includes rpcs, DDR_GETS

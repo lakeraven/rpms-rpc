@@ -880,7 +880,7 @@ class BehavioralHealthTest < Minitest::Test
     wire = "E|#{record}|#{name}~MINIMAL~1~SYN CTX|#{patient}"
     node = "^AMHREC(#{record})"
     mock.seed_scalar(:ddr_lock_unlock_node,
-                     RpmsRpc::DdrFileman.lock_param(node: node, timeout: 5).to_s, true)
+                     RpmsRpc::DdrFileman.lock_param(node: node, timeout: 0).to_s, true)
     mock.seed_scalar(:ddr_lock_unlock_node,
                      RpmsRpc::DdrFileman.unlock_param(node: node).to_s, true)
     mock.seed_text(:amhg_save_health_factors, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
