@@ -20,7 +20,8 @@
 # Sign-on: <PERSONA>_ACCESS and <PERSONA>_VERIFY for each live persona
 # (PROV123, PMD123, PREG123, PSCH123, SYS123; README, Live personas).
 # Each pair is handed only to that persona's rake test:live child, with
-# <PERSONA>_ESIG (optional, the persona's electronic signature code) as RPMS_ESIG.
+# <PERSONA>_ESIG (the persona's electronic signature code) as RPMS_ESIG;
+# PROV123's and PMD123's signing specs fail without it.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
 # (RPMS_DIFFS_DIR selects the checkout). Each suite's output, redacted like
 # the report, is kept beside it as <date>-<build>.<suite id>.log and linked

@@ -13,9 +13,9 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # The spec needs the persona's electronic signature code in RPMS_ESIG (never
 # logged; rake report:daily passes <PERSONA>_ESIG, #848). PROVIDER,TEST holds
-# the published demo code from openrpms' SEEDPERS (openrpms#1247). Without it
-# the spec skips, tracked by #851, rather than pass or fail on a code it was
-# never given.
+# the published demo code from openrpms' SEEDPERS (openrpms#1247). Every
+# PROV123 run supplies it (README, Running the live specs), so a run without
+# it fails and says so, rather than skip and leave signing unproven (#851).
 class ProgressNoteSignLiveTest < LiveSpec::Test
   runs_as "PROV123"
   writes!
@@ -77,7 +77,7 @@ class ProgressNoteSignLiveTest < LiveSpec::Test
 
   def signature_code!
     esig = ENV["RPMS_ESIG"].to_s
-    skip_tracked("#851", "RPMS_ESIG (#{persona}'s signature code) is not set; TIU SIGN RECORD is not live-proven") if esig.empty?
+    flunk "RPMS_ESIG is missing: set it to #{persona}'s electronic signature code (rake report:daily: #{persona}_ESIG)" if esig.strip.empty?
     esig
   end
 

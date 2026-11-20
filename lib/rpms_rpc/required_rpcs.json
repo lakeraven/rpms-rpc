@@ -24,11 +24,13 @@
       "AGG UNLOCK PATIENT",
       "AGG UPDATE A MULTIPLE RECORD",
       "AGG UPDATE ALIASES",
+      "AGG UPDATE LEGAL NAMES",
       "AGG UPDATE PATIENT",
       "AGG UPDATE SPECIAL MULTIPLES",
       "AGG WINDOW DATA VALIDATION",
       "AGG WINDOW TABLE LOOKUP",
-      "CIANBRPC CANRUN"
+      "CIANBRPC CANRUN",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::Allergen": [
       "ORWDAL32 ALLERGY MATCH"
@@ -724,6 +726,12 @@
       },
       "replies": []
     },
+    "AGG UPDATE LEGAL NAMES": {
+      "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write"
+      },
+      "replies": []
+    },
     "AGG UPDATE MEDICAID": {
       "methods": {
         "RpmsRpc::Coverage.add_medicaid": "non_idempotent_write",
@@ -1116,7 +1124,9 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-pov.yml"
+      ]
     },
     "AMHG SAVE PROGRESS NOTES": {
       "methods": {
@@ -1455,7 +1465,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bgovcpt.yml",
-        "test/fixtures/captured_replies/procedure-add.yml"
+        "test/fixtures/captured_replies/procedure-add.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml"
       ]
     },
     "BGOVEXAM GET": {
@@ -1999,6 +2010,7 @@
     },
     "DDR GETS ENTRY DATA": {
       "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
@@ -2067,6 +2079,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/amhg-wellness.yml",
         "test/fixtures/captured_replies/bmc-get-referral.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
@@ -2177,6 +2190,7 @@
       "replies": [
         "test/fixtures/captured_replies/adt-movements.yml",
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
@@ -2245,6 +2259,7 @@
         "test/fixtures/captured_replies/clinical-data.yml",
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
     },
@@ -2692,6 +2707,7 @@
       "replies": [
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwpt-id-info.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-id-info.yml"
       ]
     },
@@ -2715,6 +2731,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-select.yml"
       ]
     },
