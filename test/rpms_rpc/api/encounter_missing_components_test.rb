@@ -2,14 +2,12 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/encounter"
 
 # BEHOENCX CHKVISIT rows: satisfied messages must not appear in missing_components (#563).
+# The rule, on rows with the texts BEHOXQPC.m can answer; the rows the build
+# really sent, through Encounter.open, are test/rpms_rpc/api/encounter_test.rb.
 class EncounterMissingComponentsTest < Minitest::Test
-  VISIT_IEN = 1
-  DFN = 2
-
   POV_SATISFIED = "Visit has POV"
   EM_SATISFIED = "Visit has E&M code"
 
@@ -32,41 +30,7 @@ class EncounterMissingComponentsTest < Minitest::Test
     "Bad visit specifier"
   ].freeze
 
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed(:encounter_visit, VISIT_IEN.to_s, {
-        location_ien: 6,
-        datetime_raw: "3260825.09",
-        service_category: "A",
-        patient_dfn: DFN,
-        visit_id: "",
-        locked: false
-      })
-      m.seed(:encounter_fetch, DFN.to_s, {
-        location_name: "DEMO PRIMARY CARE",
-        location_abbrev: "DPC",
-        room_bed: "",
-        provider_ien: 12,
-        provider_name: "DEMO,DOCTOR",
-        visit_ien: VISIT_IEN,
-        visit_id: "",
-        locked: false
-      })
-    end
-  end
-
-  def teardown
-    RpmsRpc.reset!
-  end
-
-  def open_encounter(chkvisit_rows)
-    RpmsRpc.client.seed_keyed_collection(:encounter_chkvisit, VISIT_IEN.to_s, chkvisit_rows)
-    RpmsRpc::Encounter.open(DFN, VISIT_IEN)
-  end
-
-  def missing_components_for(rows)
-    open_encounter(rows)[:missing_components]
-  end
+  def missing_components_for(rows) = RpmsRpc::Encounter.send(:missing_components, rows)
 
   def satisfied_row_for(component)
     case component
@@ -112,23 +76,15 @@ class EncounterMissingComponentsTest < Minitest::Test
   end
 
   def test_missing_components_nil_when_chkvisit_empty
-    result = open_encounter([])
-    refute_nil result
-    assert_equal VISIT_IEN, result[:visit_ien]
-    assert_equal DFN, result[:patient_dfn]
-    assert_nil result[:missing_components]
+    assert_nil missing_components_for([])
   end
 
   def test_missing_components_nil_when_only_pov_row
-    result = open_encounter([ { component: "POV", message: "Visit has POV pending" } ])
-    refute_nil result
-    assert_nil result[:missing_components]
+    assert_nil missing_components_for([ { component: "POV", message: "Visit has POV pending" } ])
   end
 
   def test_missing_components_nil_when_only_em_row
-    result = open_encounter([ { component: "E&M", message: "Visit has no note" } ])
-    refute_nil result
-    assert_nil result[:missing_components]
+    assert_nil missing_components_for([ { component: "E&M", message: "Visit has no note" } ])
   end
 
   def test_keeps_cross_component_satisfied_text_on_pov_row
