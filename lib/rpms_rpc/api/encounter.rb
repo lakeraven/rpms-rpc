@@ -182,15 +182,7 @@ module RpmsRpc
       fetch = DataMapper.encounter_fetch.fetch_one(dfn.to_s, vstr, "", "0")
       return nil if fetch.nil? || fetch[:visit_ien].nil?
 
-      rows = DataMapper.encounter_chkvisit.fetch_many(key)
-      components = rows.map { |row| row[:component]&.strip }
-      missing = if components.include?("POV") && components.include?("E&M")
-        rows.reject do |row|
-          message = row[:message]
-          texts = CHKVISIT_SATISFIED_TEXTS[row[:component]&.strip]
-          !message.nil? && texts&.include?(message.strip)
-        end
-      end
+      missing = missing_components(DataMapper.encounter_chkvisit.fetch_many(key))
 
       {
         visit_ien:          visit_ien.to_i,
@@ -251,6 +243,19 @@ module RpmsRpc
     # A Time or DateTime formats with its clock; a plain Date has none, so it
     # formats as a FileMan date (a Date answers no #hour, and asking raised).
     # A row without a visit IEN is not a visit.
+    # CHKVISIT's rows less the ones it reports satisfied; nil unless both
+    # the POV and the E&M row came back (see open, step 4).
+    private def missing_components(rows)
+      components = rows.map { |row| row[:component]&.strip }
+      return nil unless components.include?("POV") && components.include?("E&M")
+
+      rows.reject do |row|
+        message = row[:message]
+        texts = CHKVISIT_SATISFIED_TEXTS[row[:component]&.strip]
+        !message.nil? && texts&.include?(message.strip)
+      end
+    end
+
     private def visit_with_identifiers(row)
       location_ien, _date, category, visit_ien = row[:visit_string].to_s.split(";", -1)
       return if visit_ien.to_s.empty?
