@@ -16,15 +16,19 @@ class BehavioralHealthWellnessStandaloneLoadTest < Minitest::Test
     Open3.capture3(CLEAN_ENV, RbConfig.ruby, "-I", LIB, "-e", script)
   end
 
-  def test_wellness_alone_hits_save_error_not_name_error_on_fileman_path
+  # No broker is needed to reach the FileMan context: the lock is its first
+  # use. The client is a dropped wire, so the save fails on its first RPC;
+  # the failure must be that wire, not a constant Wellness did not load.
+  def test_wellness_alone_reaches_the_fileman_context_and_fails_on_the_wire
     script = <<~RUBY
       require "rpms_rpc/core"
-      require "rpms_rpc/mock_client"
       require "rpms_rpc/mappings/amhg_wellness"
       require "rpms_rpc/api/behavioral_health/wellness"
 
-      mock = RpmsRpc.mock!
-      RpmsRpc.configure { |c| c.client = mock }
+      wire_down = Object.new
+      def wire_down.method_missing(name, *) = name.to_s.start_with?("call_rpc") ? raise(IOError, "no broker") : super
+      def wire_down.respond_to_missing?(name, include_private = false) = name.to_s.start_with?("call_rpc") || super
+      RpmsRpc.configure { |c| c.client = wire_down }
 
       begin
         RpmsRpc::BehavioralHealth::Wellness.save_measurements(
@@ -35,21 +39,20 @@ class BehavioralHealthWellnessStandaloneLoadTest < Minitest::Test
         print "unexpected success"
       rescue NameError
         print "NameError"
-      rescue RpmsRpc::BehavioralHealth::Wellness::SaveError
-        print "SaveError"
+      rescue RpmsRpc::BehavioralHealth::Wellness::SaveError => e
+        print "SaveError caused by \#{e.cause.class}"
       end
     RUBY
 
     out, err, status = run_fresh(script)
     assert status.success?, "subprocess failed:\n#{err}"
-    assert_equal "SaveError", out,
+    assert_equal "SaveError caused by IOError", out,
                  "requiring only wellness must not NameError on Patient::FILEMAN_CONTEXT during DDR work"
   end
 
   def test_wellness_save_error_is_subclass_of_behavioral_health_save_error_in_fresh_interpreter
     script = <<~RUBY
       require "rpms_rpc/core"
-      require "rpms_rpc/mock_client"
       require "rpms_rpc/mappings/amhg_wellness"
       require "rpms_rpc/api/behavioral_health/wellness"
 
