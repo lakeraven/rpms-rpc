@@ -93,6 +93,29 @@ class LabResultsTest < Minitest::Test
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Lab.results(990_031, from: FROM, to: TO) }
   end
 
+  # Lab.specimen with no from: asks from tomorrow (rpms-rpc#840): a blank
+  # DATE1 is inverse date 9999999 to SELECT^LR7OGM, and nothing is older
+  # than that. The capture sent 3261120 (the day after it ran); the gem
+  # sends the day after today, and the routine answers the same newest
+  # specimen for any day after it.
+  def test_specimen_with_no_from_reads_the_newest_specimen
+    replay("specimen_default")
+
+    got = RpmsRpc::Lab.specimen(990_031)
+
+    assert_equal [ "CH", Time.new(2026, 11, 10, 9, 15), "CH 1110 2" ], got.values_at(:area, :collected_at, :accession)
+    assert_equal [ "COVID-19 Negative", "96" ], got[:tests].map { |t| t[:value] }
+    tomorrow = RpmsRpc::FilemanDateParser.format_date(Date.today + 1)
+    assert_equal [ [ "ORWLRR INTERIMG", [ "990031", tomorrow, "1", "1" ] ] ], sent
+  end
+
+  def test_specimen_with_no_from_is_nil_for_a_patient_with_no_lab_data
+    replay("specimen_no_lab_data")
+
+    assert_nil RpmsRpc::Lab.specimen(4)
+    assert_equal [ "ORWLRR INTERIMG" ], sent.map(&:first)
+  end
+
   # The newest specimen answered twice: a reply that does not step older
   # raises rather than loop.
   def test_a_reply_that_does_not_step_older_raises

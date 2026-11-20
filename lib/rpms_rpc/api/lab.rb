@@ -28,10 +28,12 @@ module RpmsRpc
     shape :result_date_range, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/result-date-range"
 
     # One specimen's results, the next one older (direction: :older, the
-    # default) or newer than +from+ (a Time, Date or FileMan date; blank is
-    # now, so the default is the most recent specimen), as the Labs tab's
-    # Most Recent view steps through them. Underlying RPC: ORWLRR INTERIMG
-    # (INTERIMG^LR7OGM, FORMAT 1).
+    # default) or newer than +from+ (a Time, Date or FileMan date), as the
+    # Labs tab's Most Recent view steps through them. Underlying RPC:
+    # ORWLRR INTERIMG (INTERIMG^LR7OGM, FORMAT 1). With no +from+, :older
+    # sends tomorrow, so the default is the most recent specimen:
+    # SELECT^LR7OGM reads a blank DATE1 as inverse date 9999999 and $Os
+    # older from there, which finds nothing (rpms-rpc#840).
     #
     #   specimen(dfn, from: nil, direction: :older)
     #   => { area:, collected_at:, specimen_ien:, specimen:, accession:, provider:,
@@ -47,6 +49,7 @@ module RpmsRpc
     def specimen(dfn, from: nil, direction: :older)
       return nil unless positive_id?(dfn) && %i[older newer].include?(direction)
 
+      from = Date.today + 1 if from.nil? && direction == :older
       lines = DataMapper.lab_specimen.lines!(dfn.to_s, fileman(from), direction == :older ? "1" : "-1", "1")
       return nil if lines.empty?
 

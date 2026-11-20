@@ -105,6 +105,9 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
   def results_match_lab_data(dfn, lrdfn, range)
     oldest = range[:oldest] || range[:newest]
     results = RpmsRpc::Lab.results(dfn, from: Date.new(oldest.year, oldest.month, oldest.day), to: Date.new(range[:newest].year, range[:newest].month, range[:newest].day))
+    newest = RpmsRpc::Lab.specimen(dfn)
+    refute_nil newest, "Lab.specimen with no from: reads the newest specimen (rpms-rpc#840)"
+    assert_equal results.first.except(:released_at, :status), newest, "the default specimen is the newest result"
     entries = RpmsRpc::DdrFileman.lister(file: "63.04", iens: ",#{lrdfn},", fields: ".01;.03;.05;.06", flags: "IP", max: "200")
     flunk "DDR LISTER on 63.04 failed: #{entries.inspect}" if entries.nil? || entries[:error]
     completed = entries[:entries].reject { |e| e[:pieces][1].to_s.empty? }
