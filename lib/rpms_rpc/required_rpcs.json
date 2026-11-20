@@ -1219,6 +1219,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/behoencx-fetch.yml"
       ]
     },
@@ -1834,6 +1835,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/bsdx-checkin-appointment.yml"
       ]
     },
@@ -1842,7 +1844,8 @@
         "RpmsRpc::Scheduling.checkout_appointment": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/bsdx-scheduling.yml"
+        "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/scheduling-stock-rpcs.yml"
       ]
     },
     "BSDX CLINIC SETUP": {
