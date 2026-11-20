@@ -18,7 +18,7 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
   VISIT_ENCOUNTER_SLICE = [
     { rpc: "BEHOENCX GETVISIT", mapping: :encounter_visit, kind: "fields", inputs: [ "1" ] },
     { rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields",
-      inputs: [ "2", "6;3260825.09;A;1", "", "0" ] },
+      inputs: [ "2", "10;3260825.09;A;1", "", "0" ] },
     { rpc: "BEHOENCX CHKVISIT", mapping: :encounter_chkvisit, kind: "fields", inputs: [ "1" ] }
   ].freeze
 

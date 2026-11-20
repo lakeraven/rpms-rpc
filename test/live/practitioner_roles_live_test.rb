@@ -12,8 +12,8 @@ require "rpms_rpc/api/ddr_fileman"
 # The spec lists the build's users with DDR LISTER and checks roles against
 # each one, so it holds on any build that has a user with a division.
 class PractitionerRolesLiveTest < LiveSpec::Test
-  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
-  runs_as "SYS123"
+  # The clinician holds OR CPRS GUI CHART from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   KEYS = %i[duz name provider_class service_section divisions user_classes].freeze
 

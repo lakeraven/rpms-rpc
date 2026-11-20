@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
+require_relative "free_ssn"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/ddr_fileman"
 require "securerandom"
@@ -14,6 +15,8 @@ require "securerandom"
 # Each spec registers its own synthetic patient, so no seed patient is
 # changed. There is no supported patient-delete RPC: discard the container.
 class PatientRegistrationRecordLiveTest < LiveSpec::Test
+  include FreeSsn
+
   runs_as "PREG123"
   writes!
 
@@ -22,7 +25,7 @@ class PatientRegistrationRecordLiveTest < LiveSpec::Test
   def register!(**extra)
     suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
     attrs = { name_last: "ZZEDIT#{suffix}", name_first: "DEMO", dob: free_birth_date(suffix),
-              sex: "F", ssn: "6660#{format('%05d', rand(100_000))}" }.merge(extra)
+              sex: "F", ssn: fresh_ssn }.merge(extra)
     result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert result && result[:success], "could not register a synthetic patient: #{result.inspect}"
     [ result[:dfn], attrs ]

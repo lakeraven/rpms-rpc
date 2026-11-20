@@ -2,9 +2,9 @@
 # `rake openapi:pin`; do not hand-edit. test/openapi/pinned_documents_test.rb checks the bytes against it.
 ---
 repo: lakeraven/openrpms
-tag: bcer-9.0-20261012-e7923a4-ydb
-asset: bcer-9.0-20261012-e7923a4-ydb-rpcs.json
-sha256: aac0d6d6b8ca261fe5c93331ed82597964493bf680c47138664ba0fd2a3268cd
-schema: rpcs.v1
-schema_source: lakeraven/openrpms@e7923a473fa27060c40978f4d46be3de391c97ae:releases/schema/rpcs.v1.schema.json
-schema_sha256: afb02aedf5487afe187c9d4d6e296b29fa686b56574c1ef914ae757e9fb2bc77
+tag: bcer-9.0-20261119-f67498c-ydb
+asset: bcer-9.0-20261119-f67498c-ydb-rpcs.json
+sha256: a0bd45917329d86911b70c3c2c20e2f9d490e192de146f986455a753c014c06a
+schema: rpcs.v2
+schema_source: lakeraven/openrpms@f67498ce52273eeb933e802ee4a305a71b4190a2:releases/schema/rpcs.v2.schema.json
+schema_sha256: 2e863459e8e9ebd650c7a118e4766098038e4f833bcfd16603ea05244d992ddb

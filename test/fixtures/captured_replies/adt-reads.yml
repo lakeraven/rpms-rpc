@@ -1,0 +1,74 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb adt-reads.rb.
+---
+rpc: ORWPT ADMITLST
+entry_point: ADMITLST^ORWPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:17:07Z'
+note: Run on a throwaway container. Before the run, DFN 4 was admitted (3261110.083022)
+  and discharged (3261112.1), and DFN 990013 admitted (3261115.09), on DEMO WARD through
+  stock $$ADD^BDGAPI; the build ships no stay (openrpms#1263).
+captures:
+- name: admitlst_one_stay
+  inputs:
+  - '4'
+  context: 'ORWPT ADMITLST for DFN 4: one admission, discharged'
+  raw_return: "5\03261110.083022^16^DEMO WARD^DIRECT^1^0^0\r"
+  sha256: ebbd28af07d59a65ed8509bd00fb1430309cdbc82e20a32b561049464a8b6d78
+- name: admitlst_no_stay
+  inputs:
+  - '990012'
+  context: 'ORWPT ADMITLST for DFN 990012: never admitted'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: inploc_admitted
+  rpc: ORWPT INPLOC
+  inputs:
+  - '990013'
+  context: 'ORWPT INPLOC for DFN 990013: admitted to DEMO WARD, which is linked to
+    its hospital location'
+  raw_return: "7\016^DEMO WARD^M"
+  sha256: efcb00c25d5e6dc3fdc353cdc13fa897953b94d36f746d8a997437bb9a28561e
+- name: inploc_discharged
+  rpc: ORWPT INPLOC
+  inputs:
+  - '4'
+  context: 'ORWPT INPLOC for DFN 4: discharged'
+  raw_return: "8\00^^"
+  sha256: a1df99fb6ac2fa5a1fd8c03d28d1d57f75e3f705f485f10f1d3abd67a07d4ae0
+- name: inploc_never_admitted
+  rpc: ORWPT INPLOC
+  inputs:
+  - '990012'
+  context: 'ORWPT INPLOC for DFN 990012: never admitted'
+  raw_return: "9\00^^"
+  sha256: a7bb96b9e64760c47f4976c185ec7093acba09c926b106d8e84125bf48c5db0c
+- name: discharge_on_file
+  rpc: ORWPT DISCHARGE
+  inputs:
+  - '4'
+  - '3261110.083022'
+  context: 'ORWPT DISCHARGE for DFN 4''s admission: discharged at 10:00'
+  raw_return: "1\03261112.1"
+  sha256: 983d6710441acd8ce849303f48a48a3222494e3081642865b3aa50a43e305978
+- name: discharge_still_in
+  rpc: ORWPT DISCHARGE
+  inputs:
+  - '990013'
+  - '3261115.0900'
+  context: 'ORWPT DISCHARGE for DFN 990013''s admission: not discharged yet'
+  raw_return: "2\03261120"
+  sha256: 6f098078aad05558afa56d454853160a75872a47df2a4a40c111963c8aea2522
+- name: discharge_unknown_admission
+  rpc: ORWPT DISCHARGE
+  inputs:
+  - '4'
+  - '3261110.0830'
+  context: ORWPT DISCHARGE for a datetime that is not DFN 4's admission (its minute,
+    without the seconds)
+  raw_return: "3\03261120"
+  sha256: 7aba770d5ea61a7e8bda74f3eac7f17ea947f3dbf09f7d921ed8a59d55ee4534

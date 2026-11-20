@@ -1,0 +1,170 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb agg-patient-lookup.rb.
+---
+rpc: AGG LOOKUP PATIENTS
+entry_point: FND^AGGPTLKP
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient
+  reply frame'
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:35:23Z'
+note: 'Reads only, on a throwaway container where DFN 990051''s HRN was inactivated,
+  #9009061 field 10 set to YES and DFN 990028 made a sensitive record, all through
+  stock FileMan.'
+captures:
+- name: by_name/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - ALPHA
+  - ''
+  - ''
+  - ''
+  context: 'lookup("ALPHA"): the user''s division, active patients'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990001^ALPHA,CASEY^990001^XXX-XX-1001^MAY
+    26,1952^^N^^N\x1E"
+  sha256: 240c8d6c2a7b3db6a14d15a90568c4ff4f010acc4fdf643bfdb841ccaa159f20
+- name: by_name_type_n/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - ALPHA
+  - "N"
+  - ''
+  - ''
+  context: 'lookup("ALPHA", type: "N")'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990001^ALPHA,CASEY^990001^XXX-XX-1001^MAY
+    26,1952^^N^^N\x1E"
+  sha256: 240c8d6c2a7b3db6a14d15a90568c4ff4f010acc4fdf643bfdb841ccaa159f20
+- name: all_divisions/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - ALPHA
+  - ''
+  - '1'
+  - ''
+  context: 'lookup("ALPHA", all_divisions: true)'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE^T00030COMM^T00030MOMDN\x1E990051^ALPHA,AVERY^*990051-DIC^666521051^MAY
+    14,1954^^N^^N^^\x1E990001^ALPHA,CASEY^990001-DIC^666021001^MAY 26,1952^^N^^N^^\x1E"
+  sha256: 239cd5e609be5511245c1995d6cd7d5ecca911e82fa72357252eaf2fee42c9b4
+- name: include_inactive/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - ALPHA
+  - ''
+  - ''
+  - '1'
+  context: 'lookup("ALPHA", include_inactive: true)'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990051^ALPHA,AVERY^*990051^XXX-XX-1051^MAY
+    14,1954^^N^^Y\x1E990001^ALPHA,CASEY^990001^XXX-XX-1001^MAY 26,1952^^N^^N\x1E"
+  sha256: 7d66970d9e618922e882e95260f34586a8404b3b5c8d3ce100f864fb377ec56c
+- name: both_flags/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - ALPHA
+  - ''
+  - '1'
+  - '1'
+  context: 'lookup("ALPHA", all_divisions: true, include_inactive: true)'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE^T00030COMM^T00030MOMDN\x1E990051^ALPHA,AVERY^*990051-DIC^666521051^MAY
+    14,1954^^N^^Y^^\x1E990001^ALPHA,CASEY^990001-DIC^666021001^MAY 26,1952^^N^^N^^\x1E"
+  sha256: 2229e2cd48f54f4baf3d349090cd65c80ab8c573d565e6b811b888f8e241775c
+- name: last_comma_space_first/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - MOUSE, MICKEY M
+  - ''
+  - ''
+  - ''
+  context: 'lookup("MOUSE, MICKEY M"): the server normalises ", "'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E3^MOUSE,MICKEY
+    M^1001^XXX-XX-9999^FEB 14,1910^^N^^N\x1E"
+  sha256: b04a13a6bdd181f01dd92a7c7dc9654156b3601ebb1295f688f4539fb245d420
+- name: no_match/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - NOSUCH, PERSON
+  - ''
+  - ''
+  - ''
+  context: lookup("NOSUCH, PERSON")
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E"
+  sha256: 2abb9f6df69376436e927d726795ae1cf87942fefd6fbbceff87090b9b52deda
+- name: many/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - DEMO
+  - ''
+  - ''
+  - ''
+  context: lookup("DEMO")
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E4^DEMO,PATIENT
+    ONE^99901^XXX-XX-0101^JAN 1,2001^^N^^N\x1E990013^MIKE,SKYLER^990013^XXX-XX-1013^FEB
+    27,1982^^N^^N\x1E"
+  sha256: '06414458fac8f9adc725dda7f9aedcdc946873f39a884d47a6e1c737012bf785'
+- name: sensitive/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - BEACON
+  - ''
+  - ''
+  - ''
+  context: 'lookup("BEACON"): DFN 990028, made a sensitive record'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990028^BEACON,DREW^990028^XXX-XX-1028^OCT
+    27,2000^^Y^^N\x1E"
+  sha256: fa44db0c6b0139a85cd6f72611f1c278dd27a30c7dda58c50259a73b95dcbd06
+- name: bmx_by_name/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: 'over BMX, which has no global-array read: sign on, then lookup("MOUSE")'
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: bmx_by_name/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: 'over BMX, which has no global-array read: sign on, then lookup("MOUSE")'
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:35\r\n\x04"
+  sha256: e13040d787ca1b2c6bdaea5a0e3f844a968523bc6b149c56a1893070670fae02
+- name: bmx_by_name/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: 'over BMX, which has no global-array read: sign on, then lookup("MOUSE")'
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: bmx_by_name/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "$pkkCOW+"
+  context: 'over BMX, which has no global-array read: sign on, then lookup("MOUSE")'
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: bmx_by_name/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - MOUSE
+  - ''
+  - ''
+  - ''
+  context: 'over BMX, which has no global-array read: sign on, then lookup("MOUSE")'
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E3^MOUSE,MICKEY
+    M^1001^XXX-XX-9999^FEB 14,1910^^N^^N\x1E\x1F\x04"
+  sha256: b8e1795131c9cf56e42219875bf3f7c7d848cf9edc4c3f36e8e8464593f379f6
+- name: no_ssn/1
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - USER,TEST
+  - ''
+  - ''
+  - ''
+  context: 'lookup("USER,TEST"): a patient with no SSN'
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E2^USER,TEST^123456^^MAY
+    5,1985^^N^^N\x1E"
+  sha256: 8d6b9b30b0b5982ef37c1b76b8da18f2dbfdad2c1042ef11e4223ba72088ae91

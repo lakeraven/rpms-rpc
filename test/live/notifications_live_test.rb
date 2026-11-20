@@ -3,7 +3,6 @@
 require "securerandom"
 require_relative "live_helper"
 require "rpms_rpc/api/notifications"
-require "rpms_rpc/api/ddr_fileman"
 
 # Notifications reads and acts on the signed-on user's alerts the way
 # VueCentric's Notifications tab does: BEHOXQ ALRLIST to list them (rpms-ux
@@ -26,8 +25,8 @@ require "rpms_rpc/api/ddr_fileman"
 # user is a published demo persona of the build, signed on on its own
 # connection, as in scoped_client_two_identities_live_test.rb.
 class NotificationsLiveTest < LiveSpec::Test
-  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
-  runs_as "SYS123"
+  # The clinician holds XQAL GUI ALERTS from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   writes!
 
   SEND_RPC = "XQAL GUI ALERTS"
@@ -84,17 +83,9 @@ class NotificationsLiveTest < LiveSpec::Test
   def inbox_ids = RpmsRpc::Notifications.inbox.map { |row| row[:alert_id] }
   def as_other(&) = RpmsRpc.with_client(other, &)
 
-  # The user's NEW PERSON name, read from FileMan: the sign-on greeting names
-  # a user with name components by given name only ("Good morning TEST"), so
-  # CiaClient#signon_user is nil for PROVIDER,TEST.
-  def name_of(session)
-    reply = RpmsRpc.with_client(client) do
-      client.with_context("CIAV VUECENTRIC") do
-        RpmsRpc::DdrFileman.gets_entry(file: "200", iens: "#{session.duz},", fields: ".01", flags: "I")
-      end
-    end
-    reply&.dig(:fields, ".01", :internal) || flunk("NEW PERSON #{session.duz} has no name")
-  end
+  # The user's NEW PERSON name, as sign-on read it from CIAVCXUS VIMINFO
+  # (#849; signon_name_live_test.rb checks it against #200 .01).
+  def name_of(session) = session.signon_user || flunk("DUZ #{session.duz} signed on with no name")
 
   def test_s_sgn_02_1_an_alert_sent_to_me_is_listed_with_its_patient
     before = inbox_ids

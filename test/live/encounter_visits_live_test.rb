@@ -3,23 +3,26 @@
 require_relative "live_helper"
 require "rpms_rpc/api/encounter"
 require "rpms_rpc/api/pov"
+require_relative "seed_clinic"
 
 # A patient's visits (BEHOENCX VISITLST) and diagnoses (BGOVPOV RECENT) on seed
-# patient DFN 2, whose visit 1 carries the panel's POVs.
+# patient DFN 2, whose visit 1 carries the panel's POVs. Visit 1 is at the seed
+# clinic, looked up by name (LiveSpec::SeedClinic).
 class EncounterVisitsLiveTest < LiveSpec::Test
+  include LiveSpec::SeedClinic
+
   runs_as "PROV123"
   DFN = 2
   VISIT_IEN = 1
-  LOCATION_IEN = 6
 
   def test_the_seed_patient_has_visit_one_with_its_location_and_time
     visit = RpmsRpc::Encounter.visits(DFN).find { |row| row[:visit_ien] == VISIT_IEN }
 
     refute_nil visit, "visit #{VISIT_IEN} must list for DFN #{DFN}"
-    assert_equal LOCATION_IEN, visit[:location_ien]
+    assert_equal seed_clinic_ien, visit[:location_ien]
+    assert_equal SEED_CLINIC, visit[:location]
     assert_equal "A", visit[:service_category]
     assert_kind_of Time, visit[:datetime]
-    refute_empty visit[:location]
   end
 
   def test_visits_are_newest_first_and_each_has_an_ien

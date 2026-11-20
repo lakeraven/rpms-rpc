@@ -414,12 +414,20 @@ module RpmsRpc
     end
     shape :result_history, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/{order_ien}/result-history"
 
-    # Free-text describing the user-facing action available on an order.
-    # Returns nil if either argument is blank.
-    def action_text(order_ien, action_code)
-      return nil if invalid_id?(order_ien) || blank?(action_code)
+    # The activity of an order: for each action on it, the lines ACT^ORQ20
+    # writes (when and by whom it was entered, its text, nature, signature
+    # and release). nil for an invalid IEN or when nothing came back.
+    #
+    # ACTXT(ORY,ORIFN) (ORWOR.m:139) takes one actual, ORIFN, read as
+    # IFN;ACT: it lists the actions after ACT, and stops at the first
+    # subscript that is not positive (ORWOR.m:142-144). A bare IFN starts
+    # $O at "" and meets the multiple's 0 header first, so it lists nothing;
+    # IFN;0 lists every action. Sending a second actual died in M
+    # (ACTLSTTOOLONG, #823).
+    def action_text(order_ien)
+      return nil unless strict_positive_id?(order_ien)
 
-      text = DataMapper.order_action_text.fetch_text(order_ien.to_s, action_code.to_s)
+      text = DataMapper.order_action_text.fetch_text("#{order_ien.to_i};0")
       return nil if blank?(text)
 
       text
@@ -449,7 +457,9 @@ module RpmsRpc
     end
     shape :sheets_for_patient, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/sheets"
 
-    # Site-level catalog of order sheets, independent of patient.
+    # The site's active treating specialties (file 45.7), independent of
+    # patient: [{ ien:, name: }]. TSALL^ORWOR (ORWOR.m:44-46) lists those,
+    # not order sheets, whatever the method's name says.
     def all_sheets
       Array(DataMapper.order_sheets_all.fetch_many)
     end

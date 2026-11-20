@@ -592,8 +592,38 @@ rake rpc:inventory IRIS=<tag> YDB=<tag>   # pinned: the same tags and checkout g
 
 It downloads each release's `<tag>-rpcs.json`, `<tag>-rpms-rpc-live.json`, `<tag>-harness.json` and `<tag>-conformance-<persona>.jsonl` with `gh` into `tmp/openrpms/<tag>/` (`CACHE=` overrides) once, and writes `tmp/rpc-inventory/` (`OUT=`).
 Nothing is committed: the output is a view of published releases, as `rake openrpms:matrix` is.
-The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source; refresh them when a client changes.
+The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source.
+Refresh them from where each kind of evidence lives when a client changes, then commit the four files:
+
+```sh
+rake rpc:inventory_clients CLOUD_RPMS=<dir> OPENRPMS=<dir> LAKERAVEN_EHR=<dir> BPRM_XML=<file>
+# EXPLICIT SUCCESS: rpc:inventory_clients wrote data/rpc_inventory/clients/: vuecentric-observed.tsv 145, ...
+```
+
+| Snapshot | Source |
+|---|---|
+| `vuecentric-observed.tsv` | the recorded VueCentric sessions, one row per RPC and recording with its calls: CIA activity-log exports in cloud-rpms `evidence/retained/`, `rpc-trace.sh` recordings in cloud-rpms `docs/analyst/rpc-trace/` (kept out of git there) and openrpms `test/fixtures/client-trace/` |
+| `vuecentric-named.txt` | the RPC names the released client's binaries carry, cloud-rpms `scripts/shared/client_named_rpcs.tsv` |
+| `lakeraven-ehr-methods.txt` | the rpms-rpc public methods lakeraven-ehr's `app/`, `lib/` and `config/` call, keeping those that send an RPC |
+| `bprm-entry-points.txt` | the M entry points BPRM's stored procedures call in process, from its stored-procedure XML; the inventory matches them to each release's registered entry points |
+
+Each header names the repository and the last commit that changed what was read, and the sha256 of any file that commit does not pin.
+A source that is missing, is not the named repository, or has uncommitted changes there fails with EXPLICIT FAILURE, and all four snapshots stay as they were.
+The same sources give the same bytes.
+The VueCentric columns count calls: `vuecentric_calls` sums them over the recorded sessions, and `vuecentric_sessions` counts the sessions that made them.
+`excluded` carries rpms-rpc's reviewed decision not to wrap an RPC (`gui_plumbing` or `write_needs_fixture` in `data/rpc_coverage/exclusions.yml`); the reach classes are in `reach_*`.
 The column definitions are in the Markdown and in `tools/rpc_inventory/`.
+
+Each published release carries both files as assets, so a consumer pins one file by the gem's tag and needs no checkout:
+
+```sh
+gh release download <rpms-rpc tag> -R lakeraven/rpms-rpc -p rpc-inventory.csv
+```
+
+`.github/workflows/rpc-inventory-release.yml` writes them at the release's commit for the newest published release of each engine, uploads them and checks the uploaded bytes.
+It adds an "RPC inventory" section to the release notes: both openrpms tags, the `rake rpc:inventory IRIS=<tag> YDB=<tag>` command that writes the same bytes, and the columns added or removed since the previous release that carries the CSV.
+A column change is listed there, so a consumer that checks the header can see why it stopped matching.
+Running it by hand (`workflow_dispatch`) re-attaches them to an existing release, for a pair of tags given or the newest.
 
 ## Order checks
 
@@ -697,15 +727,15 @@ The test suite is hermetic — no sockets, no live RPMS.
 
 ### Test results, quickly
 
-`bundle exec rake report:daily` runs the hermetic suite, then the live specs as PROV123 and as SYS123, prints a summary, and writes one markdown file.
-It does not yet run the specs of PMD123, PREG123 and PSCH123 (see Live personas; #815). It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
+`bundle exec rake report:daily` runs the hermetic suite, then the live specs once per live persona (PROV123, PMD123, PREG123, PSCH123 and SYS123; see Live personas), prints a summary with one row per persona, and writes one markdown file.
+It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
 
 Point it at a broker in either of two ways.
 
 - **An already-running broker.** Set `BROKER_HOST` and `BROKER_PORT` (a loopback address; `rake test:live` refuses any other host), and `BMX_PORT` for that target's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609). `BUILD`, when set, is the build under test; otherwise the build is the tag of the Docker image that publishes that port. A publish bound to `0.0.0.0` or `::` counts only when that host is loopback (`127.0.0.1`, `localhost`, or `::1`). When the tag cannot be determined, the report records `unknown` and the command exits non-zero.
 - **A fresh container of the newest `bcer-*-ydb` release.** `FRESH=1` starts that release's image with its CIA broker (9100) and BMX broker (9101) published on free `127.0.0.1` ports, passes the BMX port to each live run as `BMX_PORT`, waits until the CIA connect answers, runs the suites, and removes the container when it finishes, including after a suite failure, a connect timeout, or an interrupt. The build in the report is that release's tag, including when the image is pinned by digest. A `BUILD` value that names a different tag is an error and the suites do not run; a dry run applies the same check. Each run chooses a unique container name, the time plus a random hex token, before `docker run`, and removes only that name. A failed removal is reported and exits non-zero. `FRESH=1 DRY_RUN=1` prints the plan and leaves Docker, coverage, and the suites untouched. The release is the newest published GitHub release. When `gh api` cannot read that list, or `BUILD` does not match that tag, the error is written to the error stream, no plan is printed, and the command exits non-zero.
 
-The report process reads sign-on codes from `PROV123_ACCESS`, `PROV123_VERIFY`, `SYS123_ACCESS`, and `SYS123_VERIFY`. Each persona's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that persona's `rake test:live` child, with `PERSONA` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. PROV123 is a debug account, so that child also gets `VISTA_RPC_ENV=development`. A missing or blank pair skips that live run, records `missing PROV123_ACCESS/PROV123_VERIFY` (or the SYS123 names), and exits non-zero. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only.
+The report process reads each persona's sign-on codes from `<PERSONA>_ACCESS` and `<PERSONA>_VERIFY` (`PMD123_ACCESS`, `PMD123_VERIFY`, and so on). Each persona's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that persona's `rake test:live` child, with `PERSONA` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. `<PERSONA>_ESIG` (`PROV123_ESIG`, `PMD123_ESIG`), the persona's electronic signature code, is placed in `RPMS_ESIG` in that child only. The clinician and the physician need it: the clinician's note-signing spec and the physician's sign-and-release spec fail without it, saying `RPMS_ESIG` is missing. PROV123 is a debug account, so that child also gets `VISTA_RPC_ENV=development`. A missing or blank pair skips that live run, records `missing PMD123_ACCESS/PMD123_VERIFY` (with that persona's names), and exits non-zero. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only. A demo access code is the persona's name, which the report prints anyway, so that value is left as it is; verify and signature codes are always scrubbed.
 
 The file is `<rpms-diffs>/rpc-coverage/daily/<date>-<build>.md`. `rpms-diffs` is the checkout beside this repo, or `RPMS_DIFFS_DIR`. The command stops before the suites, and before coverage, when `rpc-coverage/daily` is missing. Coverage does not run for `FRESH=1 DRY_RUN=1`. When `rake rpc:coverage` can run, its headline is included. When it cannot, the report says why. `rake rpc:coverage` reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR`.
 
@@ -714,7 +744,8 @@ The same checks can still be run one at a time:
 ```sh
 bundle exec rake report:daily
 FRESH=1 DRY_RUN=1 bundle exec rake report:daily
-FRESH=1 PROV123_ACCESS=... PROV123_VERIFY=... SYS123_ACCESS=... SYS123_VERIFY=... bundle exec rake report:daily
+FRESH=1 PROV123_ACCESS=... PROV123_VERIFY=... PROV123_ESIG=... PMD123_ACCESS=... PMD123_VERIFY=... PMD123_ESIG=... \
+  PREG123_ACCESS=... PREG123_VERIFY=... PSCH123_ACCESS=... PSCH123_VERIFY=... SYS123_ACCESS=... SYS123_VERIFY=... bundle exec rake report:daily
 
 bundle exec rake test
 bundle exec rake rpc:coverage
@@ -733,8 +764,8 @@ docker run --detach --name rpms-live --publish 127.0.0.1:19100:9100 --publish 12
 docker inspect -f '{{.State.Health.Status}}' rpms-live   # repeat until it prints healthy
 
 export BROKER_HOST=127.0.0.1 BROKER_PORT=19100 BMX_PORT=19101 LIVE_DISPOSABLE=1 LIVE_BUILD=$TAG
-VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=PROV123 RPMS_VERIFY='PROV123!!' bundle exec rake test:live
-PERSONA=PMD123 RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' bundle exec rake test:live
+VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=PROV123 RPMS_VERIFY='PROV123!!' RPMS_ESIG=123456 bundle exec rake test:live
+PERSONA=PMD123 RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' RPMS_ESIG=123456 bundle exec rake test:live
 PERSONA=PREG123 RPMS_ACCESS=PREG123 RPMS_VERIFY='PREG123!!' bundle exec rake test:live
 PERSONA=PSCH123 RPMS_ACCESS=PSCH123 RPMS_VERIFY='PSCH123!!' bundle exec rake test:live
 PERSONA=SYS123 RPMS_ACCESS=SYS123 RPMS_VERIFY=... bundle exec rake test:live
@@ -754,11 +785,11 @@ A spec that declares no persona fails, and so does one run by hand as a persona 
 
 | Persona | User | Role | Runs |
 |---|---|---|---|
-| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
+| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, alerts, Behavioral Health (AMHGRPC), sign-on and broker behaviour |
 | `PMD123` | PROFILE,MD | the physician | orders (including the unsigned order it authored), alerts, and the clinical writes PROV123 is not given |
 | `PREG123` | PROFILE,REG | registration | patient registration and edits, coverage, tribal enrollment (AGGRPC, and BMXRPC for the duplicate lookup) |
 | `PSCH123` | PROFILE,SCHED | scheduling | clinics, availability, booking, check-in and check-out, wait list (BSDXRPC) |
-| `SYS123` | MANAGER,SYSTEM | the operator | Behavioral Health (AMHGRPC, which no demo persona holds) and build setup |
+| `SYS123` | MANAGER,SYSTEM | the operator | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration persona holds; #814) and build setup |
 
 The demo personas' pairs are the build's published seed pairs; only the operator's is not shown here.
 What each persona is refused outside its role is itself proven: `test/live/least_privilege_live_test.rb` runs as every persona, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers its holders and refuses everyone else.
