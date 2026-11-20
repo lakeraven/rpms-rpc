@@ -106,6 +106,17 @@ class AggTest < Minitest::Test
     assert_equal 9, result[:dfn]
   end
 
+  def test_add_patient_success_with_dfn_minus_one_is_malformed
+    # The build's reply when nothing is filed (#878).
+    seed_add("I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^-1#{RS}#{US}")
+
+    result = Agg.add_patient(params: { "AGGPTLNM" => "" })
+
+    refute result[:success]
+    assert_equal :agg_malformed_reply, result[:error]
+    assert_nil result[:dfn]
+  end
+
   def test_add_patient_rejection_returns_error_and_message
     seed_add("I00010RESULT^T00080MESSAGE^I00010DFN#{RS}-1^NAME is required#{RS}#{US}")
 
