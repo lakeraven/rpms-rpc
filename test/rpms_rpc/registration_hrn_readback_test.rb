@@ -1,197 +1,145 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "date"
+require "rpms_rpc"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/registration"
+require_relative "captured_replies"
 
 # Issue #562 / #224: registration must fail closed when AG reports an HRN write
 # but #9000001.41 read-back (DDR LISTER) does not confirm it.
+#
+# Every reply is test/fixtures/captured_replies/registration-hrn-readback.yml,
+# captured live as PROFILE,REG: each register flow filed its own synthetic
+# patient over CIA, with the duplicate lookup on a BMX session signed on as the
+# same user. The fail-closed cases replay a register flow with its read-back
+# reply swapped for another real one: the multiple of a patient filed with no
+# HRN, another patient's HRN, or FileMan's refusal of an IENS. A transport
+# failure on the read-back is raised by the replay itself.
 class RegistrationHrnReadbackTest < Minitest::Test
   Reg = RpmsRpc::Registration
-  Agg = RpmsRpc::Agg
-  Ddr = RpmsRpc::DdrFileman
+  SLUG = "registration-hrn-readback"
+  DUZ = "207"
 
-  ATTRS = {
-    name: "DEMOPATIENT,UNA",
-    dob: Date.new(1990, 1, 2),
-    sex: "F",
-    ssn: "900010001"
+  PATIENTS = {
+    "derive" => { name: "SYNTHETIC,DERIVEHRN", dob: Date.new(1902, 3, 1), sex: "F", ssn: "900623001" },
+    "temporary" => { name: "SYNTHETIC,TEMPHRN", dob: Date.new(1902, 3, 2), sex: "F", ssn: "900623002", hrn_source: :temporary },
+    "given" => { name: "SYNTHETIC,GIVENHRN", dob: Date.new(1902, 3, 3), sex: "F", ssn: "900623003", hrn_source: :given, hrn: "77123" },
+    "clerk" => { name: "SYNTHETIC,CLERKHRN", dob: Date.new(1902, 3, 4), sex: "F", ssn: "900623004" }
   }.freeze
-
-  HEADER = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
-
-  def setup
-    @mock = RpmsRpc.mock!
-    Reg.hrn_mode = Reg::HRN_MODE_DERIVE
-    query = "AGGPTLNM=DEMOPATIENT\x1cAGGPTFNM=UNA\x1cAGGPTMNM=\x1cAGGPTSFX=\x1cAGGPTDOB=01/02/1990"
-    @mock.seed_raw_lines(:patient_lookup_agg, query, [ HEADER ])
-    [ Agg::NEW_PATIENT_WINDOW, "Personal Detail", "Address", "Aliases" ].each do |window|
-      seed_validation("1^^^^^\x1e", window: window)
-    end
-  end
 
   def teardown
     Reg.hrn_mode = Reg::HRN_MODE_DERIVE
     RpmsRpc.reset!
   end
 
-  def seed_validation(row, window: Agg::NEW_PATIENT_WINDOW)
-    header = "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e"
-    @mock.seed(:agg_window_validation, window, header + row.to_s)
+  # The DDR LISTER reply of a flow, to stand in as another flow's read-back.
+  def lister_reply(flow)
+    CapturedReplies.flow(SLUG, flow).find { |c| c["rpc"] == "DDR LISTER" }.fetch("raw_return").b
   end
 
-  def seed_agg_add(dfn: "9", result: "1", message: "")
-    reply = "I00010RESULT^T00080MESSAGE^I00010DFN\x1e#{result}^#{message}^#{dfn}\x1e\x1f"
-    @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, reply)
+  # Replay a register flow on a CIA session, with its duplicate lookup on a
+  # BMX session signed on as the same user, and register its patient.
+  def register(flow, readback: nil)
+    script = CapturedReplies.flow_script(SLUG, flow)
+    script["DDR LISTER"] = [ lister_reply(readback) ] if readback
+    @session = CapturedReplies::ReplayCiaClient.new(script).signed_on_as(DUZ)
+    RpmsRpc.configure { |c| c.client = @session }
+    yield @session if block_given?
+    Reg.with_lookup_client(lookup(flow)) { Reg.register(PATIENTS.fetch(flow)) }
   end
 
-  def seed_agg_update(result: "1", error: "")
-    reply = "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e#{result}^#{error}^\x1e\x1f"
-    @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, reply)
+  def lookup(flow)
+    client = CapturedReplies::ReplayBmxClient.new(CapturedReplies.flow_script(SLUG, "lookup_#{flow}"))
+    client.instance_variable_set(:@authenticated, true)
+    client.instance_variable_set(:@duz, DUZ)
+    client.instance_variable_set(:@current_context, RpmsRpc::Agg::CONTEXT)
+    client
   end
 
-  def seed_temp_hrn(number)
-    @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN\x1e#{number}\x1e\x1f")
-  end
-
-  def seed_hrn_41_readback(dfn, hrn_on_file)
-    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
-    body =
-      case hrn_on_file
-      when :empty then "[Data]"
-      when :error then "[Data]\n[Errors]"
-      when :no_reply then return
-      else "[Data]\n1^#{hrn_on_file}"
-      end
-    @mock.seed(:ddr_lister, key, body)
-  end
+  def sent = @session.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
 
   def hrn_lister_calls
-    @mock.received_calls.select do |c|
-      c[:rpc] == "DDR LISTER" && c[:params]["FILE"] == "9000001.41"
-    end
+    @session.calls.select { |c| c[:rpc] == "DDR LISTER" && c[:params].first["FILE"] == "9000001.41" }
   end
 
   def assert_hrn_readback_lister_fields
     refute_empty hrn_lister_calls, "expected a #9000001.41 DDR LISTER read-back"
     hrn_lister_calls.each do |call|
-      assert_equal "@;.02", call[:params]["FIELDS"],
+      assert_equal "@;.02", call[:params].first["FIELDS"],
                    "read-back must suppress .01 so piece 0 is field .02 under every DDR version"
     end
   end
 
-  def with_hrn_41_lister_raise(error_class)
-    original = @mock.method(:call_rpc)
-    @mock.define_singleton_method(:call_rpc) do |rpc, *params|
-      param = params.first
-      if rpc == "DDR LISTER" && param.is_a?(Hash) && param["FILE"] == "9000001.41"
-        raise error_class, "synthetic #9000001.41 read-back failure"
-      end
-
-      original.call(rpc, *params)
-    end
-    yield
-  end
-
   def refute_message_leaks_phi(message)
-    text = message.to_s
-    refute_match(/900010001|DEMOPATIENT|01\/02\/1990|1990-01-02|UNA|T00007|12345|^9$/, text)
+    refute_match(/900623001|SYNTHETIC|DERIVEHRN|03\/01\/1902|1902-03-01|77123|T00001|^990057$/, message.to_s)
   end
 
   def test_derive_hrn_success_requires_matching_9000001_41_readback
-    seed_agg_add(dfn: "9")
-    seed_agg_update
-    seed_hrn_41_readback(9, "9")
+    result = register("derive")
 
-    result = Reg.register(ATTRS)
-
-    assert result[:success], "expected success only after #9000001.41 confirms HRN 9"
+    assert result[:success], "expected success only after #9000001.41 confirms HRN 990057"
+    assert_equal 990_057, result[:dfn]
+    assert_equal "990057", result[:hrn]
     assert_equal 1, hrn_lister_calls.length, "must read #9000001.41 before reporting success"
     assert_hrn_readback_lister_fields
+    assert_equal CapturedReplies.flow_calls(SLUG, "derive"), sent
   end
 
   def test_derive_hrn_empty_multiple_is_hrn_file_failed
-    seed_agg_add(dfn: "9")
-    seed_agg_update
-    seed_hrn_41_readback(9, :empty)
-
-    result = Reg.register(ATTRS)
+    result = register("derive", readback: "no_hrn_on_file")
 
     assert_equal :hrn_file_failed, result[:error]
-    assert_equal 9, result[:dfn]
+    assert_equal 990_057, result[:dfn]
     refute result[:success]
     refute_message_leaks_phi(result[:message])
     assert_hrn_readback_lister_fields
   end
 
   def test_derive_hrn_mismatch_on_file_is_hrn_file_failed
-    seed_agg_add(dfn: "9")
-    seed_agg_update
-    seed_hrn_41_readback(9, "99999")
-
-    result = Reg.register(ATTRS)
+    result = register("derive", readback: "given")
 
     assert_equal :hrn_file_failed, result[:error]
-    assert_equal 9, result[:dfn]
+    assert_equal 990_057, result[:dfn]
     refute_message_leaks_phi(result[:message])
   end
 
-  def test_derive_hrn_unverified_when_lister_returns_nil
-    seed_agg_add(dfn: "9")
-    seed_agg_update
-    seed_hrn_41_readback(9, :no_reply)
-
-    result = Reg.register(ATTRS)
-
-    assert_equal :hrn_file_failed, result[:error]
-    assert_equal 9, result[:dfn]
-  end
-
   def test_derive_hrn_unverified_when_lister_errors
-    seed_agg_add(dfn: "9")
-    seed_agg_update
-    seed_hrn_41_readback(9, :error)
-
-    result = Reg.register(ATTRS)
+    result = register("derive", readback: "refused_iens")
 
     assert_equal :hrn_file_failed, result[:error]
-    assert_equal 9, result[:dfn]
+    assert_equal 990_057, result[:dfn]
+    assert_equal Reg::HRN_UNREADABLE, result[:message]
   end
 
   def test_temporary_hrn_success_requires_matching_readback
-    seed_agg_add(dfn: "9")
-    seed_temp_hrn("T00007")
-    seed_agg_update
-    seed_hrn_41_readback(9, "T00007")
-
-    result = Reg.register(ATTRS.merge(hrn_source: :temporary))
+    result = register("temporary")
 
     assert result[:success]
-    assert_equal "T00007", result[:hrn]
+    assert_equal "T00001", result[:hrn]
     assert_equal 1, hrn_lister_calls.length
+    assert_equal CapturedReplies.flow_calls(SLUG, "temporary"), sent
   end
 
   def test_given_hrn_success_requires_matching_readback
-    seed_agg_add(dfn: "9")
-    seed_hrn_41_readback(9, "12345")
-
-    result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
+    result = register("given")
 
     assert result[:success]
-    assert_equal "12345", result[:hrn]
+    assert_equal "77123", result[:hrn]
     assert_equal 1, hrn_lister_calls.length
+    assert_equal CapturedReplies.flow_calls(SLUG, "given"), sent
   end
 
   def test_clerk_mode_without_hrn_skips_readback
     Reg.hrn_mode = Reg::HRN_MODE_CLERK
-    seed_agg_add(dfn: "9")
 
-    result = Reg.register(ATTRS)
+    result = register("clerk")
 
     assert result[:success]
     assert_nil result[:hrn]
     assert_empty hrn_lister_calls
+    assert_equal CapturedReplies.flow_calls(SLUG, "clerk"), sent
   end
 
   [
@@ -200,17 +148,19 @@ class RegistrationHrnReadbackTest < Minitest::Test
     RpmsRpc::Client::ParseError
   ].each do |error_class|
     define_method("test_derive_hrn_#{error_class.name.split('::').last.downcase}_on_readback_is_hrn_file_failed") do
-      seed_agg_add(dfn: "9")
-      seed_agg_update
-      with_hrn_41_lister_raise(error_class) do
-        result = Reg.register(ATTRS)
+      result = register("derive") do |session|
+        session.define_singleton_method(:call_rpc_raw) do |rpc, *params|
+          raise error_class, "synthetic #9000001.41 read-back failure" if rpc == "DDR LISTER"
 
-        refute result[:success]
-        assert_equal :hrn_file_failed, result[:error]
-        assert_equal 9, result[:dfn]
-        assert_equal Reg::HRN_UNREADABLE, result[:message]
-        refute_message_leaks_phi(result[:message])
+          super(rpc, *params)
+        end
       end
+
+      refute result[:success]
+      assert_equal :hrn_file_failed, result[:error]
+      assert_equal 990_057, result[:dfn]
+      assert_equal Reg::HRN_UNREADABLE, result[:message]
+      refute_message_leaks_phi(result[:message])
     end
   end
 end

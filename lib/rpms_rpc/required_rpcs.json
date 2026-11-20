@@ -532,7 +532,9 @@
         "RpmsRpc::Registration.register": "non_idempotent_write",
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+      ]
     },
     "AGG BUILD WINDOW DISPLAY": {
       "methods": {
@@ -603,7 +605,9 @@
         "RpmsRpc::Registration.register": "non_idempotent_write",
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+      ]
     },
     "AGG LOCK PATIENT": {
       "methods": {
@@ -645,6 +649,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
       ]
     },
@@ -762,7 +767,8 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/registration-edits.yml"
+        "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
     "AGG UPDATE PRIVATE INSUR": {
@@ -794,6 +800,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml"
       ]
     },
@@ -2189,6 +2196,7 @@
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
         "test/fixtures/captured_replies/tribal.yml"
@@ -2826,6 +2834,7 @@
         "RpmsRpc::ProgressNote.update_text": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/note-write-flow-text.yml",
         "test/fixtures/captured_replies/progress-note.yml",
         "test/fixtures/captured_replies/tiu-authorization.yml"
       ]
@@ -2835,6 +2844,7 @@
         "RpmsRpc::ProgressNote.create": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/note-write-flow-text.yml",
         "test/fixtures/captured_replies/progress-note.yml",
         "test/fixtures/wire_captures/tiu-create-record.yml"
       ]
@@ -2894,6 +2904,7 @@
         "RpmsRpc::ProgressNote.update_text": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/note-write-flow-text.yml",
         "test/fixtures/captured_replies/progress-note.yml",
         "test/fixtures/captured_replies/tiu-authorization.yml",
         "test/fixtures/wire_captures/tiu-set-document-text.yml"
@@ -2973,7 +2984,8 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/authentication.yml"
+        "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
     "XUS CVC": {
@@ -2992,6 +3004,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/user-management.yml"
       ]
     },
@@ -3000,7 +3013,8 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/authentication.yml"
+        "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     }
   }
