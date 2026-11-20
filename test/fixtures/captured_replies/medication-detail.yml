@@ -3,28 +3,53 @@
 ---
 rpc: ORQQPS DETAIL
 entry_point: DETAIL^ORQQPS
-release_tag: bcer-9.0-20261109-d3adcff-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T18:19:43Z'
-note: Read-only. No demo patient on the build has a medication, so each id is one
-  the patient does not have.
+captured_at: '2026-11-19T23:33:57Z'
+note: Read-only. The demo build seeds USER,TEST (DFN 2) one prescription (1R;O) and
+  one pending order (2P;O); DEMO,PATIENT ONE (DFN 4) has no medication.
 captures:
-- name: find_outpatient/1
+- name: find_own/1
+  rpc: ORQQPS LIST
+  inputs:
+  - '2'
+  - '1'
+  - ''
+  context: 'find(2, "1R;O"): the seed patient''s own prescription, on its list'
+  raw_return: "5\01R;O^ASPIRIN^3271119^^^3\r2P;O^ASPIRIN^^^QD^\r"
+  sha256: 33b98cd0957c54a17c7c5f705050dfd068980614044f98f8e3fd7a0a25afe33d
+- name: find_own/2
   rpc: ORQQPS DETAIL
   inputs:
-  - '4'
+  - '2'
   - 1R;O
-  context: 'find(4, "1R;O"): demo patient 4, an outpatient prescription id'
-  raw_return: "5\0No detailed information found.\r"
-  sha256: 81b18daecb813d36782591bd51ff2ca0ad6945b2e3748a634f08121a9926be2e
-- name: find_inpatient/1
-  rpc: ORQQPS DETAIL
+  context: 'find(2, "1R;O"): the seed patient''s own prescription, on its list'
+  raw_return: "6\0     ASPIRIN  \r        TAKE 1 TABLET BY MOUTH EVERY DAY  (RPMS-OPS
+    DEMO SEED PRESCRIPTION 1, , SYNTHETIC)\r \r           Status: ACTIVE\r       Start
+    date: NOV 19, 2026\r        Stop date: NOV 19, 2027\rRefills remaining: 3\r      Days
+    supply: 30\r         Quantity: 30\r \rComments:\r (rpms-ops demo seed prescription
+    1, synthetic)\r"
+  sha256: f97f4540b42bfee05d0b5c1999a91b133e91bc7c2cf528fd76167accd0dda06c
+- name: find_another_patients/1
+  rpc: ORQQPS LIST
   inputs:
   - '4'
-  - 1U;I
-  context: 'find(4, "1U;I"): demo patient 4, an inpatient order id'
-  raw_return: "5\0No detailed information found.\r"
-  sha256: 81b18daecb813d36782591bd51ff2ca0ad6945b2e3748a634f08121a9926be2e
+  - '1'
+  - ''
+  context: 'find(4, "1R;O"): patient 4 and patient 2''s prescription, not on patient
+    4''s list'
+  raw_return: "5\0^No medications found.\r"
+  sha256: 56717ec52e368a7952ddff5afa1acf0c8e21c4f548bb571c0515f76644f5c419
+- name: find_inpatient_not_listed/1
+  rpc: ORQQPS LIST
+  inputs:
+  - '2'
+  - '1'
+  - ''
+  context: 'find(2, "1U;I"): an inpatient order id the seed patient''s list does not
+    give'
+  raw_return: "5\01R;O^ASPIRIN^3271119^^^3\r2P;O^ASPIRIN^^^QD^\r"
+  sha256: 33b98cd0957c54a17c7c5f705050dfd068980614044f98f8e3fd7a0a25afe33d

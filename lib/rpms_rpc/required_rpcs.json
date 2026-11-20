@@ -2331,10 +2331,12 @@
     },
     "ORQQPS LIST": {
       "methods": {
+        "RpmsRpc::Medication.find": "read",
         "RpmsRpc::Medication.for_patient": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/medication-detail.yml",
         "test/fixtures/captured_replies/read-call-formals.yml"
       ]
     },
