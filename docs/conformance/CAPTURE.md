@@ -66,8 +66,6 @@ With `<tag>-contexts_19_05.txt` present, `contexts?` is true and the surface ans
 questions: `bind_refusal(option, keys:)` (the option is not a context on the build, or its `LOCK` is a key not
 held) and `context_refusal(option, rpc, keys:)` (the bound option's RPC multiple does not list the RPC, or its
 `RPC_KEY` is not held; XUS SIGNON's RPCs and broker-exempt ones are never refused, and `RPC_RULES` is not run).
-`MockClient#enforce_contexts!(surface, keys:)` holds a mock to them, so a test sees the refusal the server would
-give (rpms-rpc#416).
 
 The registered-names gate, the callable gate, `Features`, `rake rpc:exclusions`, `rake rpc:coverage`,
 `rake rpc:api_coverage`, `rake openrpms:fetch` and `rake openapi:surface` all read through it.

@@ -12,6 +12,7 @@ require "rpms_rpc/session_pool"
 # personas from the build's published seed pairs sign on; it reads only.
 # Runs for about 125 seconds.
 class SessionPoolKeeperLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   PAIRS = [ [ "PSCH123", "PSCH123!!" ], [ "PREG123", "PREG123!!" ] ].freeze
   KEPT_FOR = 125
 

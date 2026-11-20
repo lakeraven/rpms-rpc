@@ -65,7 +65,7 @@ module RpmsRpc
     # SET^BGOREF and DEL^BGOPROB leave RET "" (or 0) and an error -CODE^text.
     # A real client hands such a reply back as lines, so an empty RET arrives
     # as [] (CiaClient#call_rpc splits on rows; Client#split_response("") is
-    # []), and MockClient as "". A reply that came back with no error row is
+    # []); a String is read as one line. A reply that came back with no error row is
     # accepted; nil, a client that answered nothing at all, is not.
     def self.write_accepted?(reply)
       return false if reply.nil?
@@ -424,14 +424,6 @@ module RpmsRpc
         @after_row = block
       end
 
-      # Format hook (caret pieces, source attrs). Must return the pieces.
-      # A mapping uses it when the wire token for a marker is not what
-      # format_value emits from the parsed attribute. Mappings that do not
-      # declare one keep format_value's output.
-      def format_row(&block)
-        @format_row = block
-      end
-
       def text_blob?
         !@text_attribute.nil?
       end
@@ -562,45 +554,9 @@ module RpmsRpc
         response.join("\n")
       end
 
-      # -- format_* methods: reverse of parse (hash → caret-delimited string) ----
-
-      # Format a hash into a caret-delimited string matching this mapping's field positions.
-      # A position may be declared twice (attribute alias — two attribute
-      # names reading the same piece); an alias the caller didn't
-      # seed must not blank out the value another alias wrote, so a
-      # position claimed by a seeded attribute is only overwritten by
-      # another seeded attribute.
-      def format_one(attrs)
-        max_pos = @fields.map(&:position).max || 0
-        parts = Array.new(max_pos + 1, "")
-        claimed = {}
-
-        @fields.each do |f|
-          next if claimed[f.position] && !attrs.key?(f.attribute)
-
-          parts[f.position] = format_value(attrs[f.attribute], f.type)
-          claimed[f.position] = true if attrs.key?(f.attribute)
-        end
-
-        parts = instance_exec(parts, attrs, &@format_row) if @format_row # rubocop:disable Security/Eval
-
-        line = parts.join("^")
-        rcis_record? ? RcisWire::SIGIL + line : line
-      end
-
-      # Format an array of hashes into an array of caret-delimited strings.
-      def format_many(attrs_list)
-        attrs_list.map { |attrs| format_one(attrs) }
-      end
-
-      # Format a scalar value for this mapping's scalar type.
-      def format_scalar(value)
-        format_value(value, @scalar_type || :string)
-      end
-
       # -- fetch_* methods: call RPC + parse in one shot -------------------------
       #
-      # All fetch methods use RpmsRpc.client (configured at boot or via RpmsRpc.mock!),
+      # All fetch methods use RpmsRpc.client (configured at boot or scoped by RpmsRpc.with_client),
       # under the mapping's own context when it declares one (#context).
 
       def fetch_one(*params, extras: {})
@@ -706,7 +662,7 @@ module RpmsRpc
       # Data lines of a reply, the normalisation #normalize_line applies, all
       # of them. Trailing $C(30)/$C(31) are removed. An Array also drops empty
       # lines and recordset header rows; a String is one line, which is how a
-      # scalar reply arrives (MockClient#call_rpc returns one). [] when there
+      # scalar reply can arrive. [] when there
       # is nothing. Public so a caller can require an exact raw line instead
       # of the scalar coercion, which turns any other text into true or false.
       def normalized_lines(response)
@@ -727,44 +683,6 @@ module RpmsRpc
       def call(*params)
         client = RpmsRpc.client
         in_context(client) { client.call_rpc(rpc_name, *params) }
-      end
-
-      def format_value(val, type)
-        return "" if val.nil?
-
-        case type
-        when :fileman_date
-          val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_date(val) : val.to_s
-        when :fileman_datetime
-          # DateTime < Date, so the timed classes match first; a bare Date has
-          # no time of day and format_datetime would call #hour on it. FileMan
-          # stores a date-only value here as "3250115" -- which the parse side
-          # already accepts -- so emit that rather than raising. (#267)
-          case val
-          when DateTime, Time then FilemanDateParser.format_datetime(val)
-          when Date then FilemanDateParser.format_date(val)
-          else val.to_s
-          end
-        when :external_date
-          val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_external_date(val) : val.to_s
-        when :external_datetime
-          # Same shape, quieter failure: a bare Date fell through to #to_s and
-          # put an ISO string ("2026-01-15") on a wire that expects the
-          # external form, instead of raising where anyone would see it.
-          case val
-          when DateTime, Time then FilemanDateParser.format_external_datetime(val)
-          when Date then FilemanDateParser.format_external_date(val)
-          else val.to_s
-          end
-        when :integer
-          val.to_s
-        when :slash_date
-          val.respond_to?(:strftime) ? val.strftime("%m/%d/%Y") : val.to_s
-        when :boolean
-          val ? "1" : "0"
-        else
-          val.to_s
-        end
       end
 
       # First DATA line of a response: recordset header rows and $C(30)/$C(31)

@@ -1,0 +1,99 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb patient-address-contact.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:28:08Z'
+note: 'Setup files, on synthetic DFN 990055 through Patient.update: address lines
+  2 and 3 UNIT 4 and BLDG C, ZIP+4 59000-1234, other phone MSG 406-555-0100, email
+  synthetic.patient@example.test; and through DDR FILER under CIAV VUECENTRIC, .134
+  PHONE NUMBER [CELLULAR] 406-555-0198.'
+captures:
+- name: address_full/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990055,
+    FIELDS: ".111;.112;.113;.114;.115;.116;.1112"
+    FLAGS: IE
+  context: 'address of DFN 990055: every piece filled'
+  raw_return: "5\0[Data]\r2^990055^.111^485 NORTHFIELD ST^485 NORTHFIELD ST\r2^990055^.1112^590001234^59000-1234\r2^990055^.112^UNIT
+    4^UNIT 4\r2^990055^.113^BLDG C^BLDG C\r2^990055^.114^ANYWHERE^ANYWHERE\r2^990055^.115^27^MONTANA\r2^990055^.116^59000^59000\r"
+  sha256: 2c7d9731e70a2e74513a26985a0f931bc80e42853d538a2f970dbcb71cf6128e
+- name: address_empty/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 2,
+    FIELDS: ".111;.112;.113;.114;.115;.116;.1112"
+    FLAGS: IE
+  context: 'address of DFN 2: every piece empty'
+  raw_return: "5\0[Data]\r2^2^.111^^\r2^2^.1112^^\r2^2^.112^^\r2^2^.113^^\r2^2^.114^^\r2^2^.115^^\r2^2^.116^^\r"
+  sha256: 9d31fea7a9c757339f13bed237eaaab2ce1afe15165e89c8c9f89cb5eb3bc68f
+- name: address_unknown/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 5,
+    FIELDS: ".111;.112;.113;.114;.115;.116;.1112"
+    FLAGS: IE
+  context: address of DFN 5, no PATIENT entry
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: contact_full/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990055,
+    FIELDS: ".131;.132;.134"
+    FLAGS: IE
+  context: 'contact of DFN 990055: PATIENT phones, then IHS PATIENT other phone and
+    email'
+  raw_return: "5\0[Data]\r2^990055^.131^406-555-1055^406-555-1055\r2^990055^.132^^\r2^990055^.134^406-555-0198^406-555-0198\r"
+  sha256: a16e4e17bb457524c4809aff765293a5dd16da628c68d0937d92942e0a35a706
+- name: contact_full/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990055,
+    FIELDS: 1801;1802
+    FLAGS: IE
+  context: 'contact of DFN 990055: PATIENT phones, then IHS PATIENT other phone and
+    email'
+  raw_return: "6\0[Data]\r9000001^990055^1801^MSG 406-555-0100^MSG 406-555-0100\r9000001^990055^1802^synthetic.patient@example.test^synthetic.patient@example.test\r"
+  sha256: 0f298919df6ff56ee2d7c0c17183316592795ed1f3326544d1e999e257fdbf9f
+- name: contact_empty/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 2,
+    FIELDS: ".131;.132;.134"
+    FLAGS: IE
+  context: 'contact of DFN 2: every piece empty'
+  raw_return: "5\0[Data]\r2^2^.131^^\r2^2^.132^^\r2^2^.134^^\r"
+  sha256: 514e7acbd4793e8dfaf90accd619351cc6b885882c8398b58eb7ae72e2d86a97
+- name: contact_empty/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 2,
+    FIELDS: 1801;1802
+    FLAGS: IE
+  context: 'contact of DFN 2: every piece empty'
+  raw_return: "6\0[Data]\r9000001^2^1801^^\r9000001^2^1802^^\r"
+  sha256: f5fe05098b38657bf7e8d70803f5b0b9abdb6f7b7d98a94a26df0f30c8888bef
+- name: contact_unknown/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 5,
+    FIELDS: ".131;.132;.134"
+    FLAGS: IE
+  context: 'contact of DFN 5: the PATIENT read fails, so IHS PATIENT is not read'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b

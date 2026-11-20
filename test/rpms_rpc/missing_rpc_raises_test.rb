@@ -4,7 +4,6 @@ require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/problem"
 require "rpms_rpc/api/referral"
@@ -156,7 +155,6 @@ class MissingRpcRaisesTest < Minitest::Test
   def test_there_is_no_capability_probe
     refute RpmsRpc.const_defined?(:ServerCapabilities, false), "ServerCapabilities is removed (#363)"
     refute RpmsRpc::Client.method_defined?(:supports?), "Client#supports? is removed (#363)"
-    refute RpmsRpc::MockClient.method_defined?(:supports?), "MockClient#supports? is removed (#363)"
   end
 
   def test_no_api_method_asks_supports

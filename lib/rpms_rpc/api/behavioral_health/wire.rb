@@ -61,8 +61,8 @@ module RpmsRpc
       # remains the correct read: it frames on the $C(31) sentinel rather
       # than relying on the terminator not colliding with the payload.
       # Route through it whenever the client offers it, and fall back to
-      # #call_rpc for MockClient and non-CIA clients that hand back the seeded
-      # reply whole. Same pattern as RpmsRpc::Agg#call_array (agg.rb:155).
+      # #call_rpc for the non-CIA clients (XwbClient, BmxClient), which hand
+      # back the reply whole. Same pattern as RpmsRpc::Agg#call_array.
       # A few entries take NO actual at all — CLN^AMHGTVF is CLN(RETVAL) with
       # no AMHSTR formal, so even an empty string is an extra actual and
       # YottaDB raises ACTLSTTOOLONG. Pass no pieces for those.
@@ -136,6 +136,19 @@ module RpmsRpc
 
       def first_row(mapping_name, *pieces)
         rows(mapping_name, *pieces).first
+      end
+
+      # The first row, unless it carries nothing but the IEN it was sent:
+      # the AMHG detail routines echo that IEN for a record not on file (#882).
+      def on_file_row(mapping_name, *pieces)
+        row = first_row(mapping_name, *pieces)
+        row unless row.nil? || echo_only?(row)
+      end
+
+      # A row whose every column but the first (the echoed IEN) is blank or
+      # the empty $$VCDT date "1700,,,12,0".
+      def echo_only?(row)
+        row.values.drop(1).all? { |value| [ "", "1700,,,12,0" ].include?(value.to_s.strip) }
       end
 
       # "412~THERAPIST,EXAMPLE" -> { ien: "412", name: "THERAPIST,EXAMPLE" }.

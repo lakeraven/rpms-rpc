@@ -1345,9 +1345,7 @@ module RpmsRpc
     # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
     # routine entry points in FOIA-RPMS.
     #
-    # NOTE: these are exercised via MockClient because no live-dispatch proof
-    # exists for this RPC set yet (rpms-rpc#224) — NOT because the backend is
-    # blocked. openrpms#366 (the YDB releases lacking the #8994 registry) closed
+    # openrpms#366 (the YDB releases lacking the #8994 registry) closed
     # 2026-08-23: ^XWB is force-included in the export and its absence fails the
     # build.
 
@@ -1498,7 +1496,6 @@ module RpmsRpc
     # ARRAY of typed records, not caret-per-field), so these mappings carry
     # only the RPC name — RpmsRpc::Agg does the encode/parse and
     # CiaClient#call_rpc_global_array reads the reply to its $C(31) sentinel.
-    # The text_blob attribute lets MockClient.seed the raw reply verbatim.
     # Names/registration confirmed in the observed #8994 registry
     # (openrpms/data/observed/broker_8994.txt, per #203/#209).
 
@@ -1548,6 +1545,7 @@ module RpmsRpc
     #   AGG BUILD WINDOW MULTIPLE     MUL^AGGPTDMG    window, node, DFN, entry
     #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
     #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
+    #   AGG UPDATE LEGAL NAMES        LEGL^AGGPTNAM   DFN, A/D/"", entry, PARMS
     #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
     #   AGG UPDATE A MULTIPLE RECORD  UPD^AGGMLUPD    window, A/D, DFN, entry, PARMS
     #   AGG QUANTUM VALIDATION        QNT^AGGFTVAL    tribe, quantum, membership, its quantum, blood quantum, class, others
@@ -1556,6 +1554,7 @@ module RpmsRpc
       agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
       agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
       agg_update_aliases: "AGG UPDATE ALIASES",
+      agg_update_legal_names: "AGG UPDATE LEGAL NAMES",
       agg_update_special_multiples: "AGG UPDATE SPECIAL MULTIPLES",
       agg_update_multiple_record: "AGG UPDATE A MULTIPLE RECORD",
       agg_quantum_validation: "AGG QUANTUM VALIDATION",

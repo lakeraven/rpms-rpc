@@ -1,0 +1,55 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb phr.rb.
+---
+rpc: BEHOCCD PHR
+entry_point: PHR^BEHOCCD
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-18T17:34:10Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: enrollment_seed/1
+  rpc: BEHOCCD PHR
+  inputs:
+  - '2'
+  context: enrollment_status of DFN 2
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: enrollment_panel/1
+  rpc: BEHOCCD PHR
+  inputs:
+  - '990001'
+  context: enrollment_status of DFN 990001
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: enrollment_unknown/1
+  rpc: BEHOCCD PHR
+  inputs:
+  - '999999999'
+  context: enrollment_status of DFN 999999999, not on file
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: counts_unknown/1
+  rpc: BEHOCIR GETNUM
+  inputs:
+  - '999999999'
+  context: counts of DFN 999999999, not on file
+  raw_return: "5\00^0"
+  sha256: 4c1ad64a800b1575329a0809bd5d107f3f64b40eb160195339d9d829b579a566
+- name: counts/1
+  rpc: BEHOCIR GETNUM
+  inputs:
+  - '2'
+  context: counts of DFN 2
+  raw_return: "5\00^0"
+  sha256: 4c1ad64a800b1575329a0809bd5d107f3f64b40eb160195339d9d829b579a566
+- name: referrals/1
+  rpc: BEHOCCD GETREF
+  inputs:
+  - 1^2
+  context: referrals_for_visits of visits 1 and 2
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

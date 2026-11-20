@@ -12,6 +12,7 @@ require "rpms_rpc/api/agg"
 # The spec reads the raw answer and holds available? to it, so it is true on
 # any build and for any persona; it reads only.
 class AggAvailableLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   def test_available_agrees_with_the_canrun_answer
     answer = begin
       lines = client.with_context(RpmsRpc::Agg::CONTEXT) do

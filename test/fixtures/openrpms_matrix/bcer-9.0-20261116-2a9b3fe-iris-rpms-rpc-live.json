@@ -1,0 +1,225 @@
+{
+  "backend": "bcer-9.0-20261116-2a9b3fe-iris",
+  "runs": [
+    {
+      "at": "2026-11-16T05:28:18Z",
+      "rpms_rpc": "0.4.0 @ e05473c7",
+      "host_label": "bcer-9.0-20261116-2a9b3fe-iris",
+      "persona": "least_privilege",
+      "context": "CIAV VUECENTRIC (sign-on)",
+      "cases": 56,
+      "tally": {
+        "ok": 47,
+        "broker-error": 5,
+        "raised-before-wire": 4
+      },
+      "signons": 1
+    }
+  ],
+  "rpcs": {
+    "BEHOCCD PHR": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOCIR GETNUM": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOCIR GETTXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOPTCX PTINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOPTPC GETBDP": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOSICX SITEINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BEHOXQ ALRLIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BGOREF GETREA": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BMC GET PURPOSE OF REF API": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BMC HEALTH SUMMARY TYPE": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BMC SEARCH REFERRAL": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BSDX ALL APPOINTMENTS": {
+      "outcome": "error",
+      "error": "4 Access denied for remote procedure: BSDX ALL APPOINTMENTS",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BSDX CLINIC SETUP": {
+      "outcome": "error",
+      "error": "4 Access denied for remote procedure: BSDX CLINIC SETUP",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "BSDX HOSPITAL LOCATION": {
+      "outcome": "error",
+      "error": "4 Access denied for remote procedure: BSDX HOSPITAL LOCATION",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "CIAVCXUS VIMINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "DDR GETS ENTRY DATA": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "DDR LISTER": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQAL LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPL AUDIT HIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPL LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPL PROBLEM LEX SEARCH": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPL PROVIDER LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPS LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPX REMINDERS LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQPXRM REMINDERS APPLICABLE": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORQQVI VITALS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWDAL32 DEF": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWDAL32 SYMPTOMS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWOR EXPIRED": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWOR SHEETS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWOR TSALL": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWOR UNSIGN": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWORR AGET": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT ADMITLST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT APPTLST": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT CWAD": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT ID INFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT INPLOC": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT LIST ALL": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWPT SELECT": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWRA IMAGING EXAMS1": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWRP REPORT TEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWU NEWPERS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "ORWU USERINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "TIU DOCUMENTS BY CONTEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "TIU TEMPLATE GETBOIL": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "TIU TEMPLATE GETITEMS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "TIU TEMPLATE GETROOTS": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "TIU TEMPLATE GETTEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-16T05:28:18Z"
+    },
+    "XUS GET USER INFO": {
+      "outcome": "error",
+      "error": "4 Access denied for remote procedure: XUS GET USER INFO",
+      "last_at": "2026-11-16T05:28:18Z"
+    }
+  }
+}

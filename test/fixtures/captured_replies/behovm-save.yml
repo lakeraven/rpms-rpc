@@ -1,0 +1,51 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb behovm-save.rb.
+---
+rpc: BEHOVM SAVE
+entry_point: SAVE^BEHOVM
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:02:36Z'
+note: Run on a fresh throwaway container. Setup files today's visit for synthetic
+  DFN 990054 at DEMO PRIMARY CARE; the flows file vitals on it, taken at 2026-11-19
+  09:30:15.
+captures:
+- name: add/1
+  rpc: BEHOVM SAVE
+  inputs:
+  - '990054'
+  - - HDR^^^10;3261120.0502;A;118
+    - VST^DT^3261119.093015
+    - VST^PT^990054
+    - VIT+^TMP^0^^97^206^F^^3261119.093015^^
+    - VIT+^PU^0^^80^206^/min^^3261119.093015^^
+    - VIT+^BP^0^^130/90^206^mmHg^^3261119.093015^^
+  context: 'add: TMP 97 F, PU 80 /min and BP 130/90 mmHg on the visit from setup'
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: add_one/1
+  rpc: BEHOVM SAVE
+  inputs:
+  - '990054'
+  - - HDR^^^10;3261120.0502;A;118
+    - VST^DT^3261119.093015
+    - VST^PT^990054
+    - VIT+^TMP^0^^98^206^F^^3261119.093015^^
+  context: 'add: one measurement given as a hash, not a list: TMP 98 F on the same
+    visit'
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: add_refused/1
+  rpc: BEHOVM SAVE
+  inputs:
+  - '990054'
+  - - HDR^^^10;3261120.0502;A;118
+    - VST^DT^3261119.093015
+    - VST^PT^990054
+    - VIT+^TMP^0^^999^206^F^^3261119.093015^^
+  context: 'add: TMP 999 F, out of range, on the same visit: the build stores nothing'
+  raw_return: "5\0-1^1  entry failed validation.  No results stored."
+  sha256: 54291cb235026134bd4a6ec6b91d564ce4da456dcc353b3bc7dbcb1595cf6653

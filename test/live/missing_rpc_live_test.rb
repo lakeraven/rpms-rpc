@@ -45,6 +45,7 @@ require "rpms_rpc/api/scheduling"
 #
 # These specs read only; they file nothing.
 class MissingRpcLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   NotAvailable = RpmsRpc::Client::RpcNotAvailableError
   Refused = RpmsRpc::Client::RpcRefusedError
   MError = RpmsRpc::Client::RpcMError

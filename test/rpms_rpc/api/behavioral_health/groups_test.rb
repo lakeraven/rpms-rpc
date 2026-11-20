@@ -38,14 +38,11 @@ class BehavioralHealthGroupsTest < Minitest::Test
   end
 
   # GRPINFO answers one row for any IEN; for one not on file it is blank but
-  # for the IEN and the encounter-date column's empty $$VCDT text.
-  def test_group_information_for_an_ien_not_on_file_is_a_row_of_blanks
+  # for the IEN and the encounter-date column's empty $$VCDT text (#882).
+  def test_group_information_for_an_ien_not_on_file_is_nil
     replay("group_information_not_on_file")
 
-    info = G.group_information(NOT_ON_FILE)
-    assert_equal NOT_ON_FILE, info[:ien]
-    assert_equal "1700,,,12,0", info[:encounter_date], "what the build sends for an empty encounter date"
-    assert_empty info.except(:ien, :encounter_date).values.compact
+    assert_nil G.group_information(NOT_ON_FILE)
   end
 
   %w[group_patients group_cpt group_edu group_pov group_secondary_providers].each do |reader|

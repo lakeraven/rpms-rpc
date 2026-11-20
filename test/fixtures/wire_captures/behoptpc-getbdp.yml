@@ -5,8 +5,8 @@
 rpc: BEHOPTPC GETBDP
 mapping: patient_designated_provider
 kind: fields
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-10-30T08:41:09Z'
+release_tag: bcer-9.0-20261119-f67498c-ydb
+captured_at: '2026-11-20T00:15:54Z'
 signed_on_as: PROV123
 cite: 'GETBDP^BEHOPTPC (BEHOPTPC.m:73): LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE'
 note: Empty designated provider in the seed. An empty reply is no-data, not a layout.
@@ -30,5 +30,5 @@ pieces:
 source: no-data
 inputs:
 - '2'
-raw_return: "5\0"
-sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+raw_return: "3\0"
+sha256: ac11339ffa8f270c4f781e0a3922bb1c80d9dee6e4b6911ca34538ed9ae03caa

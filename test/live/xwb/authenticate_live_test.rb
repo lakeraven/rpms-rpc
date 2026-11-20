@@ -23,6 +23,7 @@ require "rpms_rpc/api/authentication"
 # The harness only connects (connect_only!): the sign-on under test is the
 # spec's own. It reads only; it files nothing.
 class AuthenticateXwbLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   broker :xwb
   connect_only!
 

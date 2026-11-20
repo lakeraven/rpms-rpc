@@ -61,7 +61,7 @@ To attach them to an existing release, run the workflow by hand with that tag.
 | `x-rpms-gem.name`, `.version` | `rpms-rpc` and `RpmsRpc::VERSION` |
 | `x-rpms-gem.commit` | the gem commit the document was generated from (`GEM_COMMIT=` overrides `git rev-parse HEAD`) |
 | `x-rpms-gem.dirty` | `true` when the checkout had uncommitted changes, so the document is not exactly the commit's; absent otherwise |
-| `x-rpms-build.tag` | the openrpms build tag (`bcer-9.0-20261012-e7923a4-ydb`) |
+| `x-rpms-build.tag` | the openrpms build tag (`bcer-9.0-20261119-f67498c-ydb`) |
 
 The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file openrpms projected it from, with the sha256 the header names).
 Its `info.version` is the RPMS version (`bcer-9.0`); the client API's is the gem version.

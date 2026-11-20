@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 
 # rpms-rpc#477 round 3: a Reply::Text altered by control characters holds no
 # replacement character, so the line that changed cannot be located. It must

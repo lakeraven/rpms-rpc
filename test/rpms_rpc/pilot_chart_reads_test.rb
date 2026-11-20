@@ -27,7 +27,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
   # The release the committed wire fixtures were captured on: their provenance, kept with them as
   # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
-  PINNED_RELEASE = "bcer-9.0-20261012-e7923a4-ydb"
+  PINNED_RELEASE = "bcer-9.0-20261119-f67498c-ydb"
 
   # Clinician pilot persona (README least-privilege). Replaces round-2 rule that
   # chart-read slice fixtures were stamped signed_on_as SYS123.
@@ -140,7 +140,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     { rpc: "ORQQAL LIST", mapping: :allergy_list, kind: "fields",
       inputs: [ "2" ], evidence: :live },
     { rpc: "ORWPS ACTIVE", mapping: :medication_active, kind: "text_blob",
-      inputs: [ "2" ], evidence: :no_data },
+      inputs: [ "2" ], evidence: :live },
     { rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields",
       inputs: [ "2" ], evidence: :live }
   ].freeze
@@ -490,7 +490,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
   end
 
   def test_pinned_release_is_the_issue_224_build
-    assert_equal "bcer-9.0-20261012-e7923a4-ydb", PINNED_RELEASE
+    assert_equal "bcer-9.0-20261119-f67498c-ydb", PINNED_RELEASE
   end
 
   # Intent: the pilot checklist exists and names every slice RPC with an explicit status.

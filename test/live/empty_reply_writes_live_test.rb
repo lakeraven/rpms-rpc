@@ -22,6 +22,7 @@ require "rpms_rpc/server_clock"
 # a random past day: the spec files a new entry whichever spec or persona
 # refused the vaccine today.
 class EmptyReplyWritesLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   REFUSAL_FILE = "9000022"   # PERSONAL HISTORY REFUSALS (^AUPNPREF)

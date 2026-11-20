@@ -124,9 +124,9 @@ class CallableRpcNamesTest < Minitest::Test
   def test_not_callable_names_the_reach_class
     surface = ReleaseUnderTest.fixture.surface
 
-    assert_equal({ "VAFC VOA ADD PATIENT" => "no-context", "BMC ADD SECONDARY REFERRAL" => "no-entry-point",
+    assert_equal({ "AGG DAILY REPORT" => "no-context", "BMC ADD SECONDARY REFERRAL" => "no-entry-point",
                    "SC FIND" => "out-of-order", "MAGGECHO" => "no-routine", "ZZZ NOT REGISTERED" => "not registered" },
-                 surface.not_callable([ "ORWPT SELECT", "CIANBRPC AUTH", "VAFC VOA ADD PATIENT", "BMC ADD SECONDARY REFERRAL",
+                 surface.not_callable([ "ORWPT SELECT", "CIANBRPC AUTH", "AGG DAILY REPORT", "BMC ADD SECONDARY REFERRAL",
                                         "SC FIND", "MAGGECHO", "ZZZ NOT REGISTERED" ]))
     assert_equal "broker-exempt", surface.reach("CIANBRPC AUTH")
     assert_includes surface["ORWPT SELECT"].contexts, "OR CPRS GUI CHART"

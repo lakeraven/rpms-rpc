@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "time"
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../fileman_date_parser"
@@ -27,10 +28,12 @@ module RpmsRpc
     shape :result_date_range, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/result-date-range"
 
     # One specimen's results, the next one older (direction: :older, the
-    # default) or newer than +from+ (a Time, Date or FileMan date; blank is
-    # now, so the default is the most recent specimen), as the Labs tab's
-    # Most Recent view steps through them. Underlying RPC: ORWLRR INTERIMG
-    # (INTERIMG^LR7OGM, FORMAT 1).
+    # default) or newer than +from+ (a Time, Date or FileMan date), as the
+    # Labs tab's Most Recent view steps through them. Underlying RPC:
+    # ORWLRR INTERIMG (INTERIMG^LR7OGM, FORMAT 1). With no +from+, :older
+    # sends tomorrow, so the default is the most recent specimen:
+    # SELECT^LR7OGM reads a blank DATE1 as inverse date 9999999 and $Os
+    # older from there, which finds nothing (rpms-rpc#840).
     #
     #   specimen(dfn, from: nil, direction: :older)
     #   => { area:, collected_at:, specimen_ien:, specimen:, accession:, provider:,
@@ -46,12 +49,51 @@ module RpmsRpc
     def specimen(dfn, from: nil, direction: :older)
       return nil unless positive_id?(dfn) && %i[older newer].include?(direction)
 
+      from = Date.today + 1 if from.nil? && direction == :older
       lines = DataMapper.lab_specimen.lines!(dfn.to_s, fileman(from), direction == :older ? "1" : "-1", "1")
       return nil if lines.empty?
 
       read_specimen(lines)
     end
     shape :specimen, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/specimen"
+
+    # The patient's resulted specimens collected from +from+ through +to+
+    # (each a Date or Time; +to+ defaults to today, and a Date covers its
+    # whole day), newest first: each is a #specimen hash plus released_at
+    # (the "Report Released Date/Time:" line, a Time, midnight when it has
+    # the date alone) and status (:final once released, else :pending).
+    # Steps ORWLRR INTERIMG older one
+    # specimen per call, the Labs tab's Most Recent view, from each header's
+    # own COLLECTED, until it answers nothing or a specimen falls before
+    # +from+. INTERIMG lists a chemistry specimen once its DATE REPORT
+    # COMPLETED (#63.04 .03) is set, so an unverified one is never listed.
+    # [] for a bad dfn or range, sending nothing. A header that does not
+    # step older raises Client::RpcError rather than loop.
+    def results(dfn, from:, to: Date.today)
+      floor = instant(from)
+      return [] unless positive_id?(dfn) && floor && instant(to) && instant(to) >= floor
+
+      cursor = to.is_a?(Time) ? fileman(to) : fileman(to + 1)
+      previous = nil
+      found = []
+      loop do
+        lines = DataMapper.lab_specimen.lines!(dfn.to_s, cursor, "1", "1")
+        break if lines.empty?
+
+        read = released(read_specimen(lines))
+        at = instant(read[:collected_at])
+        if at.nil? || (previous && at >= previous)
+          raise Client::RpcError, RpmsRpc.sanitize_error("ORWLRR INTERIMG did not step older: #{lines.first.inspect}")
+        end
+        break if at < floor
+
+        found << read
+        previous = at
+        cursor = lines.first.split("^", -1)[2]
+      end
+      found
+    end
+    shape :results, resource: "labs", verb: "GET", path: "/patients/{dfn}/labs/results"
 
     # The patient's lab orders over the site's cover-sheet range
     # (BEHOLRCV DATE RANGE days back, inpatient or outpatient), as
@@ -94,6 +136,40 @@ module RpmsRpc
     def test_row(pieces)
       { test_ien: positive_id?(pieces[0]) ? pieces[0].to_i : nil, name: presence(pieces[1]), value: presence(pieces[2].to_s.strip),
         flag: presence(pieces[3].to_s.strip), units: presence(pieces[4]), range: presence(pieces[5]), loinc: presence(pieces[14]) }
+    end
+
+    # GRID^LR7OGMG writes $$UP^XLFSTR($$FMTE^XLFDT(released, "5MPZ")):
+    # month and day padded, the hour not ("11/19/2026 1:12 AM",
+    # "11/10/2026 12:00 PM"), the date alone when DATE REPORT COMPLETED
+    # carries no time ("11/19/2026"), and nothing when it is unset (an
+    # unverified specimen). FMTE writes .24, the midnight that ends a day,
+    # as "12:00 AM" of that same day, so that one value reads a day early.
+    # A released line in any other shape raises rather than read as pending.
+    RELEASED = %r{\AReport Released Date/Time:(.*)\z}
+    RELEASED_AT = { %r{\A\d\d/\d\d/\d{4} \d{1,2}:\d\d [AP]M\z} => "%m/%d/%Y %I:%M %p", %r{\A\d\d/\d\d/\d{4}\z} => "%m/%d/%Y" }.freeze
+
+    def released(read)
+      stamp = read[:text].filter_map { |line| line[RELEASED, 1] }.first.to_s.strip
+      return read.merge(released_at: nil, status: :pending) if stamp.empty?
+
+      at = released_at(stamp)
+      raise Client::RpcError, RpmsRpc.sanitize_error("ORWLRR INTERIMG answered released #{stamp.inspect}") unless at
+
+      read.merge(released_at: at, status: :final)
+    end
+
+    def released_at(stamp)
+      format = RELEASED_AT.find { |shape, _| shape.match?(stamp) }&.last
+      format && Time.strptime(stamp, format)
+    rescue ArgumentError # an imprecise date ("01/00/2026"), which .03's %DT="ETX" refuses
+      nil
+    end
+
+    def instant(value)
+      case value
+      when Time then value
+      when Date then Time.new(value.year, value.month, value.day)
+      end
     end
 
     def fileman(value)

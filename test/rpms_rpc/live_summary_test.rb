@@ -612,13 +612,15 @@ module RpmsRpc
 
     def test_the_readme_releasing_section_follows_the_testing_list
       readme = File.read(File.join(REPO_ROOT, "README.md"))
-      list = readme.index("- **Gateway tests**")
+      list = readme.index("- **Live specs**")
       releasing = readme.index("### Releasing")
-      mock = readme.index("### MockClient usage")
+      testing = readme.index(/^## Testing$/)
       refute_nil list
       refute_nil releasing
       assert_operator list, :<, releasing, "### Releasing must not split the test list"
-      assert_operator releasing, :<, mock
+      refute_nil testing
+      assert_operator testing, :<, releasing
+      assert_operator releasing, :<, readme.index(/^## /, testing + 1), "### Releasing must sit inside ## Testing"
       assert_operator readme.index("reads the live evidence from"), :<, readme.index("- **Wire-format tests**")
     end
 

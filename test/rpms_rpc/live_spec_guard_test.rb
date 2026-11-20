@@ -80,6 +80,16 @@ class LiveSpecGuardTest < Minitest::Test
   # -- failure over silent skipping -------------------------------------------
 
   class Probe < LiveSpec::Test
+    runs_as "PROV123"
+    def test_reaches_the_broker = assert(client)
+  end
+
+  class UndeclaredProbe < LiveSpec::Test
+    def test_reaches_the_broker = assert(client)
+  end
+
+  class SchedulingProbe < LiveSpec::Test
+    runs_as "PSCH123"
     def test_reaches_the_broker = assert(client)
   end
 
@@ -92,6 +102,7 @@ class LiveSpecGuardTest < Minitest::Test
   end
   class XwbProbe < LiveSpec::Test
     broker :xwb
+    runs_as "PROV123"
     def test_reaches_the_broker = assert(client)
   end
 
@@ -105,6 +116,61 @@ class LiveSpecGuardTest < Minitest::Test
   Minitest::Runnable.runnables.delete(XwbProbe)
   Minitest::Runnable.runnables.delete(Tracked)
   Minitest::Runnable.runnables.delete(PassingProbe)
+  Minitest::Runnable.runnables.delete(UndeclaredProbe)
+  Minitest::Runnable.runnables.delete(SchedulingProbe)
+
+  # -- least privilege: each spec runs as the persona that owns its role (#452)
+
+  def test_a_spec_that_declares_no_persona_fails_and_says_how_to_declare_one
+    result = with_env(FULL) { UndeclaredProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?
+    assert_match(/declares no persona: add runs_as/, result.failure.message)
+  end
+
+  def test_a_spec_run_by_hand_as_another_persona_fails_naming_its_persona
+    result = with_env(FULL) { SchedulingProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?
+    assert_match(/runs as PSCH123, and this run signs on as PROV123: run it as PSCH123/, result.failure.message)
+  end
+
+  def test_a_run_runs_only_the_specs_of_the_persona_it_signs_on_as
+    assert_empty(with_env("PERSONA" => "PROV123") { SchedulingProbe.runnable_methods })
+    assert_equal [ "test_reaches_the_broker" ], with_env("PERSONA" => "PSCH123") { SchedulingProbe.runnable_methods }
+    assert_equal [ "test_reaches_the_broker" ], with_env("PERSONA" => "PROV123") { UndeclaredProbe.runnable_methods },
+                 "an undeclared spec still runs, so its setup can say what is missing"
+  end
+
+  def test_a_persona_the_suite_does_not_know_is_refused
+    assert_nil LiveSpec.persona_error("PERSONA" => "PREG123")
+    assert_match(/PERSONA="BOB" is not one of PROV123, PMD123, PREG123, PSCH123, SYS123/,
+                 LiveSpec.persona_error("PERSONA" => "BOB"))
+  end
+
+  # Every class of every live spec, on every broker line, declares the
+  # personas it runs as, and each is one the suite knows.
+  def test_every_live_spec_declares_the_personas_it_runs_as
+    root = File.expand_path("../..", __dir__)
+    files = LiveSpec::SPEC_GLOBS.values.flat_map { |glob| Dir[File.join(root, glob)] }
+    refute_empty files
+    files.each do |file|
+      text = File.read(file)
+      classes = text.scan(/< LiveSpec::Test\b/).size
+      declared = text.scan(/^\s*runs_as\s/).size
+      assert_equal classes, declared, "#{file.delete_prefix("#{root}/")}: #{classes} spec classes, #{declared} runs_as lines"
+      unknown = LiveSpec.declared_personas(file) - LiveSpec::PERSONAS.keys
+      assert_empty unknown, "#{file.delete_prefix("#{root}/")} runs as personas the suite does not know"
+    end
+  end
+
+  def test_the_plan_lists_each_spec_under_the_personas_it_declares
+    plan = LiveSpec.persona_plan("cia")
+
+    assert_equal LiveSpec::PERSONAS.keys, plan.keys
+    assert_includes plan.fetch("PREG123"), "test/live/registration_duplicate_live_test.rb"
+    refute_includes plan.fetch("PROV123"), "test/live/registration_duplicate_live_test.rb"
+  end
 
   def test_a_missing_setting_fails_and_names_it
     result = with_env(FULL.merge("RPMS_VERIFY" => nil, "PERSONA" => nil)) { Probe.new(:test_reaches_the_broker).run }

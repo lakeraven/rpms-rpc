@@ -21,6 +21,7 @@ require "rpms_rpc/api/tribal"
 #
 # These specs read only; they file nothing.
 class CiaReplyLinesLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   # Not the SSN of any patient on file: proven per run through the SSN
   # cross-reference (DDR LISTER on file #2), not through ORWPT FULLSSN.
   ABSENT_SSN = "999999998"

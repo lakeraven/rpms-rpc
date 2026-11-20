@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 # the gem's contract, so the spec finds one with DDR LISTER rather than naming
 # a DFN. The spec reads only; it files nothing.
 class ProcedureLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DEMO_DFNS = %w[3 990001 990027].freeze
 
   def test_for_patient_answers_for_each_demo_patient

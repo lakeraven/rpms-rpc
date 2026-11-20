@@ -38,7 +38,7 @@ module ApiCoverage
   RPC_SENDERS = /\Acall_rpc/ # call_rpc, call_rpc_raw, call_rpc_lines, call_rpc_global_array
   # Methods followed into when a public method calls them: module functions under lib/rpms_rpc/,
   # except DataMapper (its mappings are resolved, not followed) and the broker clients.
-  NOT_FOLLOWED = %w[data_mapper.rb client.rb cia_client.rb xwb_client.rb bmx_client.rb mock_client.rb].freeze
+  NOT_FOLLOWED = %w[data_mapper.rb client.rb cia_client.rb xwb_client.rb bmx_client.rb].freeze
 
   # What one method body references, before any resolution.
   #   mappings    DataMapper mapping names it names (DataMapper.x, DataMapper[:x], a :x argument to a

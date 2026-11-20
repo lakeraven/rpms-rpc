@@ -36,6 +36,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 990_053 # a synthetic seed patient; unused by other live specs

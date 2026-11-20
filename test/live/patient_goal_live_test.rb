@@ -12,6 +12,7 @@ require "rpms_rpc/api/patient_goal"
 #
 # WRITES against a disposable local container only.
 class PatientGoalLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 990_044 # THISTLEDOWN,RILEY, a synthetic seed patient; unused by other live specs

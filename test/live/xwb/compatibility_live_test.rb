@@ -15,6 +15,7 @@ require "rpms_rpc/compatibility"
 #
 # Read only: XWB IS RPC AVAILABLE reads #8994; nothing is filed.
 class CompatibilityXwbLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   broker :xwb
   # Registered on no openrpms registry (#207); the gem no longer sends it.
   UNREGISTERED_RPC = "ORWU USERKEYS"

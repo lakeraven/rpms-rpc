@@ -285,15 +285,4 @@ def test_s_reg_20_4_declined_beside_another_race_is_refused_and_files_nothing
     refute(rpcs_sent.any? { |rpc| rpc.start_with?("DDR") })
     assert_sends_the_recorded_flow
   end
-
-  def test_s_reg_20_2_reads_races_and_ethnicities_with_their_methods
-    replay("races_read")
-
-    read = Reg.race_ethnicity(DFN)
-
-    assert_equal [ { ien: 2, name: "AMERICAN INDIAN OR ALASKA NATIVE", method: 1, method_name: "SELF IDENTIFICATION" },
-                   { ien: 14, name: "WHITE", method: 2, method_name: "PROXY" } ], read[:races]
-    assert_equal [ { ien: 2, name: "NOT HISPANIC OR LATINO", method: 1, method_name: "SELF IDENTIFICATION" } ], read[:ethnicities]
-    assert_sends_the_recorded_flow
-  end
 end

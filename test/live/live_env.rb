@@ -21,7 +21,42 @@ module LiveSpec
     "bmx" => "test/live/bmx/**/*_test.rb"
   }.freeze
 
+  # The personas a live spec runs as (#452). Each spec declares the persona
+  # whose role it proves (`runs_as "PREG123"`), the least privilege that role
+  # needs, and a run signs on as one persona and runs only the specs that
+  # declare it. The users are the build's published demo personas (SEEDPERS)
+  # and its operator. README, "Live personas", says which runs what.
+  PERSONAS = {
+    "PROV123" => "PROVIDER,TEST: the clinician the pilot web tier signs on as (chart reads, notes, visits, referrals, Behavioral Health)",
+    "PMD123" => "PROFILE,MD: the physician (orders it authored, alerts, clinical writes PROV123 is not given)",
+    "PREG123" => "PROFILE,REG: registration (AGGRPC, and BMXRPC for the duplicate lookup)",
+    "PSCH123" => "PROFILE,SCHED: scheduling (BSDXRPC)",
+    "SYS123" => "MANAGER,SYSTEM: the operator (coverage writes, which need BQIRPC no registration persona holds; build setup)"
+  }.freeze
+
   module_function
+
+  # nil when PERSONA names a persona a live spec can run as, else the reason.
+  def persona_error(env = ENV)
+    name = env["PERSONA"].to_s.strip
+    return nil if name.empty? || PERSONAS.key?(name)
+
+    "PERSONA=#{name.inspect} is not one of #{PERSONAS.keys.join(', ')} (see README, Live personas)"
+  end
+
+  # The personas each spec file declares, read from its `runs_as` lines, so
+  # the runner can say which persona runs what without loading a spec.
+  def declared_personas(path)
+    File.read(path).scan(/^\s*runs_as\s+(.+)$/).flat_map { |(args)| args.scan(/"([A-Z0-9]+)"/).flatten }.uniq
+  end
+
+  # { persona => [spec files] } for a protocol's specs, in PERSONAS order.
+  def persona_plan(protocol = "cia", root: File.expand_path("../..", __dir__))
+    files = Dir[File.join(root, SPEC_GLOBS.fetch(protocol))].sort
+    PERSONAS.keys.to_h do |name|
+      [ name, files.select { |f| declared_personas(f).include?(name) }.map { |f| f.delete_prefix("#{root}/") } ]
+    end
+  end
 
   # The names of the required variables that are unset or blank.
   def missing_env(env = ENV)

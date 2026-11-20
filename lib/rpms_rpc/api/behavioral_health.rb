@@ -2,6 +2,7 @@
 
 require_relative "behavioral_health/wire"
 require_relative "behavioral_health/save_error"
+require_relative "behavioral_health/save_guard"
 require_relative "ddr_fileman"
 require_relative "../shape"
 
@@ -29,6 +30,7 @@ module RpmsRpc
   module BehavioralHealth
     extend self
     extend Wire
+    extend SaveGuard
     extend Shape::Declarable
 
     # Raised when a visit or purpose of visit is refused before any AMHG
@@ -352,12 +354,17 @@ module RpmsRpc
       mapping.parse_many(raise_m_error_row!(save_visit_rows(response))).map { |row| decorate_visit(row) }
     end
 
-    # Detail for one visit, or nil when the IEN yields no row.
+    EMPTY_ENCOUNTER_DATE = "1700,,,12,0"
+
+    # Detail for one visit, or nil when the visit is not on file.
     def visit_information(visit_ien)
       mapping = DataMapper[:amhg_visit_information]
       response = call_amhg(mapping, visit_ien)
       row = mapping.parse_many(frame_rows(response)).first
-      return nil if row.nil?
+      # For a visit not on file the build still answers a row: the IEN, the
+      # signed-on user as provider and the empty date "1700,,,12,0". A filed
+      # visit always has its .01 DATE OF SERVICE (#882).
+      return nil if row.nil? || [ "", EMPTY_ENCOUNTER_DATE ].include?(row[:encounter_date].to_s.strip)
 
       {
         ien: row[:ien],
@@ -1193,7 +1200,7 @@ module RpmsRpc
     # One treatment plan, or nil. Dates are INTERNAL FileMan here — see the
     # note on {treatment_plans}.
     def treatment_plan(plan_ien)
-      row = first_row(:amhg_treatment_plan, plan_ien)
+      row = on_file_row(:amhg_treatment_plan, plan_ien)
       return nil if row.nil?
 
       {
@@ -1284,7 +1291,7 @@ module RpmsRpc
     # loses Lethality, LocationofAct, LocationOther, Disposition and
     # DispositionText.
     def suicide_form(form_ien)
-      row = first_row(:amhg_suicide_form, form_ien)
+      row = on_file_row(:amhg_suicide_form, form_ien)
       return nil if row.nil?
 
       {
@@ -1331,7 +1338,7 @@ module RpmsRpc
     # all, not that the question went unasked.
     def suicide_form_substances(form_ien)
       mapping = DataMapper[:amhg_suicide_form_substances]
-      mapping.parse_many(frame_rows(call(mapping, form_ien))).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, form_ien))).reject { |row| echo_only?(row) }.map do |row|
         { form_ien: row[:form_ien],
           substance: presence(row[:substance]),
           drug: split_ien_name(row[:drug_raw]),
@@ -1428,12 +1435,14 @@ module RpmsRpc
     # does.
     #
     # The client is captured once, so the lock, the unlock and every read
-    # go to the same object. The whole sequence (lock, visit pre-read,
-    # factor pre-reads, write, read-back, unlock) runs under one
-    # RpmsRpc.synchronize_wire. M LOCK is incremental per broker job, so a
-    # second save on the same client and record, from a nested call or
-    # another thread, is refused with SaveError ("in progress") before any
-    # RPC; the broker would have granted it the same lock.
+    # go to the same object. The exclusion and the lock are SaveGuard's,
+    # shared with Wellness (#629): a second save on the same client and
+    # record, health factors or Wellness, from a nested call or another
+    # thread, is refused with SaveError ("in progress") before any RPC,
+    # because M LOCK is incremental per broker job and the broker would
+    # grant it the same lock. The lock is polled with the wire free; once
+    # it is held, the pre-reads, write and read-back run under one
+    # RpmsRpc.synchronize_wire.
     #
     # Screening and measurements are BehavioralHealth::Wellness (#540).
     #
@@ -1445,9 +1454,9 @@ module RpmsRpc
       rows = save_factor_rows(health_factors)
       client = RpmsRpc.client
       RpmsRpc.with_client(client) do
-        with_factor_save_exclusion(client, record) do
-          RpmsRpc.synchronize_wire do
-            with_factor_record_lock(record) do
+        save_exclusive(client, record) do
+          with_record_lock("^AMHREC(#{record})") do
+            RpmsRpc.synchronize_wire do
               save_visit_confirm_patient!(record, patient_piece)
               rows.each { |row| save_factor_type!(row[:name]) }
               listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
@@ -2031,6 +2040,9 @@ module RpmsRpc
       raise SaveError, message
     end
 
+    # SaveGuard's refusal (#629).
+    def save_guard_refuse!(message, cause) = raise(SaveError, message, cause: cause)
+
     def save_visit_ambiguous!(record_ien, rpc: "AMHG SAVE VISIT", cause: nil)
       where = record_ien.nil? ? "the visit" : "record #{record_ien}"
       message = "#{rpc} outcome unknown; #{where} may have been filed"
@@ -2163,8 +2175,8 @@ module RpmsRpc
     # save_visit_rows drops a line that is only LF. ARRAYT keeps that LF,
     # and joining these rows is the stored note or comment.
     #
-    # MockClient splits a text seed on LF, so a $C(30) frame is still
-    # inside the elements. Joining those on LF restores the frame, and
+    # A client that splits the reply on LF (Client#split_response) leaves
+    # a $C(30) frame inside the elements. Joining those on LF restores the frame, and
     # that String goes through save_visit_frame_parts. BMX #call_rpc has
     # already split on $C(30): each element is a row and keeps its
     # trailing LF. Joining those on LF and splitting again would drop
@@ -2934,111 +2946,6 @@ module RpmsRpc
       end
 
       text
-    end
-
-    # M LOCK is incremental on one broker job, so a second save on the same
-    # job is granted ^AMHREC(ien) at once; the DDR lock alone does not keep
-    # two saves of one visit apart. This set is the exclusion the broker will
-    # not give. The mutex guards the set only and is never held across a
-    # save, so a re-entrant call refuses instead of deadlocking. The key is
-    # [:session, id] or [:object, object_id] plus the record IEN. No client
-    # this gem ships defines session_id, so stock clients key on object_id;
-    # a host that wraps one session in several objects shares the exclusion
-    # only by exposing session_id on each wrapper.
-    FACTOR_SAVE_GUARD = Mutex.new
-    FACTOR_SAVES_IN_PROGRESS = {}
-    # Seconds the visit-record lock waits.
-    HF_LOCK_TIMEOUT = 5
-    private_constant :FACTOR_SAVE_GUARD, :FACTOR_SAVES_IN_PROGRESS, :HF_LOCK_TIMEOUT
-
-    def with_factor_save_exclusion(client, record)
-      key = [ factor_client_identity(client), record ]
-      FACTOR_SAVE_GUARD.synchronize do
-        save_visit_refuse!("a save for this record is in progress") if FACTOR_SAVES_IN_PROGRESS[key]
-        FACTOR_SAVES_IN_PROGRESS[key] = true
-      end
-      begin
-        yield
-      ensure
-        FACTOR_SAVE_GUARD.synchronize { FACTOR_SAVES_IN_PROGRESS.delete(key) }
-      end
-    end
-
-    # [:session, id] or [:object, object_id], so a string session id and an
-    # integer object id cannot collide. session_id is read once; a raise is a
-    # refusal before any RPC.
-    def factor_client_identity(client)
-      session = factor_session_id(client)
-      return [ :session, session ] unless session.nil?
-
-      [ :object, client.object_id ]
-    end
-
-    def factor_session_id(client)
-      return nil unless client.respond_to?(:session_id)
-
-      value = client.session_id
-      case value
-      when nil, false then nil
-      when String then value.empty? ? nil : value.dup.freeze
-      else value
-      end
-    rescue StandardError, NotImplementedError => e
-      raise SaveError.new("the client session could not be read"), cause: e
-    end
-
-    # Hold ^AMHREC(record) from the visit pre-read through the read-back, as
-    # Wellness does. Mode E deletes every stored factor the list omits, so two
-    # unlocked sessions on one visit lose updates silently. The lock is taken
-    # only after local validation, and is released on every exit path.
-    def with_factor_record_lock(record)
-      node = "^AMHREC(#{record})"
-      held = factor_record_lock!(node)
-      begin
-        yield
-      ensure
-        factor_record_unlock(node) if held
-      end
-    end
-
-    # True only when the lock RPC returned true. Once the call has been sent,
-    # anything else (false, nil, StandardError, NotImplementedError) is
-    # released before the refusal, and the unlock must not replace it. When
-    # the FileMan context could not be bound the lock was never sent, so no
-    # unlock is.
-    def factor_record_lock!(node)
-      sent = false
-      cause = nil
-      acquired = begin
-        under_fileman do
-          sent = true
-          DdrFileman.lock(node: node, timeout: HF_LOCK_TIMEOUT)
-        end
-      rescue StandardError, NotImplementedError => e
-        cause = e
-        nil
-      end
-      return true if acquired == true
-
-      factor_record_unlock(node) if sent
-      raise SaveError.new("the lock #{node} was not acquired"), cause: cause
-    end
-
-    # Best-effort. A false reply, StandardError or NotImplementedError (a
-    # ScriptError) must not replace a result or an exception the save already
-    # produced. A lock this call does not release expires with the broker job.
-    def factor_record_unlock(node)
-      under_fileman { DdrFileman.unlock(node: node) }
-    rescue StandardError, NotImplementedError
-      nil
-    end
-
-    # AMHGRPC does not list the DDR lock RPC; the FileMan context does.
-    # Patient is loaded on first use so requiring this file does not pull
-    # Patient's dependency chain into the process before a save needs it.
-    def under_fileman(&block)
-      require_relative "patient"
-      ContextScope.scoped(RpmsRpc.client, RpmsRpc::Patient::FILEMAN_CONTEXT, &block)
     end
 
     # #9999999.64 B index. The subscript is the first 40 bytes of .01.

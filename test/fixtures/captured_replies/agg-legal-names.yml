@@ -1,0 +1,124 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb agg-legal-names.rb.
+---
+rpc: AGG UPDATE LEGAL NAMES
+entry_point: LEGL^AGGPTNAM
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:44:01Z'
+note: 'Run on a throwaway container: the rows flow adds two #9000033 rows through
+  the stock RPC, and the update flows edit and delete them.'
+captures:
+- name: legl_row_not_on_file
+  inputs:
+  - '990031'
+  - ''
+  - '999999'
+  - AGGLNMC=SYNTH,LEGAL
+  context: 'LEGL editing RIEN 999999, which no row has: the reply a row deleted after
+    the read would get'
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN\x1E-1^The entry does not exist.^^\x1E"
+  sha256: 7b0a8287eafaabacbba50ed0b7f88b8a4964b4915133f11dbf6a48c67f852eba
+- name: rows/1
+  rpc: AGG UPDATE LEGAL NAMES
+  inputs:
+  - '990031'
+  - A
+  - ''
+  - "AGGLNDTC=10/01/2026\x1CAGGLNMC=SYNTH,LEGAL"
+  context: LEGL adds one row for DFN 990031 and one for DFN 990032 (the setup)
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^3\x1E"
+  sha256: fbae97f95d7c6d5989d043cc2cf93c22708b2d509b8e9894f9b1233e13beb7f1
+- name: rows/2
+  rpc: AGG UPDATE LEGAL NAMES
+  inputs:
+  - '990032'
+  - A
+  - ''
+  - "AGGLNDTC=10/02/2026\x1CAGGLNMC=SYNTH,OTHER"
+  context: LEGL adds one row for DFN 990031 and one for DFN 990032 (the setup)
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^4\x1E"
+  sha256: 931782b27bc185b0367d797534b3c3d7cc0921b7dd45a409fdf5ce35f263be6b
+- name: edit/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000033'
+    IENS: 3,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'update_legal_names: proc "" edits DFN 990031''s row''s name'
+  raw_return: "5\0[Data]\r9000033^3^.02^990031^\r"
+  sha256: 402e55d7c38333d0e8ba3254b5bdbd041db2460087630b283ecab4ef2024fc68
+- name: edit/2
+  rpc: AGG UPDATE LEGAL NAMES
+  inputs:
+  - '990031'
+  - ''
+  - '3'
+  - AGGLNMC=SYNTH,LEGALTWO
+  context: 'update_legal_names: proc "" edits DFN 990031''s row''s name'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^3\x1E"
+  sha256: 872324b89510309265b8666c7601f6d4240370e3b8421dfbac615ac7c3fcfdc0
+- name: edit_a/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000033'
+    IENS: 3,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'update_legal_names: proc A edits the same row''s date'
+  raw_return: "5\0[Data]\r9000033^3^.02^990031^\r"
+  sha256: 402e55d7c38333d0e8ba3254b5bdbd041db2460087630b283ecab4ef2024fc68
+- name: edit_a/2
+  rpc: AGG UPDATE LEGAL NAMES
+  inputs:
+  - '990031'
+  - A
+  - '3'
+  - AGGLNDTC=11/05/2026
+  context: 'update_legal_names: proc A edits the same row''s date'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^3\x1E"
+  sha256: 872324b89510309265b8666c7601f6d4240370e3b8421dfbac615ac7c3fcfdc0
+- name: not_for_dfn/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000033'
+    IENS: 4,
+    FIELDS: ".02"
+    FLAGS: I
+  context: update_legal_names for DFN 990031 naming DFN 990032's row
+  raw_return: "5\0[Data]\r9000033^4^.02^990032^\r"
+  sha256: ef5e9d8caddb2bcddea8e6030950241e4704aa06e1658d4dbf1d5e4073148e70
+- name: no_row/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000033'
+    IENS: 999999,
+    FIELDS: ".02"
+    FLAGS: I
+  context: update_legal_names naming RIEN 999999, which no row has
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: delete/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000033'
+    IENS: 3,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'update_legal_names: proc D deletes DFN 990031''s row'
+  raw_return: "5\0[Data]\r9000033^3^.02^990031^\r"
+  sha256: 402e55d7c38333d0e8ba3254b5bdbd041db2460087630b283ecab4ef2024fc68
+- name: delete/2
+  rpc: AGG UPDATE LEGAL NAMES
+  inputs:
+  - '990031'
+  - D
+  - '3'
+  - ''
+  context: 'update_legal_names: proc D deletes DFN 990031''s row'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^3\x1E"
+  sha256: 872324b89510309265b8666c7601f6d4240370e3b8421dfbac615ac7c3fcfdc0

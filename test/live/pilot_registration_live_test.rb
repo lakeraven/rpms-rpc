@@ -9,6 +9,7 @@ require "securerandom"
 # Issue #562: live proof that registration fail-closes on #9000001.41 HRN read-back
 # under PROV123, and that structured possible-match lookup finds seed DFN 2.
 class PilotRegistrationLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   Ddr = RpmsRpc::DdrFileman

@@ -16,6 +16,7 @@ require "rpms_rpc/server_clock"
 # values, as a seed files them: the input transforms (CN^RAREG1, ^RASTREQ) are
 # for the interactive registration. It deletes what it filed. rpms-rpc#766.
 class ImageExamsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = "990001"

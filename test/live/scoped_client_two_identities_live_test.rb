@@ -9,6 +9,7 @@ require_relative "live_helper"
 # signed-on user (piece 1, the DUZ). The second connection signs on as another
 # demo persona from the build's published seed pairs. It reads only.
 class ScopedClientTwoIdentitiesLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   OTHER_PERSONA = { "PSCH123" => [ "PREG123", "PREG123!!" ] }.freeze
   DEFAULT_OTHER = [ "PSCH123", "PSCH123!!" ].freeze
 

@@ -66,4 +66,20 @@ module ReleaseUnderTest
 
   # The committed fixture inventory, verified.
   def fixture = @fixture ||= Release.verify_dir(FIXTURE_TAG, FIXTURE_DIR)
+
+  # The verified Inventory of the release TAG names, for evidence stamped with the release it was
+  # captured on: the fixture when TAG is the fixture's, else that release fetched into the cache. Offline,
+  # a release not already in the cache SKIPS the test, saying so; a release that cannot be fetched FAILS it.
+  def named(test, tag)
+    return fixture if tag == FIXTURE_TAG
+
+    (@named ||= {})[tag] ||=
+      begin
+        dir = File.join(CACHE, tag)
+        offline? && !File.directory?(dir) ? nil : Release.fetch(tag, root: CACHE)
+      rescue Release::Error => e
+        test.flunk("cannot read release #{tag}: #{e.message}")
+      end
+    @named[tag] or test.skip("release #{tag} not in #{CACHE} and #{OFFLINE_ENV}=1")
+  end
 end

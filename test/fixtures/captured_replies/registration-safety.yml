@@ -1,0 +1,462 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-safety.rb.
+---
+rpc: AGG LOOKUP PATIENTS
+entry_point: FND^AGGPTLKP
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient
+  reply frame'
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:13:39Z'
+note: 'Run on a fresh throwaway container, flows in order: each register flow files
+  a new synthetic patient, and the DFNs and derived HRNs are the ones that container
+  assigned. The BMX sign-on''s access/verify pair is withheld.'
+captures:
+- name: lookup_first/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SAFETYDEMO,UNA (01/02/1903), before she is on
+    file
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_first/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for SAFETYDEMO,UNA (01/02/1903), before she is on
+    file
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n\x04"
+  sha256: cbda765965e34ab1f2089a9f15290030aadcf9256be9df7f10961a55b7e634ef
+- name: lookup_first/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SAFETYDEMO,UNA (01/02/1903), before she is on
+    file
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_first/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "$oAA0[-&"
+  context: the duplicate lookup for SAFETYDEMO,UNA (01/02/1903), before she is on
+    file
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_first/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/02/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for SAFETYDEMO,UNA (01/02/1903), before she is on
+    file
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: register_first/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=N\x1CDFN="
+  context: register SAFETYDEMO,UNA
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: register_first/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=N\x1CAGGPTSSN=\x1CDFN="
+  context: register SAFETYDEMO,UNA
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E0^^^^^\x1E"
+  sha256: 13a7133e3f008daac3144fd7e403e48709910a344d488e343fd95a875adf82d1
+- name: register_first/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/02/1903\x1CDFN="
+  context: register SAFETYDEMO,UNA
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: register_first/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTDOB=01/02/1903\x1CAGGPTSEX=FEMALE\x1CAGGNOSSN=N"
+  context: register SAFETYDEMO,UNA
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990057\x1E"
+  sha256: dad423ce7e2fdfeccb23bd3a982e2d36683ac2f673220b2dd0dff7c7c55c6af9
+- name: register_first/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990057\x1CDFN=990057"
+  context: register SAFETYDEMO,UNA
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: register_first/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990057'
+  - AGGPTHRN=990057
+  context: register SAFETYDEMO,UNA
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: register_first/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990057,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register SAFETYDEMO,UNA
+  raw_return: "2\0[Data]\r7819^990057\r"
+  sha256: 04fe004c55e68353539f8b867f7f4eeebb96a21863ce39f183dd61e4612a212a
+- name: lookup_second/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the same lookup, after SAFETYDEMO,UNA is on file
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_second/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the same lookup, after SAFETYDEMO,UNA is on file
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:13\r\n\x04"
+  sha256: f53ff72d5149cc8010e91a4bc36a49dabd78d057efd7c9657a1decf005cafbe0
+- name: lookup_second/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the same lookup, after SAFETYDEMO,UNA is on file
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_second/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "!`,,'$m-"
+  context: the same lookup, after SAFETYDEMO,UNA is on file
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_second/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/02/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the same lookup, after SAFETYDEMO,UNA is on file
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990057^SAFETYDEMO,UNA^990057-DIC^^JAN
+    2,1903^^NO^^N\x1E\x1F\x04"
+  sha256: ed75b6de36f9bf7f6f681c3853fb32fbc72a6e238643b2db94d894a74221a44e
+- name: register_override/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=N\x1CDFN="
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: register_override/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=N\x1CAGGPTSSN=\x1CDFN="
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E0^^^^^\x1E"
+  sha256: 13a7133e3f008daac3144fd7e403e48709910a344d488e343fd95a875adf82d1
+- name: register_override/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/02/1903\x1CDFN="
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: register_override/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTDOB=01/02/1903\x1CAGGPTSEX=FEMALE\x1CAGGNOSSN=N"
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990058\x1E"
+  sha256: 2db84bb725f8f762e113d8302cab730e57f01bb7ae59d24aff3a490dd0809b46
+- name: register_override/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990058\x1CDFN=990058"
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: register_override/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990058'
+  - AGGPTHRN=990058
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: register_override/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990058,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: 'register SAFETYDEMO,UNA again, with allow_duplicate: true'
+  raw_return: "2\0[Data]\r7819^990058\r"
+  sha256: 9019787e7385a914d6c3fc0642cf6331de475e3aa7840d9d7087ebe0a619d18c
+- name: lookup_both/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the same lookup, after the second SAFETYDEMO,UNA is on file
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_both/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the same lookup, after the second SAFETYDEMO,UNA is on file
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:13\r\n\x04"
+  sha256: f53ff72d5149cc8010e91a4bc36a49dabd78d057efd7c9657a1decf005cafbe0
+- name: lookup_both/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the same lookup, after the second SAFETYDEMO,UNA is on file
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_both/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "$O  oc42"
+  context: the same lookup, after the second SAFETYDEMO,UNA is on file
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_both/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/02/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the same lookup, after the second SAFETYDEMO,UNA is on file
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990057^SAFETYDEMO,UNA^990057-DIC^^JAN
+    2,1903^^NO^^N\x1E990058^SAFETYDEMO,UNA^990058-DIC^^JAN 2,1903^^NO^^N\x1E\x1F\x04"
+  sha256: 146d8e1613bba04f2261648a266dfc4813253ae22648ce13bc32b7862eb2a8a1
+- name: lookup_other_name/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYOTHER,BOB on UNA's birth date
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_other_name/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the lookup for SAFETYOTHER,BOB on UNA's birth date
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:13\r\n\x04"
+  sha256: f53ff72d5149cc8010e91a4bc36a49dabd78d057efd7c9657a1decf005cafbe0
+- name: lookup_other_name/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYOTHER,BOB on UNA's birth date
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_other_name/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - 0a??S%F$
+  context: the lookup for SAFETYOTHER,BOB on UNA's birth date
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_other_name/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYOTHER\x1CAGGPTFNM=BOB\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/02/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the lookup for SAFETYOTHER,BOB on UNA's birth date
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990057^SAFETYDEMO,UNA^990057-DIC^^JAN
+    2,1903^^NO^^N\x1E990058^SAFETYDEMO,UNA^990058-DIC^^JAN 2,1903^^NO^^N\x1E\x1F\x04"
+  sha256: 146d8e1613bba04f2261648a266dfc4813253ae22648ce13bc32b7862eb2a8a1
+- name: lookup_other_dob/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYDEMO,UNA born 01/03/1903
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_other_dob/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the lookup for SAFETYDEMO,UNA born 01/03/1903
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:13\r\n\x04"
+  sha256: f53ff72d5149cc8010e91a4bc36a49dabd78d057efd7c9657a1decf005cafbe0
+- name: lookup_other_dob/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYDEMO,UNA born 01/03/1903
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_other_dob/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "(T66(U$%"
+  context: the lookup for SAFETYDEMO,UNA born 01/03/1903
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_other_dob/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYDEMO\x1CAGGPTFNM=UNA\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/03/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the lookup for SAFETYDEMO,UNA born 01/03/1903
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E990057^SAFETYDEMO,UNA^990057-DIC^^JAN
+    2,1903^^NO^^N\x1E990058^SAFETYDEMO,UNA^990058-DIC^^JAN 2,1903^^NO^^N\x1E\x1F\x04"
+  sha256: 146d8e1613bba04f2261648a266dfc4813253ae22648ce13bc32b7862eb2a8a1
+- name: lookup_pieces/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYPIECES,UNA MAE JR (02/02/1903), given in pieces
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_pieces/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the lookup for SAFETYPIECES,UNA MAE JR (02/02/1903), given in pieces
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 05:13\r\n\x04"
+  sha256: f53ff72d5149cc8010e91a4bc36a49dabd78d057efd7c9657a1decf005cafbe0
+- name: lookup_pieces/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the lookup for SAFETYPIECES,UNA MAE JR (02/02/1903), given in pieces
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_pieces/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "\"#YY2MP)"
+  context: the lookup for SAFETYPIECES,UNA MAE JR (02/02/1903), given in pieces
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_pieces/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SAFETYPIECES\x1CAGGPTFNM=UNA\x1CAGGPTMNM=MAE\x1CAGGPTSFX=JR\x1CAGGPTDOB=02/02/1903"
+  - ''
+  - '1'
+  - '1'
+  context: the lookup for SAFETYPIECES,UNA MAE JR (02/02/1903), given in pieces
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: register_pieces/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=N\x1CDFN="
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: register_pieces/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=N\x1CAGGPTSSN=\x1CDFN="
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E0^^^^^\x1E"
+  sha256: 13a7133e3f008daac3144fd7e403e48709910a344d488e343fd95a875adf82d1
+- name: register_pieces/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=02/02/1903\x1CDFN="
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: register_pieces/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SAFETYPIECES\x1CAGGPTFNM=UNA\x1CAGGPTMNM=MAE\x1CAGGPTSFX=JR\x1CAGGPTDOB=02/02/1903\x1CAGGPTSEX=FEMALE\x1CAGGNOSSN=N"
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990059\x1E"
+  sha256: f99a464f9976ebcabd6083ebae56d4936851d8e4cc60b660ebc9adf06ad62a4d
+- name: register_pieces/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990059\x1CDFN=990059"
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: register_pieces/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990059'
+  - AGGPTHRN=990059
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: register_pieces/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990059,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register SAFETYPIECES,UNA MAE JR, given in pieces
+  raw_return: "2\0[Data]\r7819^990059\r"
+  sha256: 6acbcc3ea150e68e051a9b16f7a9a48378c53caeb08b74961165b2defd40249b

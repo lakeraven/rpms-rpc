@@ -57,7 +57,7 @@ module RpmsRpc
       Fiber[SCOPED_CLIENT_KEY] || configuration.client || raise(
         NotConfiguredError,
         "RpmsRpc.client is not configured. Call RpmsRpc.configure { |c| c.client = ... }, " \
-        "scope one with RpmsRpc.with_client(client) { ... }, or RpmsRpc.mock! for testing."
+        "or scope one with RpmsRpc.with_client(client) { ... }."
       )
     end
 
@@ -91,8 +91,7 @@ module RpmsRpc
       warn_fhir_client_deprecated("RpmsRpc.fhir_client", uplevel: 2)
       configuration.fhir_client || raise(
         NotConfiguredError,
-        "RpmsRpc.fhir_client is not configured. Call RpmsRpc.configure { |c| c.fhir_client = ... } " \
-        "or RpmsRpc.mock_fhir! for testing."
+        "RpmsRpc.fhir_client is not configured. Call RpmsRpc.configure { |c| c.fhir_client = ... }."
       )
     end
 
@@ -146,26 +145,6 @@ module RpmsRpc
 
       require_relative "phi_sanitizer"
       PhiSanitizer.sanitize_message(message.to_s)
-    end
-
-    # Convenience: configure a MockClient for testing.
-    # Optionally accepts a block for seeding.
-    def mock!
-      require_relative "mock_client"
-      mock = MockClient.new
-      configure { |c| c.client = mock }
-      yield(mock) if block_given?
-      mock
-    end
-
-    # Convenience: configure a MockFhirClient for testing.
-    # Optionally accepts a block for seeding FHIR resources.
-    def mock_fhir!
-      require_relative "mock_fhir_client"
-      mock = MockFhirClient.new
-      configure { |c| c.fhir_client = mock }
-      yield(mock) if block_given?
-      mock
     end
   end
 end

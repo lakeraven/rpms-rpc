@@ -148,9 +148,6 @@ module RpmsRpc
       m.field 9, :priority
       # Piece 13 (ORQQPL.m:15-16). The wire token is "#", not a boolean;
       # after_row turns that marker into inactive_icd true/false.
-      # format_row writes the same branch back out for MockClient: piece 13
-      # "#" (what after_row keys on) and piece 9 "#" (the transcribed marker
-      # on that branch). An active row leaves piece 13 empty.
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
         # Piece 13 "#" is the inactive-ICD branch, whatever piece 4 holds.
@@ -165,16 +162,6 @@ module RpmsRpc
         row[:inactive_icd] = inactive
         row
       end
-      m.format_row do |parts, attrs|
-        case attrs[:inactive_icd]
-        when true
-          parts[8] = "#"
-          parts[12] = "#"
-        when false
-          parts[12] = ""
-        end
-        parts
-      end
     end
 
     # ORQQPL coverage — problem-list lookups + audit; the gem's problem writes
@@ -185,17 +172,18 @@ module RpmsRpc
     # these mappings will get raw strings + simple keyed rows respectively.
 
     # Best-effort field positions pending broker trace capture for
-    # problem_audit_history / problem_comments / problem_detail /
-    # problem_clinic_search / problem_lex_search / problem_provider_list /
-    # problem_edit_load — wire formats below mirror the closest analogous
-    # ORQQPL RPC (problem_list) and the standard VistA "IEN^DESCRIPTION..."
-    # convention. Refine when trace capture lands.
+    # problem_clinic_search / problem_provider_list / problem_edit_load —
+    # wire formats below mirror the closest analogous ORQQPL RPC
+    # (problem_list) and the standard VistA "IEN^DESCRIPTION..." convention.
+    # Refine when trace capture lands. problem_audit_history,
+    # problem_comments, problem_detail and problem_lex_search are read from
+    # captured replies (#821, #872).
 
+    # HIST^ORQQPL2: a count line, then "date^text" rows (Problem.audit_history).
     DataMapper.define(:problem_audit_history) do |m|
       m.rpc "ORQQPL AUDIT HIST"
-      m.field 0, :event
-      m.field 1, :date, :fileman_date
-      m.field 2, :actor
+      m.field 0, :date
+      m.field 1, :text
     end
 
     DataMapper.define(:problem_check_duplicate) do |m|
@@ -212,11 +200,11 @@ module RpmsRpc
       m.field 1, :description
     end
 
+    # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): a display report in Y(I), one
+    # text line per node (ORQQPL.m:26-59), not caret rows.
     DataMapper.define(:problem_detail) do |m|
       m.rpc "ORQQPL DETAIL"
-      m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.text_blob :detail_text
     end
 
     DataMapper.define(:problem_edit_load) do |m|
@@ -236,17 +224,21 @@ module RpmsRpc
       m.rpc "ORQQPL INIT USER"
     end
 
+    # GETCOMM^ORQQPL2: one line per active note, its text alone (Problem.comments).
     DataMapper.define(:problem_comments) do |m|
       m.rpc "ORQQPL PROB COMMENTS"
-      m.field 0, :date, :fileman_date
-      m.field 1, :author
-      m.field 2, :comment
+      m.field 0, :comment
     end
 
+    # LEXSRCH^ORQQPL1: "lexicon IEN^text^ICD code^ICD IEN^coding system", then
+    # a match-count line (Problem.lex_search).
     DataMapper.define(:problem_lex_search) do |m|
       m.rpc "ORQQPL PROBLEM LEX SEARCH"
-      m.field 0, :code, :string, terminology: :icd10
+      m.field 0, :ien
       m.field 1, :description
+      m.field 2, :code
+      m.field 3, :code_ien
+      m.field 4, :coding_system
     end
 
     DataMapper.define(:problem_problem_list) do |m|
@@ -281,6 +273,37 @@ module RpmsRpc
 
     DataMapper.define(:problem_user_list) do |m|
       m.rpc "ORQQPL USER PROB LIST"
+    end
+
+    # GMV GET VITAL TYPE IEN — TYPE^GMVUTL8 (GMVUTL8.m:30-37): the FILE
+    # 120.51 IEN for a vital type NAME (the "B" index, not the
+    # abbreviation), or -1 / 0 when there is none.
+    DataMapper.define(:gmv_vital_type_ien) do |m|
+      m.rpc "GMV GET VITAL TYPE IEN"
+      m.context "OR CPRS GUI CHART"
+      m.scalar :type_ien
+    end
+
+    # GMV ADD VM — EN1^GMVDCSAV(RESULT,GMVDATA) (GMVDCSAV.m:14-30): one
+    # FILE 120.5 row per call. GMVDATA is
+    # DATETIME^DFN^TYPE_IEN;READING;O2^LOCATION_IEN^DUZ*QUAL:QUAL.
+    # A clean save leaves RESULT empty; a FileMan error adds
+    # "ERROR: <text>" lines (MSG/FMERROR, GMVDCSAV.m:80-97).
+    DataMapper.define(:gmv_add_vm) do |m|
+      m.rpc "GMV ADD VM"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :message
+    end
+
+    # GMV EXTRACT REC — GETVM^GMVGETD (GMVGETD.m:17-31), param
+    # DFN^END^ABBREVIATION^START. Rows are "<120.5 IEN>^MM/DD/YY@HH:MM
+    # <type> <reading>..." (GMVGETD2.m:9-36); none in range is the single
+    # row "0^NO ... ENTERED WITHIN THIS PERIOD" (GMVGETD.m:28).
+    DataMapper.define(:gmv_extract_rec) do |m|
+      m.rpc "GMV EXTRACT REC"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :ien
+      m.field 1, :text
     end
 
     # ORQQVI VITALS — the patient's MOST RECENT vital per type, optionally
@@ -1010,9 +1033,8 @@ module RpmsRpc
       m.text_blob :history_text
     end
 
-    # ORWOR ACTION TEXT — text describing the user-facing action available
-    # on an order (release, sign, discontinue, etc). Takes ORDER_IEN and
-    # the action code; returns a free-text blob.
+    # ACTXT(ORY,ORIFN) (ORWOR.m:139): one actual, IFN;ACT. ACT^ORQ20 writes
+    # each later action's activity lines into ^TMP("ORACTXT",$J,n).
     DataMapper.define(:order_action_text) do |m|
       m.rpc "ORWOR ACTION TEXT"
       m.text_blob :action_text
@@ -1035,8 +1057,8 @@ module RpmsRpc
       m.field 1, :label
     end
 
-    # ORWOR TSALL — site-level catalog of order sheets, independent of
-    # patient. One row per sheet: IEN^NAME.
+    # TSALL(LST) (ORWOR.m:44-46): the site's active treating specialties,
+    # file 45.7, not order sheets. One row per specialty: IEN^NAME.
     DataMapper.define(:order_sheets_all) do |m|
       m.rpc "ORWOR TSALL"
       m.field 0, :ien, :integer

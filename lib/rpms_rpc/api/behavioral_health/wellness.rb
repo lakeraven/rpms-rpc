@@ -5,6 +5,7 @@ require_relative "../../reply"
 require_relative "../../mappings/amhg_wellness"
 require_relative "../ddr_fileman"
 require_relative "save_error"
+require_relative "save_guard"
 require_relative "wire"
 
 module RpmsRpc
@@ -64,8 +65,11 @@ module RpmsRpc
     # and a second save on that same job would be granted the lock
     # immediately. A process-level exclusion keyed by the captured client's
     # identity and the record IEN refuses that second save before any RPC.
+    # That exclusion and the lock are SaveGuard's, shared with
+    # BehavioralHealth.save_health_factors (#629), and the lock is polled
+    # with the client's wire free between polls.
     # No client this gem ships defines session_id. CiaClient has
-    # session_uid; XwbClient, BmxClient, MockClient have neither, so with
+    # session_uid; XwbClient and BmxClient have neither, so with
     # stock clients the guard keys on the captured client's object_id.
     # Two different wrapper objects around one session do not share the
     # exclusion. A host that wraps one session in several objects must
@@ -113,6 +117,7 @@ module RpmsRpc
     module Wellness
       extend self
       extend Wire
+      extend SaveGuard
       extend Shape::Declarable
 
       # Subclass of BehavioralHealth::SaveError. The write was refused, or
@@ -148,21 +153,6 @@ module RpmsRpc
       UNSAFE_WIRE = /[|\x00-\x1f\x7f^\uFFFD]/
       REPLACEMENT = "\uFFFD"
       PROVIDER_FILE = "200"
-      VISIT_LOCK_TIMEOUT = 5
-
-      # M LOCK is incremental on one broker job, so a second save on the
-      # same broker job is granted ^AMHREC(ien) immediately. This set is
-      # the exclusion the broker will not give. The mutex guards the set
-      # only and is never held across a save, so a re-entrant call can
-      # refuse without deadlocking. The key is [:session, id] or
-      # [:object, object_id], plus the record IEN, so a session id cannot
-      # collide with an object id. No client this gem ships defines
-      # session_id, so stock clients key on object_id and do not share
-      # the exclusion across two wrapper objects. A host shares that
-      # exclusion only by exposing session_id on each wrapper.
-      SAVE_GUARD = Mutex.new
-      SAVES_IN_PROGRESS = {}
-      private_constant :SAVE_GUARD, :SAVES_IN_PROGRESS
 
       # External names $$SCI^AMHGT matches exactly (AMHGT.m:183-196). An
       # unknown name becomes blank and FILE^DIE clears the field.
@@ -247,7 +237,7 @@ module RpmsRpc
       # keeps using it if the configured client changes. A save already in
       # progress for this record on that client's identity raises SaveError
       # before any RPC. No client this gem ships defines session_id
-      # (CiaClient has session_uid; XwbClient, BmxClient, MockClient have
+      # (CiaClient has session_uid; XwbClient and BmxClient have
       # neither), so with stock clients the guard keys on the captured
       # client's object_id. Two different wrapper objects around one
       # session do not share the exclusion. A host that wraps one session
@@ -266,8 +256,8 @@ module RpmsRpc
         updates = screening_updates!(screenings)
         client = RpmsRpc.client
         RpmsRpc.with_client(client) do
-          with_save_exclusion(client, rec) do
-            with_visit_lock(rec) do
+          save_exclusive(client, rec) do
+            with_record_lock(visit_node(rec)) do
               before = editable_visit!(rec, patient_ien)
               filed = merged_screenings!(before, updates)
               confirm_providers!(screening_provider_iens(filed))
@@ -317,8 +307,8 @@ module RpmsRpc
       # captures the client at entry and keeps using it if the configured
       # client changes. A save already in progress for this record on that
       # client's identity raises SaveError before any RPC. No client this
-      # gem ships defines session_id (CiaClient has session_uid; XwbClient,
-      # BmxClient, MockClient have neither), so with stock clients the
+      # gem ships defines session_id (CiaClient has session_uid; XwbClient
+      # and BmxClient have neither), so with stock clients the
       # guard keys on the captured client's object_id. Two different
       # wrapper objects around one session do not share the exclusion. A
       # host that wraps one session in several objects must expose
@@ -336,8 +326,8 @@ module RpmsRpc
         sent = measurement_list!(measurements)
         client = RpmsRpc.client
         RpmsRpc.with_client(client) do
-          with_save_exclusion(client, rec) do
-            with_visit_lock(rec) do
+          save_exclusive(client, rec) do
+            with_record_lock(visit_node(rec)) do
               editable_visit!(rec, patient_ien)
               confirm_providers!(sent.map { |row| row.fetch(:provider) }.uniq)
               parameter = measurements_parameter(rec, patient_ien, sent)
@@ -358,63 +348,6 @@ module RpmsRpc
 
       private
 
-      # One save at a time for this captured client and record IEN. The
-      # check runs before any RPC. The mutex is not held across the save:
-      # Mutex is not re-entrant, and the refused call arrives on the same
-      # thread. No client this gem ships defines session_id (CiaClient has
-      # session_uid; XwbClient, BmxClient, MockClient have neither), so
-      # with stock clients the guard keys on the captured client's
-      # object_id. Two different wrapper objects around one session do not
-      # share the exclusion. A host that wraps one session in several
-      # objects must expose session_id on them to share the guard. When
-      # the captured client responds to session_id with a non-empty
-      # String or a non-String value other than nil or false, read once
-      # here, that value is the identity; otherwise the identity is the
-      # captured client's own object_id. A raise from session_id is
-      # SaveError before any RPC.
-      def with_save_exclusion(client, rec)
-        key = [ client_identity(client), rec ]
-        SAVE_GUARD.synchronize do
-          refuse!("a save for this record is in progress") if SAVES_IN_PROGRESS[key]
-          SAVES_IN_PROGRESS[key] = true
-        end
-        begin
-          yield
-        ensure
-          SAVE_GUARD.synchronize { SAVES_IN_PROGRESS.delete(key) }
-        end
-      end
-
-      # [:session, id] or [:object, object_id]. A string session id and an
-      # integer object id must not compare equal as guard keys.
-      def client_identity(client)
-        session = read_session_id(client)
-        return [ :session, session ] unless session.nil?
-
-        [ :object, client.object_id ]
-      end
-
-      # nil when this client has no usable session id: it does not respond
-      # to session_id, or that call returns nil, false, or an empty String.
-      # A non-empty String, or any other value, is the id. session_id is
-      # called at most once. A raise fails closed, before the guard is
-      # entered and before any RPC.
-      def read_session_id(client)
-        return nil unless client.respond_to?(:session_id)
-
-        value = client.session_id
-        case value
-        when nil, false
-          nil
-        when String
-          value.empty? ? nil : value.dup.freeze
-        else
-          value
-        end
-      rescue StandardError, NotImplementedError => e
-        refuse!("the client session could not be read", e)
-      end
-
       # The write RPC is sent inside the block. Anything short of the
       # read-back proving the file is SaveError. An exception from the
       # write, the visit read, or the measurement read-back keeps that
@@ -430,54 +363,6 @@ module RpmsRpc
         raise
       rescue StandardError, NotImplementedError => e
         ambiguous!(rec, label, e)
-      end
-
-      # Hold ^AMHREC(rec) from the pre-read through the read-back. The lock
-      # call itself is not a taken lock unless it returns true. Once it has
-      # been sent, unlock before raising, including when it raised.
-      def with_visit_lock(rec)
-        held = false
-        begin
-          held = acquire_visit_lock!(rec)
-          yield
-        ensure
-          visit_unlock(rec) if held
-        end
-      end
-
-      # True only when the lock RPC returned true. Once that call has been
-      # sent, any StandardError or NotImplementedError, or a result other
-      # than true, is unlocked first and raised as SaveError with that
-      # exception as the cause. L - on a node this job does not hold is
-      # harmless, and the unlock must not replace the lock SaveError.
-      def acquire_visit_lock!(rec)
-        node = visit_node(rec)
-        sent = false
-        cause = nil
-        acquired = begin
-          under_fileman do
-            sent = true
-            DdrFileman.lock(node: node, timeout: VISIT_LOCK_TIMEOUT)
-          end
-        rescue StandardError, NotImplementedError => e
-          cause = e
-          nil
-        end
-        return true if acquired == true
-
-        visit_unlock(rec) if sent
-        refuse!("the lock #{node} was not acquired", cause)
-      end
-
-      # Best-effort, and only on the client captured for this save. A false
-      # reply, or StandardError / NotImplementedError, must not replace a
-      # result or an exception the save already produced. NotImplementedError
-      # is a ScriptError, so it is not covered by StandardError. A lock this
-      # call does not release expires with the broker job.
-      def visit_unlock(rec)
-        under_fileman { DdrFileman.unlock(node: visit_node(rec)) }
-      rescue StandardError, NotImplementedError
-        nil
       end
 
       def visit_node(rec)
@@ -1100,6 +985,9 @@ module RpmsRpc
 
         raise SaveError, message
       end
+
+      # SaveGuard's refusal (#629).
+      def save_guard_refuse!(message, cause) = refuse!(message, cause)
 
       def ambiguous!(rec, label, cause = nil)
         refuse!("#{label} outcome unknown; record #{rec} may have been filed", cause)

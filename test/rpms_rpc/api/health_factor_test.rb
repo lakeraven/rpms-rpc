@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_factor"
 
 class HealthFactorTest < Minitest::Test

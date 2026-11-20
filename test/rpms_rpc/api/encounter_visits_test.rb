@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/encounter"
 require "rpms_rpc/api/pov"
+require_relative "../captured_replies"
 
 # The rows are BEHOENCX VISITLST and BGOVPOV RECENT replies captured from
-# bcer-9.0-20261029-7c3119b-ydb (DFN 2).
+# bcer-9.0-20261029-7c3119b-ydb (DFN 2). Encounter.visits replays the
+# VISITLST conversation recorded on the pinned build
+# (test/fixtures/captured_replies/encounter-visits.yml).
 class EncounterVisitsTest < Minitest::Test
   VISIT_ROWS = [
     "6;3261005.1;A;12^DEMO PRIMARY CARE^3261005.1^AMBULATORY^0^206^PROFILE,MD^1",
@@ -36,16 +39,17 @@ class EncounterVisitsTest < Minitest::Test
   end
 
   def test_visits_asks_for_the_whole_history_without_appointments
-    RpmsRpc.mock! { |m| m.seed_text(:encounter_visit_list, "2", VISIT_ROWS.join("\n")) }
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("encounter-visits", "visits"))
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
     visits = RpmsRpc::Encounter.visits(2)
 
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BEHOENCX VISITLST", call[:rpc]
-    assert_equal [ "2", "2000101", "3991231", "", "X", "1" ], call[:params].to_a
-    assert_equal [ 12, 1 ], visits.map { |visit| visit[:visit_ien] }
-    assert_equal [ 6, 6 ], visits.map { |visit| visit[:location_ien] }
-    assert_equal %w[A A], visits.map { |visit| visit[:service_category] }
+    sent = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+    assert_equal CapturedReplies.flow_calls("encounter-visits", "visits"), sent
+    assert_equal [ "BEHOENCX VISITLST", [ "2", "2000101", "3991231", "", "X", "1" ] ], sent.last
+    assert_equal [ 13, 12, 1 ], visits.map { |visit| visit[:visit_ien] }
+    assert_equal [ 3, 10, 10 ], visits.map { |visit| visit[:location_ien] }
+    assert_equal %w[A A A], visits.map { |visit| visit[:service_category] }
     refute visits.first.key?(:visit_string)
   end
 

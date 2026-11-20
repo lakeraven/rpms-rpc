@@ -18,7 +18,7 @@ class RpmsRpc::PilotRegistrationTest < Minitest::Test
 
   # The release the committed wire fixtures were captured on: their provenance, kept with them as
   # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
-  PINNED_RELEASE = "bcer-9.0-20261012-e7923a4-ydb"
+  PINNED_RELEASE = "bcer-9.0-20261119-f67498c-ydb"
   PERSONA = "PROV123"
 
   CHECKLIST_LINE = /

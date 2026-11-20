@@ -50,12 +50,8 @@ class UnmappedWireCapturesTest < Minitest::Test
   end
 
   def test_each_rpc_and_entry_point_are_registered_on_the_release_named
-    fixture = ReleaseUnderTest.fixture
-    surfaces = { fixture.tag => fixture.surface }
     problems = docs.filter_map do |name, doc|
-      surface = surfaces[doc.fetch("release_tag")]
-      next "#{name}: #{doc["release_tag"]} is not the fixture release #{fixture.tag}" unless surface
-
+      surface = ReleaseUnderTest.named(self, doc.fetch("release_tag")).surface
       rpc = surface[doc.fetch("rpc")]
       next "#{name}: #{doc["rpc"]} is not registered on #{doc["release_tag"]}" unless rpc
       next if rpc.entry_point == doc.fetch("entry_point")

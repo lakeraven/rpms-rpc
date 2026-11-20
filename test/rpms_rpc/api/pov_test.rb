@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/pov"
 
 class PovTest < Minitest::Test

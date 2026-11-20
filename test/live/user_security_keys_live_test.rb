@@ -18,6 +18,7 @@ require "rpms_rpc/api/ddr_fileman"
 # listed. That makes an empty list (the provider persona holds no keys on the
 # demo build) a checked answer, not a refusal read as "none".
 class UserSecurityKeysLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   # The keys SecurityKeys names, plus the common clinical and programmer keys
   # (all SECURITY KEY #19.1 entries on the build).

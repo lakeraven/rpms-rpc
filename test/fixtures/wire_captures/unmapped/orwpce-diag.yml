@@ -1,22 +1,20 @@
-# Unmapped wire capture: ORWPCE DIAG, from a fresh bcer-9.0-20261012-e7923a4-ydb broker (synthetic data only).
+# Unmapped wire capture: ORWPCE DIAG, from a fresh bcer-9.0-20261119-f67498c-ydb broker (synthetic data only).
 # raw_return bytes are verbatim and sealed by sha256; do not hand-edit. See README.md beside this file.
 ---
 rpc: ORWPCE DIAG
 entry_point: DIAG^ORWPCE
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
-client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 45125a7)
-captured_at: '2026-10-22T07:46:26Z'
-note: 'Faults on this build: DIAG^ORWPCE passes GETLST^IBDF18A more parameters than
-  it takes (YDB ACTLSTTOOLONG). VISIT^ORWPCE carries an IHS change that drops those
-  parameters; DIAG and PROC do not.'
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 8fd3f941)
+captured_at: '2026-11-20T00:19:17Z'
+note: 'On bcer-9.0-20261012-e7923a4-ydb this faulted: DIAG^ORWPCE passed GETLST^IBDF18A
+  more parameters than it takes (YDB ACTLSTTOOLONG). On this build it answers 0, no
+  encounter form for the clinic, as VISIT^ORWPCE does.'
 captures:
 - inputs:
-  - '6'
+  - '10'
   - ''
-  context: clinic 6
-  ack: error
-  raw_return: "7\x011\rThe server has reported the following error:\r\rGETLST^IBDF18A,
-    More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG\r\rA
-    detailed log of the error has been created.\r"
-  sha256: 6d4a6ceae2fe089058307e38eab3c10f764439b7252d1d168c0ed1697853b412
+  context: clinic 10
+  ack: data
+  raw_return: "1\00\r"
+  sha256: 222a719a045243d5ae35aaea1320441c18985e5eb50b566b2e3a0e8421d48532

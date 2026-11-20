@@ -200,17 +200,21 @@ module RpmsRpc
     shape :race_ethnicity_choices, resource: "registrations", verb: "GET",
           path: "/registrations/race-ethnicity-choices"
 
-    # The patient's races and ethnicities, each with how it was collected:
-    #   { races: [{ ien:, name:, method: ien or nil, method_name: }], ethnicities: [...] }
-    # ien is the #10 / #10.2 entry (the multiples are DINUM'd to it). Raises
-    # Client::RpcError on a failed read.
+    # The patient's races and ethnicities, each with how it was collected and
+    # its code:
+    #   { races: [{ ien:, name:, method: ien or nil, method_name:, hl7_value: }], ethnicities: [...] }
+    # ien is the #10 / #10.2 entry (the multiples are DINUM'd to it).
+    # hl7_value is that entry's 3 HL7 VALUE, the CDC Race & Ethnicity code
+    # ("1002-5"), read from the code file one entry at a time; nil when the
+    # entry has none, never guessed from the name. Raises Client::RpcError
+    # on a failed read, including a code entry's.
     def race_ethnicity(dfn)
       id = patient_dfn(dfn)
       raise ArgumentError, "a positive DFN is required" unless id
 
       in_context do
         require_ihs_patient!(id)
-        { races: race_rows(RACE_FILE, id), ethnicities: race_rows(ETHNICITY_FILE, id) }
+        { races: race_rows(RACE_FILE, RACE_CODE_FILE, id), ethnicities: race_rows(ETHNICITY_FILE, ETHNICITY_CODE_FILE, id) }
       end
     end
     shape :race_ethnicity, resource: "registrations", verb: "GET",
@@ -454,15 +458,28 @@ module RpmsRpc
       listed[:entries].map { |entry| { ien: entry[:ien].to_i, name: entry[:pieces][0].to_s } }
     end
 
-    def race_rows(file, id)
+    def race_rows(file, code_file, id)
       listed = DdrFileman.lister(file: file, iens: ",#{id},", fields: "@;.01E;.02I;.02E", flags: "IP")
       raise Client::RpcError, "DDR LISTER gave no reply for ##{file}" if listed.nil?
       raise Client::RpcError, "DDR LISTER refused ##{file}" if listed[:error] || listed[:more]
 
       listed[:entries].map do |entry|
         pieces = entry[:pieces] || []
-        { ien: entry[:ien].to_i, name: pieces[0].to_s, method: int_or_nil(pieces[1]), method_name: pieces[2].to_s }
+        ien = entry[:ien].to_i
+        { ien: ien, name: pieces[0].to_s, method: int_or_nil(pieces[1]), method_name: pieces[2].to_s,
+          hl7_value: hl7_value(code_file, ien) }
       end
+    end
+
+    # A #10 / #10.2 entry's 3 HL7 VALUE, or nil when it has none.
+    def hl7_value(code_file, ien)
+      read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "3", flags: "I")
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{code_file}" if read.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave a malformed reply for ##{code_file}" if read[:malformed]
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused ##{code_file} #{ien}" if read[:error]
+
+      value = read[:fields].dig("3", :internal).to_s.strip
+      value.empty? ? nil : value
     end
 
     def int_or_nil(value) = value.to_s.match?(/\A[1-9]\d*\z/) ? value.to_i : nil
