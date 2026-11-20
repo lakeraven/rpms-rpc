@@ -101,10 +101,14 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
 
   # Lab.results over the patient's whole range: each listed specimen is a
   # #63.04 entry whose DATE REPORT COMPLETED is set, its accession and
-  # specimen read back, newest first; every completed entry is listed.
+  # specimen read back, released at that time, newest first; every
+  # completed entry is listed.
   def results_match_lab_data(dfn, lrdfn, range)
     oldest = range[:oldest] || range[:newest]
     results = RpmsRpc::Lab.results(dfn, from: Date.new(oldest.year, oldest.month, oldest.day), to: Date.new(range[:newest].year, range[:newest].month, range[:newest].day))
+    newest = RpmsRpc::Lab.specimen(dfn)
+    refute_nil newest, "Lab.specimen with no from: reads the newest specimen (rpms-rpc#840)"
+    assert_equal results.first.except(:released_at, :status), newest, "the default specimen is the newest result"
     entries = RpmsRpc::DdrFileman.lister(file: "63.04", iens: ",#{lrdfn},", fields: ".01;.03;.05;.06", flags: "IP", max: "200")
     flunk "DDR LISTER on 63.04 failed: #{entries.inspect}" if entries.nil? || entries[:error]
     completed = entries[:entries].reject { |e| e[:pieces][1].to_s.empty? }
@@ -115,6 +119,8 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
       flunk "#{s.slice(:collected_at, :accession).inspect} is no completed #63.04 entry" unless on_file
       assert_equal [ on_file[:pieces][2].to_i, on_file[:pieces][3] ], [ s[:specimen_ien], s[:accession] ]
       assert_equal :final, s[:status]
+      completed = RpmsRpc::FilemanDateParser.parse_datetime_or_date(on_file[:pieces][1])
+      assert_equal completed - completed.sec, s[:released_at], "released_at is #63.04 .03 to the minute (rpms-rpc#844)"
     end
   end
 

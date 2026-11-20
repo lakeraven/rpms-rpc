@@ -33,7 +33,7 @@ class LabResultsTest < Minitest::Test
 
     got = RpmsRpc::Lab.results(990_031, from: FROM, to: TO)
 
-    assert_equal [ Time.new(2026, 11, 10, 9, 15), Time.new(2026, 11, 3, 8, 30) ], got.map { |s| s[:collected_at] }
+    assert_equal [ Time.new(2026, 11, 10, 9, 15), Time.new(2026, 11, 7, 10, 0), Time.new(2026, 11, 3, 8, 30) ], got.map { |s| s[:collected_at] }
     newest = got.first
     assert_equal [ "CH", 70, "BLOOD", "CH 1110 2", "PROVIDER,TEST", :final, Time.new(2026, 11, 10, 12, 0) ],
                  newest.values_at(:area, :specimen_ien, :specimen, :accession, :provider, :status, :released_at)
@@ -51,7 +51,7 @@ class LabResultsTest < Minitest::Test
 
     RpmsRpc::Lab.results(990_031, from: FROM, to: TO)
 
-    assert_equal [ "3261120", "3261110.0915", "3261103.083" ], sent.map { |_, params| params[1] }
+    assert_equal [ "3261120", "3261110.0915", "3261107.1", "3261103.083" ], sent.map { |_, params| params[1] }
   end
 
   def test_a_patient_with_no_lab_data_has_no_results
@@ -70,6 +70,20 @@ class LabResultsTest < Minitest::Test
     assert_empty sent
   end
 
+  # GRID^LR7OGMG writes the released line with $$FMTE^XLFDT(.., "5MPZ"),
+  # which pads month and day but not the hour (rpms-rpc#844), and writes the
+  # date alone when DATE REPORT COMPLETED has no time. The captured
+  # specimens released at 9:12 AM and on 11/07/2026 read as final.
+  def test_a_one_digit_hour_or_a_date_alone_reads_as_released
+    replay("in_range")
+
+    got = RpmsRpc::Lab.results(990_031, from: FROM, to: TO)
+
+    assert_equal [ [ "CH 1110 2", :final, Time.new(2026, 11, 10, 12, 0) ], [ "CH 1107 2", :final, Time.new(2026, 11, 7) ],
+                   [ "CH 1103 1", :final, Time.new(2026, 11, 3, 9, 12) ] ],
+                 got.map { |s| s.values_at(:accession, :status, :released_at) }
+  end
+
   # GRID^LR7OGMG writes the released line from DATE REPORT COMPLETED, blank
   # when it is unset (an accessioned test still in the lab). The captured
   # newest specimen with that line blanked reads as pending.
@@ -83,6 +97,18 @@ class LabResultsTest < Minitest::Test
     assert_equal [ :pending, nil ], newest.values_at(:status, :released_at)
   end
 
+  # The captured newest specimen with its released line in the
+  # $$FMTE^XLFDT(.., "M") shape of the VA line GRID^LR7OGMG has commented
+  # out: a released line the gem cannot read raises instead of reading as
+  # pending.
+  def test_a_released_line_it_cannot_read_raises
+    script = CapturedReplies.flow_script(SLUG, "in_range")
+    script["ORWLRR INTERIMG"][0] = script["ORWLRR INTERIMG"][0].sub("11/10/2026 12:00 PM".b, "Nov 10, 2026@12:00".b)
+    replay("in_range", script)
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Lab.results(990_031, from: FROM, to: TO) }
+  end
+
   # The captured newest specimen with its header's AREA corrupted: a row
   # the gem cannot read raises instead of becoming an empty result.
   def test_a_header_it_cannot_read_raises
@@ -91,6 +117,29 @@ class LabResultsTest < Minitest::Test
     replay("in_range", script)
 
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Lab.results(990_031, from: FROM, to: TO) }
+  end
+
+  # Lab.specimen with no from: asks from tomorrow (rpms-rpc#840): a blank
+  # DATE1 is inverse date 9999999 to SELECT^LR7OGM, and nothing is older
+  # than that. The capture sent 3261120 (the day after it ran); the gem
+  # sends the day after today, and the routine answers the same newest
+  # specimen for any day after it.
+  def test_specimen_with_no_from_reads_the_newest_specimen
+    replay("specimen_default")
+
+    got = RpmsRpc::Lab.specimen(990_031)
+
+    assert_equal [ "CH", Time.new(2026, 11, 10, 9, 15), "CH 1110 2" ], got.values_at(:area, :collected_at, :accession)
+    assert_equal [ "COVID-19 Negative", "96" ], got[:tests].map { |t| t[:value] }
+    tomorrow = RpmsRpc::FilemanDateParser.format_date(Date.today + 1)
+    assert_equal [ [ "ORWLRR INTERIMG", [ "990031", tomorrow, "1", "1" ] ] ], sent
+  end
+
+  def test_specimen_with_no_from_is_nil_for_a_patient_with_no_lab_data
+    replay("specimen_no_lab_data")
+
+    assert_nil RpmsRpc::Lab.specimen(4)
+    assert_equal [ "ORWLRR INTERIMG" ], sent.map(&:first)
   end
 
   # The newest specimen answered twice: a reply that does not step older
