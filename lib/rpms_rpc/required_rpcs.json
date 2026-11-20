@@ -2122,6 +2122,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
@@ -2209,6 +2210,7 @@
         "test/fixtures/captured_replies/bmc-get-referral.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
         "test/fixtures/captured_replies/e-signature-clinician.yml",
         "test/fixtures/captured_replies/er-visit.yml",
@@ -2235,7 +2237,9 @@
       "methods": {
         "RpmsRpc::DdrFileman.validate_key": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/ddr-fileman.yml"
+      ]
     },
     "DDR LISTER": {
       "methods": {
@@ -2323,6 +2327,7 @@
         "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/amhg-save-visit.yml",
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/patient-application.yml",
@@ -2347,7 +2352,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
-        "test/fixtures/captured_replies/amhg-wellness.yml"
+        "test/fixtures/captured_replies/amhg-wellness.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml"
       ]
     },
     "DDR VALIDATOR": {
@@ -2357,6 +2363,7 @@
         "RpmsRpc::Tribal.validate": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },

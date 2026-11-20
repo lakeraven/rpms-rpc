@@ -1,0 +1,164 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb ddr-fileman.rb.
+---
+rpc: DDR LISTER
+entry_point: LISTC^DDR
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:58:52Z'
+note: 'Run on a throwaway container: the filer flows add #9000033 rows for DFN 990031.'
+captures:
+- name: filer_add/1
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000033^.01^+1,^10/03/2026
+    2: 9000033^.02^+1,^`990031
+    3: 9000033^.04^+1,^`12
+  - ''
+  - {}
+  context: 'filer ADD: a #9000033 row for DFN 990031, dated 10/03/2026, its document
+    a certificate of degree of Indian blood'
+  raw_return: "5\0[Data]\r+1,^6\r"
+  sha256: 656c67fc5ea738f3587587a389dd2a3a6f3a4caf826f084022be54d13a2b8f4a
+- name: filer_bad_value/1
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000033^.01^+1,^X
+  - ''
+  - {}
+  context: 'filer ADD of a .01 alone (X): the build refuses the record'
+  raw_return: "5\0[Data]\r[BEGIN_diERRORS]\r311^1^9000033^+1,^.04^3\rFIELD^.04\rFILE^9000033\rIENS^+1,\rThe
+    new record '+1,' lacks some required identifiers.\r[END_diERRORS]\r"
+  sha256: 732f350f9d1fb3d24ce459f333afa3a3b74341eb3391c9ace2e70a83e6f42523
+- name: lister_rows/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '200'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: "*"
+    PART: PROFILE
+    XREF: B
+  context: 'lister of NEW PERSON (#200) on B from PROFILE: the PROFILE users'
+  raw_return: "5\0[Data]\r209^PROFILE,BILL\r204^PROFILE,MA\r206^PROFILE,MD\r207^PROFILE,REG\r210^PROFILE,REGSUP\r205^PROFILE,RN\r208^PROFILE,SCHED\r"
+  sha256: f4cb63c136f2cbee9588fbeef504b2bd45eddccf2d34e6de368a8a526234f090
+- name: lister_more/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '200'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: '2'
+    PART: PROFILE
+    XREF: B
+  context: the same list, two at a time
+  raw_return: "5\0[Misc]\rMORE^PROFILE,MA^\r[Data]\r209^PROFILE,BILL\r204^PROFILE,MA\r"
+  sha256: d0c1fcbf4101fe20b7af5b7d6aa047beeefa41f081c2f66bd47f26f6c20f2a84
+- name: lister_empty/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '200'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: "*"
+    PART: ZZNOSUCH
+    XREF: B
+  context: the same list for a prefix no name has
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: lister_bad_file/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '99999999'
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: lister of file 99999999, which the build does not have
+  raw_return: "5\0[Errors]\r"
+  sha256: 428c0cad386869f767ebb91137b96f1ccb33859a4d04ce2f2fef243025a05abf
+- name: lock/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AUPNPAT(990031)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: lock and unlock DFN 990031's IHS patient node
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: lock/2
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AUPNPAT(990031)"
+  context: lock and unlock DFN 990031's IHS patient node
+  raw_return: "6\01"
+  sha256: 6eff1937e808320fe4b7c06e5d01df487ff1857993cce09081dd27095cfc672a
+- name: lock_held/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AUPNPAT(990031)"
+    LOCKMODE: '1'
+    TIMEOUT: '1'
+  context: lock of a node another session holds
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: gets/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990031,
+    FIELDS: ".01;.02"
+    FLAGS: IE
+  context: gets_entry of DFN 990031's name and sex, internal and external
+  raw_return: "5\0[Data]\r2^990031^.01^EMBER,AVERY^EMBER,AVERY\r2^990031^.02^F^FEMALE\r"
+  sha256: e4d865a824582b77b7aa4150fcbfbbc7f1202e28225d4b287bc96ef91884d142
+- name: gets_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 999999999,
+    FIELDS: ".01"
+  context: gets_entry of a patient IEN no patient has
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: validate_ok/1
+  rpc: DDR VALIDATOR
+  inputs:
+  - FILE: '9000033'
+    IENS: "+1,"
+    FIELD: ".01"
+    VALUE: 10/03/2026
+  context: 'validate_field: 10/03/2026 as a #9000033 .01'
+  raw_return: "5\0[FILLER]\r[Data]\r3261003\rOCT 3,2026\r"
+  sha256: 2170bd5352cccd4271c1182b1aba1f02a46d22db344d35b222f5035282902c49
+- name: validate_bad/1
+  rpc: DDR VALIDATOR
+  inputs:
+  - FILE: '9000033'
+    IENS: "+1,"
+    FIELD: ".01"
+    VALUE: X
+  context: 'validate_field: X as a #9000033 .01'
+  raw_return: "5\0[FILLER]\r[Data]\r^\r\r[BEGIN_diERRORS]\r701^1^9000033^+1,^.01^4\r3^X\rFIELD^.01\rFILE^9000033\rIENS^+1,\rThe
+    value 'X' for field DATE CHANGED in file PATIENT NAME CHANGES is not valid.\r[END_diERRORS]\r[BEGIN_diHELP]\r9000033^.01^?^14\rAnswer
+    with PATIENT NAME CHANGES DATE CHANGED, or PATIENT.\r \rExamples of Valid Dates:\r
+    \  JAN 20 1957 or 20 JAN 57 or 1/20/57 or 012057\r   T   (for TODAY),  T+1 (for
+    TOMORROW),  T+2,  T+7, etc.\r   T-1 (for YESTERDAY),  T-3W (for 3 WEEKS AGO),
+    etc.\rIf the year is omitted, the computer uses CURRENT YEAR.  Two digit year\r
+    \ assumes no more than 20 years in the future, or 80 years in the past.\rYou may
+    omit the precise day, as:  JAN, 1957.\r \rIf the date is omitted, the current
+    date is assumed.\rFollow the date with a time, such as JAN 20@10, T@10AM, 10:30,
+    etc.\rYou may enter NOON, MIDNIGHT, or NOW to indicate the time.\rSeconds may
+    be entered as 10:30:30 or 103030AM.\r[END_diHELP]\r"
+  sha256: 55e2037c76545e44aadb46e08f52f68762877ae819562102ea359540f0dfeea6
+- name: validate_key/1
+  rpc: DDR KEY VALIDATOR
+  inputs:
+  - '1': 200^+1,^.01
+    '2': ZZTEST
+  context: validate_key of a NEW PERSON name
+  raw_return: "5\01\r"
+  sha256: d87f31aab122a38d043f92a5d42b2744cfe148888947db7065cce8a3b7dff03b
