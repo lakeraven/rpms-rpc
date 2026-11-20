@@ -1,0 +1,156 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb vital-stock.rb.
+---
+rpc: GMV ADD VM
+entry_point: EN1^GMVDCSAV
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T15:21:19Z'
+note: Run on a fresh throwaway container, flows in order. Vitals for synthetic DFN
+  990054 at DEMO PRIMARY CARE (location 10), entered by DUZ 200, taken at 2026-11-19
+  09:30:15 unless the flow says otherwise.
+captures:
+- name: bp/1
+  rpc: GMV GET VITAL TYPE IEN
+  inputs:
+  - BLOOD PRESSURE
+  context: 'add_stock: BP 120/80'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: bp/2
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^BP^3261119.093015
+  context: 'add_stock: BP 120/80'
+  raw_return: "6\00^NO BLOOD PRESSURE ENTERED WITHIN THIS PERIOD\r"
+  sha256: 00e9e564f7033f22adf31028c22d8f3bd48e91958b490f5f04ee1b748da4afeb
+- name: bp/3
+  rpc: GMV ADD VM
+  inputs:
+  - 3261119.093015^990054^1;120/80;^10^200*
+  context: 'add_stock: BP 120/80'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: bp/4
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^BP^3261119.093015
+  context: 'add_stock: BP 120/80'
+  raw_return: "8\01^11/19/26@09:30   B/P:   120/80  _PROVIDER,TEST\r"
+  sha256: 06c5e1f65a9b5167d6bf2ffb4d8eca45dd79e5b85430e8a455bda4393d9e53d4
+- name: bp_same_second/1
+  rpc: GMV GET VITAL TYPE IEN
+  inputs:
+  - BLOOD PRESSURE
+  context: 'add_stock: BP 120/80 again, at the same second as the first BP'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: bp_same_second/2
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^BP^3261119.093015
+  context: 'add_stock: BP 120/80 again, at the same second as the first BP'
+  raw_return: "6\01^11/19/26@09:30   B/P:   120/80  _PROVIDER,TEST\r"
+  sha256: a5ddcd6c11518ce8621b219354f8dd4a86c95983f6f844182316dcac8e8eacd2
+- name: bp_same_second/3
+  rpc: GMV ADD VM
+  inputs:
+  - 3261119.093015^990054^1;120/80;^10^200*
+  context: 'add_stock: BP 120/80 again, at the same second as the first BP'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: bp_same_second/4
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^BP^3261119.093015
+  context: 'add_stock: BP 120/80 again, at the same second as the first BP'
+  raw_return: "8\01^11/19/26@09:30   B/P:   120/80  _PROVIDER,TEST\r2^11/19/26@09:30
+    \  B/P:   120/80  _PROVIDER,TEST\r"
+  sha256: 36f8e2002617bc2c5204ab7b7f19145bf24412adce609f03bede3827db642863
+- name: weight_qualified/1
+  rpc: GMV GET VITAL TYPE IEN
+  inputs:
+  - WEIGHT
+  context: 'add_stock: WT 180 lb, qualifiers 42 (ACTUAL) and 72 (BED)'
+  raw_return: "5\09"
+  sha256: 86fb3c8c52e9e162c39ec0c7082544079c674bc337c8daea6a0003ac9c81b661
+- name: weight_qualified/2
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^WT^3261119.093015
+  context: 'add_stock: WT 180 lb, qualifiers 42 (ACTUAL) and 72 (BED)'
+  raw_return: "6\00^NO WEIGHT ENTERED WITHIN THIS PERIOD\r"
+  sha256: 784c745884604f09df1c9f98c81197ce9606b57bbf5ff9d1b35f56935abe3b8c
+- name: weight_qualified/3
+  rpc: GMV ADD VM
+  inputs:
+  - 3261119.093015^990054^9;180;^10^200*42:72
+  context: 'add_stock: WT 180 lb, qualifiers 42 (ACTUAL) and 72 (BED)'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: weight_qualified/4
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.093115^WT^3261119.093015
+  context: 'add_stock: WT 180 lb, qualifiers 42 (ACTUAL) and 72 (BED)'
+  raw_return: "8\03^11/19/26@09:30   Wt:   180.00 lb (81.82 kg)  (ACTUAL, BED) _PROVIDER,TEST\r"
+  sha256: 8c405104a4ae93e8fe6c57071018f9c5d360d134bd1498bfa041091d8aaff206
+- name: bp_and_pulse/1
+  rpc: GMV GET VITAL TYPE IEN
+  inputs:
+  - BLOOD PRESSURE
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: bp_and_pulse/2
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.101600^BP^3261119.101500
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "6\00^NO BLOOD PRESSURE ENTERED WITHIN THIS PERIOD\r"
+  sha256: 00e9e564f7033f22adf31028c22d8f3bd48e91958b490f5f04ee1b748da4afeb
+- name: bp_and_pulse/3
+  rpc: GMV ADD VM
+  inputs:
+  - 3261119.101500^990054^1;124/78;^10^200*
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: bp_and_pulse/4
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.101600^BP^3261119.101500
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "8\04^11/19/26@10:15   B/P:   124/78  _PROVIDER,TEST\r"
+  sha256: 9a32616e86318804fc13cffbd29563bf7917e56672e826894c60bae03e042077
+- name: bp_and_pulse/5
+  rpc: GMV GET VITAL TYPE IEN
+  inputs:
+  - PULSE
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "9\05"
+  sha256: 453225f18d5e243bdb294ec221111edb10271b9eb4015b755a1e33476dd02d2f
+- name: bp_and_pulse/6
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.101600^P^3261119.101500
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "1\00^NO PULSE ENTERED WITHIN THIS PERIOD\r"
+  sha256: f84ca61e12156c4c1352aeae82dd0994e86e23a1be63addc94f0fd973359764e
+- name: bp_and_pulse/7
+  rpc: GMV ADD VM
+  inputs:
+  - 3261119.101500^990054^5;72;^10^200*
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "2\0"
+  sha256: 913da1f8df6f8fd47593840d533ba0458cc9873996bf310460abb495b34c232a
+- name: bp_and_pulse/8
+  rpc: GMV EXTRACT REC
+  inputs:
+  - 990054^3261119.101600^P^3261119.101500
+  context: 'add_stock: BP 124/78 and P 72, taken at 2026-11-19 10:15:00'
+  raw_return: "3\05^11/19/26@10:15   P:   72  _PROVIDER,TEST\r"
+  sha256: 91bf133b6cffad51f557a2824bd4d0886f17b82e2f046acb0b83186df5016308

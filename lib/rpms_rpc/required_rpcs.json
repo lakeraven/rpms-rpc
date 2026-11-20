@@ -2380,19 +2380,25 @@
       "methods": {
         "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
+      ]
     },
     "GMV EXTRACT REC": {
       "methods": {
         "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
+      ]
     },
     "GMV GET VITAL TYPE IEN": {
       "methods": {
         "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
+      ]
     },
     "OREVNTX PAT": {
       "methods": {
