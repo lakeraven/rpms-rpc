@@ -222,6 +222,12 @@ module RpmsRpc
     #   allow_duplicate:    only literal true permits adding after the caller
     #                       reviews AG's name/DOB candidates. Lookup failures
     #                       and invalid identity cannot be overridden.
+    #   reviewed_dfns:      the candidate DFNs a person reviewed. The add is
+    #                       filed only when every candidate this call's own
+    #                       lookup returns is among them; otherwise
+    #                       :duplicate_identity with the fresh candidates, so a
+    #                       match that appeared after review is never filed
+    #                       past (#494). Given, allow_duplicate is ignored.
     #   hrn_source:         where the HRN comes from, for this registration:
     #                       :derive (HRN := DFN), :temporary (AG's next
     #                       T-number, as IHS scheduling's mini-registration
@@ -346,7 +352,8 @@ module RpmsRpc
       refused = validate_fields(params)
       return refused if refused
 
-      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate], lookup_client: lookup)
+      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate],
+                                     reviewed_dfns: attrs[:reviewed_dfns], lookup_client: lookup)
       return duplicate if duplicate
 
       created = Agg.add_patient(window: AGG_ADD_WINDOW, params: params)
@@ -1141,13 +1148,21 @@ module RpmsRpc
       nil
     end
 
-    def duplicate_identity(params, allow_duplicate:, lookup_client: RpmsRpc.client)
+    def duplicate_identity(params, allow_duplicate:, reviewed_dfns: nil, lookup_client: RpmsRpc.client)
       candidates = RpmsRpc.with_client(lookup_client) { Agg.registration_candidates(params) }
       return identity_unverifiable unless candidates
-      return if candidates.empty? || allow_duplicate == true
+      return if candidates.empty?
+
+      candidate_dfns = candidates.map { |candidate| candidate[:dfn] }.uniq.sort
+      if reviewed_dfns.nil?
+        return if allow_duplicate == true
+      elsif (candidate_dfns.map(&:to_s) - Array(reviewed_dfns).map(&:to_s)).empty?
+        # Every candidate this lookup found was reviewed (#494).
+        return
+      end
 
       { success: false, error: :duplicate_identity,
-        candidate_dfns: candidates.map { |candidate| candidate[:dfn] }.uniq.sort,
+        candidate_dfns: candidate_dfns,
         message: "matching patient candidates require explicit override" }
     rescue Client::RpcError, Client::ConnectionError
       identity_unverifiable

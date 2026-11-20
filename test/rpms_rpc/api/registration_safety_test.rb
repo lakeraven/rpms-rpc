@@ -97,6 +97,22 @@ class RegistrationSafetyTest < Minitest::Test
     assert_equal CapturedReplies.flow_calls(SLUG, "register_override"), sent
   end
 
+  # The reviewed candidates are compared with this call's own lookup (#494).
+  def test_reviewed_dfns_covering_every_candidate_files
+    result = register(ATTRS.merge(reviewed_dfns: [ 990_057 ]), cia: "register_override", bmx: "lookup_second")
+
+    assert_equal({ success: true, dfn: 990_058, created: true, hrn: "990058" }, result)
+    assert_equal CapturedReplies.flow_calls(SLUG, "register_override"), sent
+  end
+
+  def test_a_candidate_that_appeared_after_review_is_returned_not_filed_past
+    result = register(ATTRS.merge(reviewed_dfns: [ 990_057 ], allow_duplicate: true),
+                      cia: "register_override", bmx: "lookup_both")
+
+    assert_equal REVIEW.merge(candidate_dfns: [ 990_057, 990_058 ]), result
+    assert_no_write
+  end
+
   [ "true", "false", 1, nil, false ].each_with_index do |override, i|
     define_method("test_non_boolean_override_#{i}_does_not_authorize_add") do
       result = register(ATTRS.merge(allow_duplicate: override), cia: "register_override", bmx: "lookup_second")
