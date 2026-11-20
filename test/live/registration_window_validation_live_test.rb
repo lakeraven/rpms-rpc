@@ -12,9 +12,18 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
   runs_as "PREG123"
   writes!
 
+  # A synthetic name on a 1902 birth date no patient has: AG's duplicate
+  # lookup matches a candidate on the date and first name, so a date an
+  # earlier DEMO patient already holds makes the registration a duplicate.
   def synthetic(**extra)
     suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
-    { name_last: "ZZVALID#{suffix}", name_first: "DEMO", dob: Date.new(1902, 1 + rand(12), 1 + rand(28)), sex: "F" }.merge(extra)
+    attrs = { name_last: "ZZVALID#{suffix}", name_first: "DEMO", dob: Date.new(1902, 1 + rand(12), 1 + rand(28)), sex: "F" }
+    365.times do
+      return attrs.merge(extra) if candidates(attrs).empty?
+
+      attrs[:dob] = attrs[:dob].next_day
+    end
+    flunk "no free synthetic 1902 birth date for #{attrs[:name_last]}"
   end
 
   SSN_TRIES = 10
@@ -38,8 +47,10 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
   def draw_ssn = "6660#{format('%05d', rand(100_000))}"
 
   def candidates(attrs)
-    RpmsRpc::Agg.registration_candidates("AGGPTLNM" => attrs[:name_last], "AGGPTFNM" => attrs[:name_first],
-                                         "AGGPTDOB" => attrs[:dob].strftime("%m/%d/%Y"))
+    RpmsRpc.with_client(lookup_client) do
+      RpmsRpc::Agg.registration_candidates("AGGPTLNM" => attrs[:name_last], "AGGPTFNM" => attrs[:name_first],
+                                           "AGGPTDOB" => attrs[:dob].strftime("%m/%d/%Y"))
+    end
   end
 
   def test_s_reg_02_8_an_ssn_already_on_another_patient_is_refused_and_nothing_is_filed
