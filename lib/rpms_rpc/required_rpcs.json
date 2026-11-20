@@ -2295,19 +2295,19 @@
     },
     "GMV ADD VM": {
       "methods": {
-        "RpmsRpc::Vital.add_stock": "unclassified"
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": []
     },
     "GMV EXTRACT REC": {
       "methods": {
-        "RpmsRpc::Vital.add_stock": "unclassified"
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": []
     },
     "GMV GET VITAL TYPE IEN": {
       "methods": {
-        "RpmsRpc::Vital.add_stock": "unclassified"
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": []
     },
@@ -2862,7 +2862,7 @@
         "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
         "RpmsRpc::Vital.add": "non_idempotent_write",
-        "RpmsRpc::Vital.add_stock": "unclassified"
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml",
