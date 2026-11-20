@@ -138,6 +138,19 @@ module RpmsRpc
         rows(mapping_name, *pieces).first
       end
 
+      # The first row, unless it carries nothing but the IEN it was sent:
+      # the AMHG detail routines echo that IEN for a record not on file (#882).
+      def on_file_row(mapping_name, *pieces)
+        row = first_row(mapping_name, *pieces)
+        row unless row.nil? || echo_only?(row)
+      end
+
+      # A row whose every column but the first (the echoed IEN) is blank or
+      # the empty $$VCDT date "1700,,,12,0".
+      def echo_only?(row)
+        row.values.drop(1).all? { |value| [ "", "1700,,,12,0" ].include?(value.to_s.strip) }
+      end
+
       # "412~THERAPIST,EXAMPLE" -> { ien: "412", name: "THERAPIST,EXAMPLE" }.
       # An empty column yields nil rather than a pair of blanks: AMHG emits ""
       # when the pointer is unset, and { ien: nil, name: nil } would look like

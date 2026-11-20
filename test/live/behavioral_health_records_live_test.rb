@@ -4,6 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/behavioral_health"
 require "rpms_rpc/api/behavioral_health/reference"
 require "rpms_rpc/api/behavioral_health/groups"
+require "rpms_rpc/api/behavioral_health/case_management"
 
 # The AMHG treatment-plan, suicide-form, visit-tab and group reads over the
 # wire, under AMHGRPC. Each answers parsed rows, never the recordset's typed
@@ -33,13 +34,16 @@ class BehavioralHealthRecordsLiveTest < LiveSpec::Test
     (plans + forms).each { |row| assert_match(/\A\d+\z/, row[:ien].to_s, "a row whose IEN is not a record IEN: #{row.inspect}") }
   end
 
-  # A record not on file answers one row echoing the IEN asked for, with
-  # its fields blank, or no row at all; never the header.
+  # The build answers one row echoing the IEN asked for, with its fields
+  # blank; the single-record reads answer nil for it (#882), never the header.
   def test_single_record_reads_of_a_record_not_on_file
-    assert_equal NOT_ON_FILE, BH.treatment_plan(NOT_ON_FILE)[:ien]
-    assert_equal NOT_ON_FILE, BH.suicide_form(NOT_ON_FILE)[:ien]
+    assert_nil BH.treatment_plan(NOT_ON_FILE)
+    assert_nil BH.suicide_form(NOT_ON_FILE)
+    assert_empty BH.suicide_form_substances(NOT_ON_FILE)
+    assert_nil BH.visit_information(NOT_ON_FILE)
+    assert_nil BH::CaseManagement.case_management(NOT_ON_FILE)
+    assert_nil BH::Groups.group_information(NOT_ON_FILE)
     assert_equal NOT_ON_FILE, BH.visit_activity(NOT_ON_FILE)[:ien]
-    assert_equal NOT_ON_FILE, BH.visit_information(NOT_ON_FILE)[:ien]
     assert_equal({ axis_v: nil, gaf: nil }, BH.visit_axis_v(NOT_ON_FILE))
     assert_nil BH.visit_chief_complaint(NOT_ON_FILE)
   end
