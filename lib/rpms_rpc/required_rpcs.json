@@ -2074,6 +2074,7 @@
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
+        "test/fixtures/captured_replies/e-signature-clinician.yml",
         "test/fixtures/captured_replies/er-visit.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
@@ -2243,6 +2244,7 @@
       "replies": [
         "test/fixtures/captured_replies/allergy-save.yml",
         "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
@@ -2704,13 +2706,16 @@
       "methods": {
         "RpmsRpc::Patient.search": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml"
+      ]
     },
     "ORWPT SELECT": {
       "methods": {
         "RpmsRpc::Patient.find": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/wire_captures/orwpt-select.yml"
       ]
     },
@@ -2729,6 +2734,7 @@
         "RpmsRpc::HealthSummary.generate_selective": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/health-summary.yml"
       ]
     },
@@ -2890,6 +2896,7 @@
         "RpmsRpc::ESignature.add": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/e-signature-clinician.yml",
         "test/fixtures/captured_replies/e-signature.yml",
         "test/fixtures/wire_captures/tiu-sign-record.yml"
       ]
