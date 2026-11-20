@@ -52,7 +52,7 @@ module RpmsRpc
       #
       # :comment is GET1^DIQ of 1101 (AMHGDCM.m:37); a caret truncates it.
       def case_management(case_ien)
-        row = first_row(:amhg_case_management, case_ien)
+        row = on_file_row(:amhg_case_management, case_ien)
         return nil if row.nil?
 
         {
