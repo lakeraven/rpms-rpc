@@ -533,6 +533,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -549,6 +550,7 @@
         "RpmsRpc::Registration.record": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml"
       ]
@@ -611,6 +613,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
@@ -778,6 +781,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -812,6 +816,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -1993,7 +1998,9 @@
       "methods": {
         "RpmsRpc::Agg.available?": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml"
+      ]
     },
     "CIAVCXUS VIMINFO": {
       "methods": {
