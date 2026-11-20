@@ -181,6 +181,25 @@ class CoverageTest < Minitest::Test
     assert_equal "AGGRPC2", client.current_context
   end
 
+  # A raise from the eligibility step leaves the header and says so (#561).
+  def test_add_medicare_eligibility_raise_is_outcome_unknown_with_header_left
+    replay_flow("add_medicare")
+    calls = 0
+    real = Cov.method(:medicare_update)
+    raising = lambda do |*args, **kw|
+      calls += 1
+      raise RpmsRpc::Client::ConnectionError, "lost" if calls == 2
+
+      real.call(*args, **kw)
+    end
+
+    result = Cov.stub(:medicare_update, raising) { Cov.add_medicare(DFN, **MEDICARE_ARGS) }
+
+    assert_equal :eligibility_outcome_unknown, result[:error]
+    assert result[:header_left]
+    refute result[:rolled_back]
+  end
+
   # -- add_medicaid (UPD^AGGUPMCD.m:5): record, then its eligibility row --------
 
   # The build keys the eligibility row by its start date (3261101).
@@ -295,7 +314,9 @@ class CoverageTest < Minitest::Test
 
   def test_add_medicare_refuses_bad_field_values_before_wire
     [ { name: "BAD^NAME" }, { number: "MBI=1" }, { name: "ZZ\x1fCOV" }, { roi_on: "13/01/2026" },
-      { effective_on: nil }, { name: "@" }, { number: "@" }, { suffix: "@" }, { number: "  @  " } ].each do |override|
+      { effective_on: nil }, { name: "@" }, { number: "@" }, { suffix: "@" }, { number: "  @  " },
+      { name: nil }, { name: "" }, { name: "  " }, { number: nil }, { number: "" }, { number: "  " },
+      { effective_on: "01/01/0001" }, { effective_on: "12/31/9999" } ].each do |override|
       client = replay
       assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicare(DFN, **MEDICARE_ARGS, **override) }
       assert_empty client.calls, "#{override.inspect} reached the wire"
