@@ -138,7 +138,21 @@ module RpmsRpc
       record && name_sections(record)
     end
 
+    # SETREFRL^BMCRPC2's formals after RSLT, RFDT through RDDX (BMCRPC2.m:8).
+    ADD_PARAMETERS = 40
+
+    # File a new referral through BMC ADD REFERRAL (SETREFRL^BMCRPC2) with
+    # all ADD_PARAMETERS of its parameters, in its order, "" for one not
+    # given. Any other count is refused before anything is sent (#877): on
+    # YottaDB the broker packs a frame into the routine's one array formal
+    # only past 31 parameters, so a shorter one dies "More actual parameters
+    # than formal parameters" (as captured), and the broker takes at most 40.
     def add(*params)
+      unless params.size == ADD_PARAMETERS
+        raise ArgumentError, "BMC ADD REFERRAL takes all #{ADD_PARAMETERS} of SETREFRL^BMCRPC2's parameters " \
+                             "(\"\" for one not given); got #{params.size}"
+      end
+
       bmc_scalar_result(:bmc_add_referral, *params)
     end
     shape :add, resource: "referrals", verb: "POST", path: "/referrals"
@@ -185,12 +199,41 @@ module RpmsRpc
     end
     shape :update_consultation_status, resource: "referrals", verb: "PUT", path: "/referrals/consultations/{consultation_ien}/status"
 
-    def purposes(*params)
-      bmc_many(:bmc_purpose_of_referral_list, *params)
+    # The referral purposes, sorted by term: GTREFTYP^BMCRPC3 lists the EHR
+    # REFERRAL TYPE subset as CONCEPT^DESCRIPTION^TERM records in one node
+    # (BMCRPC3.m:155-174). A purpose is a SNOMED CT concept, so its key is the
+    # concept id, not an IEN: add files the concept and the term (SNMDCT,
+    # SNMDPT). Rows are { concept_id:, description_id:, name: } (#877).
+    PURPOSE_FIELDS = %i[concept_id description_id name].freeze
+
+    def purposes
+      rcis_rows(bmc_text(:bmc_purpose_of_referral_list), PURPOSE_FIELDS)
     end
 
-    def reference_data(*params)
-      bmc_many(:bmc_reference_data, *params)
+    # The RCIS pick lists GTREFDT^BMCRPC5 sends in five nodes, in this order
+    # (BMCRPC5.m:211-259), each opening "~`" (#877):
+    #   icd_categories  RCIS ICD DIAGNOSTIC CATEGORY (#90001.51): IEN, DX
+    #                   CATEGORY, ACTIVE DATE, INACTIVE DATE (external dates)
+    #   cpt_categories  RCIS HCPCS/CPT CATEGORY (#90001.52): IEN, name
+    #   purpose_texts   RCIS PURPOSE (#90001.58): IEN, text
+    #   statuses        STATUS OF REFERRAL (.15) set of codes: code, name
+    #   priorities      RCIS MEDICAL PRIORITIES (#90001.84): IEN, PRIORITY
+    #                   CODE and DESCRIPTION joined by a space
+    REFERENCE_SECTIONS = {
+      icd_categories: %i[ien name active_date inactive_date],
+      cpt_categories: %i[ien name],
+      purpose_texts: %i[ien name],
+      statuses: %i[code name],
+      priorities: %i[ien name]
+    }.freeze
+
+    # The REFERENCE_SECTIONS as a Hash of row arrays, a section the build
+    # sent empty as [].
+    def reference_data
+      sections = bmc_text(:bmc_reference_data).to_s.delete("\r\n").split(RcisWire::SIGIL, -1).drop(1)
+      REFERENCE_SECTIONS.each_with_index.to_h do |(name, fields), i|
+        [ name, rcis_rows(sections[i], fields) ]
+      end
     end
 
     # PROV^BMCRPC4 answers one node, "-1^All~IEN^NAME~...": the "All"
@@ -209,12 +252,35 @@ module RpmsRpc
       bmc_many(:bmc_providers)
     end
 
-    def search_referred_to(*params)
-      bmc_many(:bmc_search_referred_to, *params)
+    # The pieces SRRFRDTO^BMCRPC1 sends for each referral type
+    # (BMCRPC1.m:154-221). It searches a different file per type:
+    #   C (CHS)                 VENDOR (#9999999.11): IEN, name, UEI, EIN,
+    #                           EIN suffix, mail-to and remit-to (comma-joined)
+    #   I (another IHS facility) LOCATION (#9999999.06): IEN, name, area,
+    #                           service unit, code, inactive ("1" or "")
+    #   O (other)               RCIS SPECIFIC PROVIDER (#90001.53): IEN, name
+    #   N (in-house)            CLINIC STOP (#40.7): IEN, name, code
+    REFERRED_TO_FIELDS = {
+      "C" => %i[ien name uei ein ein_suffix mail_to remit_to],
+      "I" => %i[ien name area service_unit code inactive],
+      "O" => %i[ien name],
+      "N" => %i[ien name code]
+    }.freeze
+
+    # Who a referral of +type+ (a REFERRED_TO_FIELDS key) can go to, matched
+    # on +search+ from the start of the name. A type the routine has no
+    # search for is refused before anything is sent (#877).
+    def search_referred_to(search, type)
+      fields = REFERRED_TO_FIELDS.fetch(type.to_s) do
+        raise ArgumentError, "referral type must be one of #{REFERRED_TO_FIELDS.keys.join(', ')} (got #{type.inspect})"
+      end
+      rcis_rows(bmc_text(:bmc_search_referred_to, search.to_s, type.to_s), fields)
     end
 
-    def rcis_templates(*params)
-      bmc_many(:bmc_rcis_template_list, *params)
+    # The RCIS ROUTINE REFERRAL DEF (#90001.32) templates, { ien:, name: }
+    # each (GTTMPLST^BMCRPC3, BMCRPC3.m:10-19); rcis_template_detail reads one.
+    def rcis_templates
+      rcis_rows(bmc_text(:bmc_rcis_template_list), %i[ien name])
     end
 
     def rcis_template_detail(template_ien, *params)
@@ -329,6 +395,14 @@ module RpmsRpc
 
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
+    end
+
+    # RCIS records ("~"-joined, "~`" sigils stripped; RcisWire.records) from
+    # every line of +text+, each record's "^" pieces named by +fields+.
+    def rcis_rows(text, fields)
+      text.to_s.split(/\r\n|\r|\n/).flat_map { |line| RcisWire.records(line) }.map do |record|
+        fields.zip(record.split("^", -1)).to_h
+      end
     end
 
     def bmc_many(mapping_name, *params)

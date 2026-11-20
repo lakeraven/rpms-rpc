@@ -92,6 +92,86 @@ def test_add_referral_sigil_failure_carries_the_message
   assert_equal CapturedReplies.flow_calls(SLUG, "add_missing"), sent
 end
 
+# The capture shows the build refusing a two-parameter frame for argument
+# count (on YottaDB the broker packs only frames past 31 into SETREFRL's
+# array formal); the gem now refuses that frame before anything is sent.
+def test_add_refuses_a_frame_short_of_setrefrls_forty_parameters
+  replay("add_short")
+  assert_match(/More actual parameters than formal parameters/, CapturedReplies.raw(SLUG, "add_short/1"))
+
+  err = assert_raises(ArgumentError) { RpmsRpc::Referral.add(*flow_inputs("add_short")) }
+
+  assert_match(/all 40 of SETREFRL\^BMCRPC2's parameters/, err.message)
+  assert_empty @client.calls, "a refused frame binds no context and sends nothing"
+end
+
+def test_add_refuses_a_frame_past_forty_parameters
+  assert_raises(ArgumentError) { RpmsRpc::Referral.add(*flow_inputs("add"), "") }
+  assert_empty @client.calls
+end
+
+# GTREFTYP^BMCRPC3 (BMCRPC3.m:155-174): one node of CONCEPT^DESCRIPTION^TERM
+# records joined by "~", sorted by term.
+def test_purposes_splits_the_rcis_records_into_snomed_concepts
+  replay("purposes")
+
+  purposes = RpmsRpc::Referral.purposes
+
+  assert_equal 112, purposes.size
+  assert_equal({ concept_id: "183555005", description_id: "283668011", name: "Burns referral" }, purposes.first)
+  assert_equal({ concept_id: "307777008", description_id: "451149013", name: "Referral to vascular surgeon" }, purposes.last)
+  assert(purposes.none? { |row| row.values.any? { |v| v.to_s.include?("~") } }, "no record keeps a \"~\"")
+  assert_equal CapturedReplies.flow_calls(SLUG, "purposes"), sent
+end
+
+# GTREFDT^BMCRPC5 (BMCRPC5.m:211-259): five "~`" nodes, records joined by "~".
+def test_reference_data_names_its_five_sections_and_strips_the_sigils
+  replay("reference_data")
+
+  data = RpmsRpc::Referral.reference_data
+
+  assert_equal %i[icd_categories cpt_categories purpose_texts statuses priorities], data.keys
+  assert_equal [ 52, 7, 5, 4, 17 ], data.values.map(&:size)
+  assert_equal({ ien: "59", name: "ALCOHOL/DRUG USE & ALCOHOL/DRUG INDUCED ORGANIC MENTAL DISORDERS",
+                 active_date: "OCT 01, 2015", inactive_date: "" }, data[:icd_categories].first)
+  assert_equal({ ien: "23", name: "CARDIOVASCULAR DISORDERS", active_date: "", inactive_date: "OCT 01, 2015" },
+               data[:icd_categories].find { |row| row[:ien] == "23" })
+  assert_equal({ ien: "4", name: "DIAGNOSTIC IMAGING" }, data[:cpt_categories].first)
+  assert_equal({ ien: "1", name: "Call-In" }, data[:purpose_texts].first)
+  assert_equal [ %w[A ACTIVE], %w[A1 APPROVED], %w[C1 CLOSED-COMPLETED], [ "X", "CLOSED-NOT COMPLETED" ] ],
+               data[:statuses].map(&:values)
+  assert_equal({ ien: "1", name: "1A CORE-PREVENTIVE AND REHABILITATIVE SERVICES" }, data[:priorities].first)
+  assert(data.values.flatten.none? { |row| row.values.any? { |v| v.to_s.include?("~") } }, "no record keeps a sigil")
+  assert_equal CapturedReplies.flow_calls(SLUG, "reference_data"), sent
+end
+
+# SRVNDR^BMCRPC1 (BMCRPC1.m:163-182): a CHS search answers VENDOR records.
+def test_search_referred_to_reads_a_vendor_record_without_its_sigil
+  replay("search_referred_to")
+
+  assert_equal [ { ien: "1", name: "UNSPECIFIED", uei: "", ein: "1000000000", ein_suffix: "", mail_to: ",", remit_to: ",," } ],
+               RpmsRpc::Referral.search_referred_to("UNSP", "C")
+  assert_equal CapturedReplies.flow_calls(SLUG, "search_referred_to"), sent
+end
+
+def test_search_referred_to_refuses_a_type_the_routine_does_not_search
+  err = assert_raises(ArgumentError) { RpmsRpc::Referral.search_referred_to("UNSP", "Z") }
+
+  assert_match(/C, I, O, N/, err.message)
+  assert_empty @client.calls
+end
+
+# GTTMPLST^BMCRPC3 (BMCRPC3.m:10-19): "~`IEN^NAME~IEN^NAME...".
+def test_rcis_templates_splits_the_template_records
+  replay("rcis_templates")
+
+  assert_equal [ { ien: "937", name: "BREAST ULTRASOUND" }, { ien: "931", name: "CARDIOLOGY" },
+                 { ien: "938", name: "DIABETES" }, { ien: "939", name: "OPTOMETRY" },
+                 { ien: "936", name: "ULTRASOUND" } ],
+               RpmsRpc::Referral.rcis_templates
+  assert_equal CapturedReplies.flow_calls(SLUG, "rcis_templates"), sent
+end
+
 # UPDTSTRF^BMCRPC3 (BMCRPC3.m:176-187) answers "1" when it files.
 def test_update_referral_status_calls_bmc_status_rpc
   replay("update_status")
@@ -172,14 +252,14 @@ end
 
 # Each public method that reaches the wire, its arguments, and the capture
 # flow that answers it. A flow whose call the build answered with an M error
-# (add with two arguments, update with one, update_consultation_status) still
-# proves the bind, and that the caller's option is handed back on a raise.
+# (update with one argument, update_consultation_status) still proves the
+# bind, and that the caller's option is handed back on a raise.
 BMC_CALLS = {
   for_patient: [ [ DFN ], "for_patient" ],
   pending: [ [ { from: Date.new(2026, 11, 1), to: Date.new(2026, 11, 30) } ], "pending" ],
   find: [ [ "1" ], "find" ],
   cancel: [ [ "2" ], "cancel" ],
-  add: [ [ DFN, "44" ], "add_short" ],
+  add: [ CapturedReplies.flow_calls(SLUG, "add").first.last, "add" ],
   update: [ [ "1", "44" ], "update" ],
   print: [ [ "1" ], "print" ],
   update_status: [ [ "1", "A1" ], "update_status" ],
@@ -270,7 +350,7 @@ end
     end.new
     RpmsRpc.configure { |c| c.client = plain }
 
-    result = RpmsRpc::Referral.add(DFN, "44")
+    result = RpmsRpc::Referral.add(*CapturedReplies.flow_calls(SLUG, "add").first.last)
 
     assert result[:success]
     assert_equal [ "BMC ADD REFERRAL" ], plain.calls
