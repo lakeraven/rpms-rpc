@@ -760,7 +760,9 @@
       "methods": {
         "RpmsRpc::Agg.update_legal_names": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-legal-names.yml"
+      ]
     },
     "AGG UPDATE MEDICAID": {
       "methods": {
@@ -2197,6 +2199,7 @@
         "RpmsRpc::WaitList.comments": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-legal-names.yml",
         "test/fixtures/captured_replies/amhg-create-edit-visit.yml",
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
         "test/fixtures/captured_replies/amhg-save-pov.yml",

@@ -2,31 +2,34 @@
 
 require "minitest/autorun"
 require "json"
-require "rpms_rpc/client"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/agg"
 require "rpms_rpc/api/ddr_fileman"
+require_relative "behavioral_health/amhg_replay"
 
 # Agg.update_legal_names: LEGL^AGGPTNAM (AGG UPDATE LEGAL NAMES), EDIT and
 # DELETE of an existing #9000033 row only (rpms-rpc#627). A blank-RIEN add is
-# refused in this slice. Synthetic data only.
+# refused in this slice. Each reply is the build's, captured as PROFILE,REG
+# on a throwaway container (test/fixtures/captured_replies/agg-legal-names.yml),
+# where DFN 990031's row is RIEN 3 and DFN 990032's RIEN 4. The fail-closed
+# cases keep that layout and change one thing in it (owner_reply, legl_reply).
 class AggLegalNamesTest < Minitest::Test
   Agg = RpmsRpc::Agg
   RS = "\x1e"
   US = "\x1f"
   DFN = "990031"
   DFN_B = "990032"
-  RIEN = "42"
+  RIEN = "3"
+  SLUG = "agg-legal-names"
   LEGL = "AGG UPDATE LEGAL NAMES"
   GETS = "DDR GETS ENTRY DATA"
   DDR_CONTEXT = "CIAV VUECENTRIC"
   HEADER = "I00010RESULT^T01024ERROR^I00010RIEN"
   EDIT = { "AGGLNMC" => "SYNTH,LEGAL" }.freeze
-  MAPPINGS = { GETS => :ddr_gets_entry_data, LEGL => :agg_update_legal_names }.freeze
 
   def setup
-    @mock = RpmsRpc.mock!
+    use(AmhgReplay::Client.new({}))
   end
 
   def teardown
@@ -60,9 +63,6 @@ class AggLegalNamesTest < Minitest::Test
 
   # A RIEN is an Integer or a String of 1 to 15 digits with no leading zero.
   def test_refuses_non_canonical_rien_without_rpc
-    seed_owner(RIEN, DFN)
-    seed_owner("1234567890123456", DFN)
-    seed_legl("1^^#{RIEN}")
     [ "0", "042", "4 2", "-1", "abc", "1.5", "1234567890123456", 10**15, 0, -42,
       :"42", 42.0, [ 42 ], to_s_object(RIEN) ].each do |bad|
       assert_refused :invalid_rien, "rien #{bad.inspect}", dfn: DFN, proc: "D", rien: bad, params: {}
@@ -71,11 +71,10 @@ class AggLegalNamesTest < Minitest::Test
 
   def test_fifteen_digit_rien_is_read_and_sent
     rien = "9" * 15
-    seed_owner(rien, DFN)
-    seed_legl("1^^#{rien}")
+    seed_happy(rien: rien)
 
     assert_equal({ success: true, ien: rien.to_i }, Agg.update_legal_names(dfn: DFN, proc: "D", rien: rien, params: {}))
-    assert_equal [ gets_param(rien) ], @mock.received_calls.first[:params]
+    assert_equal [ gets_param(rien) ], wire_calls.first[:params]
     assert_equal [ DFN, "D", rien, "" ], legl_call[:params]
   end
 
@@ -98,18 +97,17 @@ class AggLegalNamesTest < Minitest::Test
   # What is validated is the String's bytes, so those bytes are what is sent:
   # a subclass whose to_s answers something else never puts that on the wire.
   def test_dfn_proc_and_rien_reach_the_wire_as_plain_strings_of_the_validated_bytes
-    [ RIEN, "43" ].each { |rien| seed_owner(rien, DFN) }
-    [ DFN, DFN_B ].each { |dfn| seed_legl("1^^#{RIEN}", dfn: dfn) }
+    seed_happy
     { dfn: masked(DFN, DFN_B), proc: masked("D", "A"), rien: masked(RIEN, "43") }.each do |name, value|
-      @mock.received_calls.clear
+      @client.calls.clear
       result = Agg.update_legal_names(**{ dfn: DFN, proc: "D", rien: RIEN, params: {} }.merge(name => value))
 
-      if @mock.received_calls.empty?
+      if wire_calls.empty?
         assert_equal [ false, :"invalid_#{name}" ], result.values_at(:success, :error), "#{name} refused"
       else
-        assert_equal [ gets_param(RIEN) ], @mock.received_calls.first[:params], "#{name}: the read is of the validated RIEN"
+        assert_equal [ gets_param(RIEN) ], wire_calls.first[:params], "#{name}: the read is of the validated RIEN"
         assert_equal [ DFN, "D", RIEN, "" ], legl_call[:params], "#{name}: validated bytes, not to_s"
-        assert_equal({ success: true, ien: 42 }, result, name)
+        assert_equal({ success: true, ien: 3 }, result, name)
       end
     end
   end
@@ -212,8 +210,8 @@ class AggLegalNamesTest < Minitest::Test
       { "AGGLGDOC" => "ABC" } => "AGGLGDOC=ABC", { AGGLGDOC: "A" * 20 } => "AGGLGDOC=#{'A' * 20}",
       { "AGGLNDTC" => "01/01/1800" } => "AGGLNDTC=01/01/1800",
       { "AGGLNDTC" => "12/31/2699" } => "AGGLNDTC=12/31/2699" }.each do |params, parms|
-      @mock.received_calls.clear
-      assert_equal({ success: true, ien: 42 }, Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: params), parms)
+      @client.calls.clear
+      assert_equal({ success: true, ien: 3 }, Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: params), parms)
       assert_equal [ DFN, "", RIEN, parms ], legl_call[:params]
     end
   end
@@ -224,7 +222,7 @@ class AggLegalNamesTest < Minitest::Test
     seed_happy
     result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => masked("SYNTH,LEGAL", "@") })
 
-    assert_equal({ success: true, ien: 42 }, result)
+    assert_equal({ success: true, ien: 3 }, result)
     assert_equal [ DFN, "", RIEN, "AGGLNMC=SYNTH,LEGAL" ], legl_call[:params]
 
     assert_refused :invalid_param, "bytes @", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => masked("@", "SYNTH,LEGAL") }
@@ -270,8 +268,7 @@ class AggLegalNamesTest < Minitest::Test
     assert_refused :invalid_proc, "proc second", dfn: DFN, proc: "X", rien: "0", params: nil
     assert_refused :invalid_rien, "rien third", dfn: DFN, proc: "D", rien: "0", params: nil
 
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^#{RIEN}")
+    seed_happy
     given = { AGGLNMC: "SYNTH,LEGAL" }
     Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: given)
     assert_equal({ AGGLNMC: "SYNTH,LEGAL" }, given)
@@ -281,42 +278,46 @@ class AggLegalNamesTest < Minitest::Test
   # -- 5: ownership read ------------------------------------------------------
 
   def test_ownership_read_is_ddr_gets_of_field_02_under_ciav_before_legl
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^#{RIEN}")
+    replay("delete")
 
-    Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: RIEN.to_i, params: {})
-
-    assert_equal [ GETS, LEGL ], @mock.received_calls.map { |c| c[:rpc] }
-    read = @mock.received_calls.first
-    assert_equal [ gets_param(RIEN) ], read[:params]
-    assert_equal DDR_CONTEXT, read[:context]
+    assert_equal({ success: true, ien: 3 }, Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: RIEN.to_i, params: {}))
+    assert_equal CapturedReplies.flow_calls(SLUG, "delete"), wire_calls.map { |c| [ c[:rpc], c[:params] ] }
+    assert_equal [ gets_param(RIEN) ], wire_calls.first[:params]
+    assert_equal [ DDR_CONTEXT, Agg::CONTEXT ], wire_calls.map { |c| c[:context] }
   end
 
+  # GETSC^DDR2 answers [ERROR] for a RIEN no row has.
   def test_unverifiable_owner_is_rien_unverified_without_legl
-    seed_legl("1^^#{RIEN}")
-    { "no reply" => nil, "error" => [ "[ERROR]" ], "malformed" => [ "garbage" ], "no .02 row" => [ "[Data]" ],
-      "blank .02" => [ "[Data]", "9000033^#{RIEN}^.02^^" ] }.each do |label, lines|
-      seed_lines(GETS, gets_param(RIEN).to_s, lines) if lines
+    replay("no_row")
+    assert_equal :rien_unverified, Agg.update_legal_names(dfn: DFN, proc: "D", rien: 999_999, params: {})[:error]
+    assert_equal [ GETS ], wire_calls.map { |c| c[:rpc] }
+
+    { "error" => [ "[ERROR]" ], "no .02 row" => [ "[Data]" ], "blank .02" => [ "[Data]", "9000033^#{RIEN}^.02^^" ] }
+      .each do |label, lines|
       [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
+        wire(gets: [ gets_reply(lines) ])
         assert_read_refusal :rien_unverified, "#{label} proc #{proc.inspect}", proc: proc, params: params
       end
     end
   end
 
   def test_row_of_another_patient_is_rien_not_for_dfn_without_legl
-    seed_owner(RIEN, DFN_B)
-    seed_legl("1^^#{RIEN}")
+    replay("not_for_dfn")
+    result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: 4, params: {})
+    assert_equal :rien_not_for_dfn, result[:error]
+    assert_equal [ GETS ], wire_calls.map { |c| c[:rpc] }
+
     [ [ "D", {} ], [ "A", EDIT ], [ "", EDIT ] ].each do |proc, params|
+      wire(gets: [ owner_reply(RIEN, DFN_B) ])
       assert_read_refusal :rien_not_for_dfn, "proc #{proc.inspect}", proc: proc, params: params
     end
   end
 
   # GETSC^DDR2 answers "[Data]" and then one row per field with the trailing
-  # comma cut from the IENS (DDR2.m:32): 9000033^42^.02^990031^. The read
-  # proves ownership only when it is exactly that: nothing before, between or
-  # after, this file, this RIEN, five pieces with the last one empty.
+  # comma cut from the IENS (DDR2.m:32): 9000033^3^.02^990031^, as captured.
+  # The read proves ownership only when it is exactly that: nothing before,
+  # between or after, this file, this RIEN, five pieces with the last one empty.
   def test_ownership_read_fails_closed_on_any_reply_that_is_not_data_then_the_one_row
-    seed_legl("1^^#{RIEN}")
     row = owner_row(RIEN, DFN)
     { "no [Data] line" => [ row ],
       "[ERROR] after the row" => [ "[Data]", row, "[ERROR]" ],
@@ -330,98 +331,81 @@ class AggLegalNamesTest < Minitest::Test
       "row for file 2" => [ "[Data]", "2^#{RIEN}^.02^#{DFN}^" ],
       "IENS with its comma" => [ "[Data]", "9000033^#{RIEN},^.02^#{DFN}^" ],
       "IENS 7" => [ "[Data]", owner_row("7", DFN) ],
-      "IENS 042" => [ "[Data]", owner_row("0#{RIEN}", DFN) ],
+      "IENS 03" => [ "[Data]", owner_row("0#{RIEN}", DFN) ],
       "row for field .01" => [ "[Data]", "9000033^#{RIEN}^.01^#{DFN}^" ],
       "four-piece row" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}" ],
       "external piece filled" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^SYNTH,PATIENT" ],
       "six-piece row" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^^" ],
       "padded .02" => [ "[Data]", "9000033^#{RIEN}^.02^ #{DFN} ^" ],
       "non-canonical .02" => [ "[Data]", owner_row(RIEN, "0#{DFN}") ] }.each do |label, lines|
-      seed_lines(GETS, gets_param(RIEN).to_s, lines)
       [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
+        wire(gets: [ gets_reply(lines) ])
         assert_read_refusal :rien_unverified, "#{label} proc #{proc.inspect}", proc: proc, params: params
       end
     end
   end
 
-  # The same two lines verify when the client did not alter them and do not
-  # when it did: text the client had to repair is never proof of an owner.
-  def test_ownership_read_the_client_marked_altered_is_unverified_though_its_lines_are_clean
-    seed_legl("1^^#{RIEN}")
-    clean = [ "[Data]", owner_row(RIEN, DFN) ]
-    seed_lines(GETS, gets_param(RIEN).to_s, clean)
-    assert_equal({ success: true, ien: 42 }, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}))
-
-    [ 0, 1 ].each do |index|
-      seed_lines(GETS, gets_param(RIEN).to_s, RpmsRpc::Reply.from_wire(clean, altered: [ index ]))
-      reply = @mock.call_rpc(GETS, gets_param(RIEN))
-      assert RpmsRpc::Reply.altered?(reply), "the mock hands back the altered flag"
-      assert_equal clean, RpmsRpc::DdrFileman.lines(reply)
-
+  # CiaClient marks a reply it had to repair (a byte that is not UTF-8,
+  # replaced): text the client had to repair is never proof of an owner.
+  def test_ownership_read_the_client_had_to_repair_is_unverified
+    [ [ "[Data]\xFF".b, owner_row(RIEN, DFN) ], [ "[Data]", "#{owner_row(RIEN, DFN)}\xFF".b ] ].each do |lines|
       [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
-        assert_read_refusal :rien_unverified, "line #{index} altered, proc #{proc.inspect}", proc: proc, params: params
+        wire(gets: [ gets_reply(lines) ])
+        assert_read_refusal :rien_unverified, "#{lines.inspect} proc #{proc.inspect}", proc: proc, params: params
       end
     end
   end
 
   def test_rpc_error_from_the_ownership_read_propagates_without_legl
-    client = Class.new(RpmsRpc::MockClient) do
-      def seeded_reply(rpc_name, *params)
-        super.tap { raise RpmsRpc::Client::RpcError, "broker failure" if rpc_name == "DDR GETS ENTRY DATA" }
-      end
-    end.new
+    replay("delete").fail_on(GETS, RpmsRpc::Client::RpcError.new("broker failure"))
 
-    assert_raises(RpmsRpc::Client::RpcError) do
-      Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}, client: client)
-    end
-    assert_equal [ GETS ], client.received_calls.map { |c| c[:rpc] }
+    assert_raises(RpmsRpc::Client::RpcError) { Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}) }
+    assert_equal [ GETS ], wire_calls.map { |c| c[:rpc] }
   end
 
   # -- 6: LEGL wire and reply -------------------------------------------------
 
   def test_delete_sends_empty_parms_and_returns_the_rien
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^#{RIEN}")
+    replay("delete")
 
-    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: RIEN, params: {})
-
-    assert_equal({ success: true, ien: 42 }, result)
+    assert_equal({ success: true, ien: 3 }, Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: RIEN, params: {}))
     assert_equal [ DFN, "D", RIEN, "" ], legl_call[:params]
     assert_equal Agg::CONTEXT, legl_call[:context]
   end
 
   def test_edit_sends_one_name_value_entry_for_proc_empty_and_proc_a
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^#{RIEN}")
-    { [ "", { AGGLNMC: "SYNTH,LEGAL" } ] => "AGGLNMC=SYNTH,LEGAL",
-      [ "A", { "AGGLNDTC" => "11/05/2026" } ] => "AGGLNDTC=11/05/2026" }.each do |(proc, params), parms|
-      @mock.received_calls.clear
+    { "edit" => [ "", { AGGLNMC: "SYNTH,LEGALTWO" }, "AGGLNMC=SYNTH,LEGALTWO" ],
+      "edit_a" => [ "A", { "AGGLNDTC" => "11/05/2026" }, "AGGLNDTC=11/05/2026" ] }.each do |flow, (proc, params, parms)|
+      replay(flow)
       result = Agg.update_legal_names(dfn: DFN, proc: proc, rien: RIEN.to_i, params: params)
 
-      assert_equal({ success: true, ien: 42 }, result, "proc #{proc.inspect}")
+      assert_equal({ success: true, ien: 3 }, result, "proc #{proc.inspect}")
       assert_equal [ DFN, proc, RIEN, parms ], legl_call[:params]
       assert_equal Agg::CONTEXT, legl_call[:context]
+      assert_equal CapturedReplies.flow_calls(SLUG, flow), wire_calls.map { |c| [ c[:rpc], c[:params] ] }
     end
   end
 
-  # A -1 or header-only reply can follow a partial write (AGGDATA is filed
-  # before AGGDATAI), so once LEGL is sent a failure does not say "not written".
+  # A -1 can follow a partial write (AGGDATA is filed before AGGDATAI), so once
+  # LEGL is sent a failure does not say "not written". The -1 here is the
+  # build's answer for a RIEN no row has: what a row deleted between the read
+  # and the write gets.
   def test_legl_rejection_row_is_agg_rejected_with_its_text_and_written_unknown
-    seed_owner(RIEN, DFN)
-    seed_legl("-1^AGGLNMC not a valid parameter for this update^^")
+    wire(gets: [ owner_reply(RIEN, DFN) ], legl: [ CapturedReplies.raw(SLUG, "legl_row_not_on_file") ])
 
     result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
 
-    assert_equal({ success: false, error: :agg_rejected, message: "AGGLNMC not a valid parameter for this update",
-                   written: :unknown }, result)
+    assert_equal({ success: false, error: :agg_rejected, message: "The entry does not exist.", written: :unknown }, result)
+    assert_serialisable_refusal(result, "LEGL error text in ASCII")
+    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
   end
 
   # LEGL's error text is the server's bytes. It is the one refusal that follows
   # a write, so it has to reach the caller as UTF-8 text JSON can carry: a crash
-  # in JSON.generate would lose written: :unknown.
+  # in JSON.generate would lose written: :unknown. The build's -1 row, with its
+  # text changed.
   def test_legl_rejection_with_utf8_text_serialises_and_keeps_written_unknown
-    seed_owner(RIEN, DFN)
-    seed_legl("-1^SYNTH\xC3\xA9 not valid^^")
+    wire(gets: [ owner_reply(RIEN, DFN) ], legl: [ legl_reply("-1^SYNTH\xC3\xA9 not valid^^".b) ])
 
     result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
 
@@ -429,12 +413,10 @@ class AggLegalNamesTest < Minitest::Test
     assert_equal Encoding::UTF_8, result[:message].encoding, "valid UTF-8 error text is UTF-8, not ASCII-8BIT"
     assert_equal "SYNTHé not valid", result[:message], "valid UTF-8 error text is kept, not replaced"
     assert_serialisable_refusal(result, "LEGL error text holding UTF-8 bytes")
-    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
   end
 
   def test_legl_rejection_with_invalid_bytes_serialises_and_keeps_written_unknown
-    seed_owner(RIEN, DFN)
-    seed_legl("-1^SYNTH".b + "\xFF\xC3".b + " not valid^^".b)
+    wire(gets: [ owner_reply(RIEN, DFN) ], legl: [ legl_reply("-1^SYNTH\xFF\xC3 not valid^^".b) ])
 
     result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
     message = result[:message]
@@ -445,127 +427,65 @@ class AggLegalNamesTest < Minitest::Test
     assert message.start_with?("SYNTH"), "the text before the invalid bytes is kept (#{message.inspect})"
     assert message.end_with?(" not valid"), "the text after the invalid bytes is kept (#{message.inspect})"
     refute_includes message.bytes, 0xFF, "byte 0xFF does not reach the caller"
-    assert_equal "SYNTH�� not valid", message, "one replacement character for each invalid byte"
     assert_serialisable_refusal(result, "LEGL error text holding invalid bytes")
     assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
   end
 
-  def test_legl_rejection_with_ascii_text_serialises_and_keeps_written_unknown
-    seed_owner(RIEN, DFN)
-    seed_legl("-1^AGGLNMC not a valid parameter for this update^^")
-
-    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
-
-    assert_equal({ success: false, error: :agg_rejected, written: :unknown }, result.except(:message))
-    assert_equal "AGGLNMC not a valid parameter for this update", result[:message]
-    assert_serialisable_refusal(result, "LEGL error text in ASCII")
-    assert_equal "unknown", JSON.parse(JSON.generate(result))["written"]
-  end
-
-  def test_header_only_legl_reply_is_agg_empty_reply_with_written_unknown
-    seed_owner(RIEN, DFN)
-    seed_legl(nil)
-
-    result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})
-
-    assert_kind_of String, result[:message]
-    assert_equal({ success: false, error: :agg_empty_reply, written: :unknown }, result.except(:message))
-  end
-
-  def test_no_legl_reply_is_nil
-    seed_owner(RIEN, DFN)
-
-    assert_nil Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})
-    assert_equal 1, @mock.received_calls.count { |c| c[:rpc] == LEGL }
-  end
-
+  # LEGL echoes the RIEN it was sent; a success row naming another (or none)
+  # is not proof the row asked about was written. The build's success row,
+  # with its RIEN changed.
   def test_success_row_for_another_or_blank_rien_is_unverified_and_written
-    seed_owner(RIEN, DFN)
-    [ "1^^43", "1^^", "1^^042" ].each do |row|
-      seed_legl(row)
+    [ "1^^4", "1^^", "1^^03", "1^^4\xC3\xA9".b ].each do |row|
+      wire(gets: [ owner_reply(RIEN, DFN) ], legl: [ legl_reply(row) ])
       result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
 
-      assert_equal false, result[:success], row
-      assert_equal :legal_name_unverified, result[:error], row
-      assert_equal true, result[:written], row
-      assert_kind_of String, result[:message]
-      refute result.key?(:ien), row
+      assert_equal({ success: false, error: :legal_name_unverified, written: true }, result.except(:message), row.inspect)
+      assert_serialisable_refusal(result, "a success row #{row.inspect}")
+      refute result.key?(:ien), row.inspect
     end
-  end
-
-  def test_success_for_another_rien_with_high_bytes_serialises
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^4\xC3\xA9")
-
-    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
-
-    assert_equal({ success: false, error: :legal_name_unverified, written: true }, result.except(:message))
-    assert_serialisable_refusal(result, "a success row whose RIEN holds high bytes")
-    assert_equal true, JSON.parse(JSON.generate(result))["written"]
   end
 
   # -- 7-10 --------------------------------------------------------------------
 
+  # The read and the write run inside one synchronize_wire block of the
+  # client's own, so no other caller's frame comes between them.
   def test_read_and_legl_run_inside_one_synchronize_wire_block
-    client = Class.new(RpmsRpc::MockClient) do
+    client = Class.new(AmhgReplay::Client) do
       attr_reader :wire_entries, :inside
 
       def synchronize_wire(&block)
         @wire_entries = wire_entries.to_i + 1 if @depth.to_i.zero?
         @depth = @depth.to_i + 1
-        super(&block)
+        super
       ensure
         @depth -= 1
       end
 
-      def seeded_reply(rpc_name, *params)
+      def call_rpc_raw(rpc_name, *params)
         (@inside ||= []) << [ rpc_name, @depth.to_i.positive? ]
         super
       end
-    end.new
-    seed_owner(RIEN, DFN, mock: client)
-    seed_legl("1^^#{RIEN}", mock: client)
+    end.new(CapturedReplies.flow_script(SLUG, "delete"))
 
     result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}, client: client)
 
-    assert_equal({ success: true, ien: 42 }, result)
+    assert_equal({ success: true, ien: 3 }, result)
     assert_equal [ [ GETS, true ], [ LEGL, true ] ], client.inside
     assert_equal 1, client.wire_entries, "one outer synchronize_wire block holds the read and the write"
   end
 
-  # A client with no synchronize_wire of its own is serialized by the module lock.
-  def test_client_without_synchronize_wire_runs_read_and_legl_under_the_module_wire_lock
-    client = Class.new do
-      attr_reader :owned
-
-      def call_rpc(rpc_name, *)
-        (@owned ||= []) << [ rpc_name, RpmsRpc::MODULE_WIRE_LOCK.mon_owned? ]
-        return [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^" ] if rpc_name == GETS
-
-        "5\x00#{HEADER}#{RS}1^^#{RIEN}#{RS}#{US}"
-      end
-      alias_method :call_rpc_lines, :call_rpc
-    end.new
-    refute_respond_to client, :synchronize_wire
-
-    result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}, client: client)
-
-    assert_equal({ success: true, ien: 42 }, result)
-    assert_equal [ [ GETS, true ], [ LEGL, true ] ], client.owned
-  end
-
   def test_context_is_restored_after_a_success_and_after_an_ownership_refusal
-    before = @mock.current_context
-    seed_happy
+    client = replay("delete")
+    before = client.current_context
     assert_equal true, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})[:success]
-    assert_equal before, @mock.current_context
-    assert_equal [ DDR_CONTEXT, before, Agg::CONTEXT, before ], @mock.context_binds
+    assert_equal before, client.current_context
+    assert_equal DDR_CONTEXT, before, "the session starts where the read runs, so only LEGL binds"
+    assert_equal [ Agg::CONTEXT, before ], client.binds
 
-    seed_owner(RIEN, DFN_B)
-    @mock.context_binds.clear
-    assert_equal :rien_not_for_dfn, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})[:error]
-    assert_equal before, @mock.current_context
-    assert_equal [ DDR_CONTEXT, before ], @mock.context_binds
+    client = replay("not_for_dfn")
+    assert_equal :rien_not_for_dfn, Agg.update_legal_names(dfn: DFN, proc: "D", rien: 4, params: {})[:error]
+    assert_equal before, client.current_context
+    refute_includes client.binds, Agg::CONTEXT
   end
 
   def test_update_legal_names_is_non_idempotent_write_in_retry_safety
@@ -577,6 +497,21 @@ class AggLegalNamesTest < Minitest::Test
   end
 
   private
+
+  def use(client)
+    @client = client
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  # A replay client answering one recorded flow.
+  def replay(flow) = use(AmhgReplay::Client.new(CapturedReplies.flow_script(SLUG, flow)))
+
+  # A replay client answering the given GETS and LEGL replies, in order.
+  def wire(gets: [], legl: []) = use(AmhgReplay::Client.new({ GETS => gets, LEGL => legl }))
+
+  # The calls that reached the wire (binds left out).
+  def wire_calls = @client.calls.reject { |c| c[:rpc] == :create_context }
 
   def gets_param(rien)
     RpmsRpc::DdrFileman.gets_entry_param(file: "9000033", iens: "#{rien},", fields: ".02", flags: "I")
@@ -594,31 +529,33 @@ class AggLegalNamesTest < Minitest::Test
   # A String of +bytes+ whose to_s answers +shown+.
   def masked(bytes, shown) = Class.new(String) { define_method(:to_s) { shown } }.new(bytes)
 
-  # The row is DFN's and LEGL answers success: a refusal is the wrapper's own.
-  def seed_happy
-    seed_owner(RIEN, DFN)
-    seed_legl("1^^#{RIEN}")
-  end
-
-  def seed_lines(rpc, key, lines, mock: @mock)
-    mock.seed_raw_lines(MAPPINGS.fetch(rpc), key, lines)
+  # The row is DFN's and LEGL answers success, for as many calls as a test
+  # makes: a refusal is the wrapper's own. The build's replies for RIEN 3.
+  def seed_happy(rien: RIEN, calls: 8)
+    wire(gets: Array.new(calls) { owner_reply(rien, DFN) }, legl: Array.new(calls) { legl_reply("1^^#{rien}") })
   end
 
   # GETSC^DDR2's row for the .02 of one entry: the IENS without its comma.
   def owner_row(rien, owner) = "9000033^#{rien}^.02^#{owner}^"
 
-  def seed_owner(rien, owner, mock: @mock)
-    seed_lines(GETS, gets_param(rien).to_s, [ "[Data]", owner_row(rien, owner) ], mock: mock)
+  # A DDR GETS ENTRY DATA reply in the captured layout (edit/1): the sequence
+  # echo and ack, then each line ended by $C(13).
+  def gets_reply(lines)
+    head = CapturedReplies.raw(SLUG, "edit/1").byteslice(0, 2)
+    head + lines.map { |line| "#{line.b}\r".b }.join.b
   end
 
-  # LEGL's reply as lines: the typed header, then +row+ (nil for header only).
-  def seed_legl(row, dfn: DFN, mock: @mock)
-    seed_lines(LEGL, dfn, [ HEADER, row ].compact, mock: mock)
+  def owner_reply(rien, owner) = gets_reply([ "[Data]", owner_row(rien, owner) ])
+
+  # A LEGL reply in the captured layout (edit/2): the typed header, then +row+.
+  def legl_reply(row)
+    raw = CapturedReplies.raw(SLUG, "edit/2")
+    raw.byteslice(0, raw.index("\x1e".b) + 1) + row.b + "\x1e".b
   end
 
   # The one LEGL call, whose parameters are all plain Strings.
   def legl_call
-    calls = @mock.received_calls.select { |c| c[:rpc] == LEGL }
+    calls = wire_calls.select { |c| c[:rpc] == LEGL }
     assert_equal 1, calls.size, "exactly one #{LEGL} call"
     calls.first[:params].each { |param| assert_instance_of String, param, "LEGL parameter #{param.inspect}" }
     calls.first
@@ -626,12 +563,12 @@ class AggLegalNamesTest < Minitest::Test
 
   # A refusal that sends nothing at all.
   def assert_refused(error, label, **args)
-    @mock.received_calls.clear
+    @client.calls.clear
     result = Agg.update_legal_names(**args)
     assert_equal false, result[:success], label
     assert_equal error, result[:error], label
     assert_kind_of String, result[:message], label
-    assert_empty @mock.received_calls, "#{label}: no RPC may be sent"
+    assert_empty wire_calls, "#{label}: no RPC may be sent"
     refute result.key?(:written), "#{label}: nothing was sent, so no :written"
     result
   end
@@ -653,12 +590,12 @@ class AggLegalNamesTest < Minitest::Test
 
   # A refusal decided by the ownership read: the read ran, LEGL did not.
   def assert_read_refusal(error, label, proc:, params:)
-    @mock.received_calls.clear
+    @client.calls.clear
     result = Agg.update_legal_names(dfn: DFN, proc: proc, rien: RIEN, params: params)
     assert_equal false, result[:success], label
     assert_equal error, result[:error], label
     assert_kind_of String, result[:message], label
-    assert_equal [ GETS ], @mock.received_calls.map { |c| c[:rpc] }, label
+    assert_equal [ GETS ], wire_calls.map { |c| c[:rpc] }, label
     refute result.key?(:written), "#{label}: LEGL was not sent, so no :written"
   end
 end

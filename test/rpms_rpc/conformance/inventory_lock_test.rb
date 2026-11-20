@@ -147,6 +147,18 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     end
   end
 
+  # The pinned face's LOCK column and XUS SIGNON rows, read as XWBSEC reads them: ADEKRPC is locked
+  # by ADEZMENU on this build, and sign-on RPCs run under any bound context.
+  def test_the_verified_surface_reads_locks_and_sign_on_from_the_contexts_face
+    with_inventory do |dir|
+      surface = Lock.verify_dir(TAG, dir).surface
+      assert_equal "ADEKRPC is locked by ADEZMENU", surface.bind_refusal("ADEKRPC")
+      assert_nil surface.bind_refusal("ADEKRPC", keys: [ "ADEZMENU" ])
+      assert_nil surface.context_refusal("OR CPRS GUI CHART", "XUS SIGNON SETUP")
+      assert_nil surface.context_refusal("OR CPRS GUI CHART", "XWB CREATE CONTEXT")
+    end
+  end
+
   def test_verify_dir_rejects_a_provenance_without_the_reach_face
     with_inventory do |dir|
       edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d.delete("rpc_reach") }
