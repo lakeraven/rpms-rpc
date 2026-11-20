@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 
 # rpms-rpc#477 round 4: controls: true on a blob must not fold its line
 # terminators into spaces, or two lines become one assessed row and a marker or
