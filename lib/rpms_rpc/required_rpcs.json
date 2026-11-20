@@ -24,11 +24,13 @@
       "AGG UNLOCK PATIENT",
       "AGG UPDATE A MULTIPLE RECORD",
       "AGG UPDATE ALIASES",
+      "AGG UPDATE LEGAL NAMES",
       "AGG UPDATE PATIENT",
       "AGG UPDATE SPECIAL MULTIPLES",
       "AGG WINDOW DATA VALIDATION",
       "AGG WINDOW TABLE LOOKUP",
-      "CIANBRPC CANRUN"
+      "CIANBRPC CANRUN",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::Allergen": [
       "ORWDAL32 ALLERGY MATCH"
@@ -716,6 +718,12 @@
         "RpmsRpc::Agg.update_aliases": "non_idempotent_write",
         "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
         "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "AGG UPDATE LEGAL NAMES": {
+      "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write"
       },
       "replies": []
     },
@@ -1450,7 +1458,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bgovcpt.yml",
-        "test/fixtures/captured_replies/procedure-add.yml"
+        "test/fixtures/captured_replies/procedure-add.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml"
       ]
     },
     "BGOVEXAM GET": {
@@ -1994,6 +2003,7 @@
     },
     "DDR GETS ENTRY DATA": {
       "methods": {
+        "RpmsRpc::Agg.update_legal_names": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_health_factors": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write",
@@ -2241,6 +2251,7 @@
         "test/fixtures/captured_replies/clinical-data.yml",
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
     },
@@ -2688,6 +2699,7 @@
       "replies": [
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwpt-id-info.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-id-info.yml"
       ]
     },
@@ -2711,6 +2723,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-select.yml"
       ]
     },

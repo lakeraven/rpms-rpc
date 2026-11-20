@@ -1,0 +1,44 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb retry-safety-reads.rb.
+---
+rpc: ORWPT SELECT
+entry_point: SELECT^ORWPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:27:33Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: patient_find/1
+  rpc: ORWPT SELECT
+  inputs:
+  - '2'
+  context: Patient.find of DFN 2
+  raw_return: "5\0USER,TEST^M^2850505^^^^^A^0^^0^0^^^41^0"
+  sha256: a2fe7635bc9ed1f4d3981fd2a369c2524602788fc94bad0f4681a52922b995cf
+- name: patient_find/2
+  rpc: ORWPT ID INFO
+  inputs:
+  - '2'
+  context: Patient.find of DFN 2
+  raw_return: "6\0^2850505^M^N^^^^USER,TEST"
+  sha256: 73467baefdea3c769d67d4dbf2cff63b7f6273c30acb3e38a97819abba3edc55
+- name: allergy_for_patient/1
+  rpc: ORQQAL LIST
+  inputs:
+  - '2'
+  context: Allergy.for_patient of DFN 2
+  raw_return: "5\01^PENICILLIN^^HIVES\r"
+  sha256: 838138eeebfe8230532553a887cfd0756798bb4ca4944aaebb85035eb279cc53
+- name: procedure_for_patient/1
+  rpc: BGOVCPT GET
+  inputs:
+  - '2'
+  context: Procedure.for_patient of DFN 2
+  raw_return: "5\008/25/2026^000012^DEMO IHS CLINIC^J1670^Tetanus immune globulin
+    inj^Tetanus immune globulin inj^^^^^5^1^4726^1^^^^0^CPT^\r08/25/2026^000012^DEMO
+    IHS CLINIC^M1299^Flu immunize order/admin^Flu immunize order/admin^^^^^6^1^6957^1^^^^0^CPT^\r10/05/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^10^12^4726^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 80bf79c9a29cdcfb726dbe10a200e42dbea6de45253999870603d1fb0cc79817
