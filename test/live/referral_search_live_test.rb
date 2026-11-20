@@ -15,7 +15,7 @@ require "rpms_rpc/api/referral"
 # answer may be empty; what this proves is that the call answers, and that any
 # row it does return belongs to the patient asked for.
 class ReferralSearchLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 4 # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
 
   def test_for_patient_answers_with_that_patients_referrals
@@ -23,6 +23,6 @@ class ReferralSearchLiveTest < LiveSpec::Test
 
     assert_kind_of Array, rows
     rows.each { |row| assert_equal DFN, row[:patient_dfn], "for_patient(#{DFN}) returned #{row[:ien]}, another patient's referral" }
-    puts "\n#{persona}: Referral.for_patient(#{DFN}) answered #{rows.size} referral(s)"
+    puts "\n#{role}: Referral.for_patient(#{DFN}) answered #{rows.size} referral(s)"
   end
 end

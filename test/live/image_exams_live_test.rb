@@ -16,7 +16,7 @@ require "rpms_rpc/server_clock"
 # values, as a seed files them: the input transforms (CN^RAREG1, ^RASTREQ) are
 # for the interactive registration. It deletes what it filed. rpms-rpc#766.
 class ImageExamsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = "990001"
@@ -39,7 +39,7 @@ class ImageExamsLiveTest < LiveSpec::Test
       assert_equal exam[:case_number], row[:case_number]
       assert_equal "No Report", row[:status], "no report is filed for the exam"
       assert_nil row[:abnormal], "no diagnostic code, so no abnormal alert"
-      puts "\n#{persona}: exam #{row[:exam_id]} read back as #{row.inspect}"
+      puts "\n#{role}: exam #{row[:exam_id]} read back as #{row.inspect}"
     ensure
       remove_exam
     end

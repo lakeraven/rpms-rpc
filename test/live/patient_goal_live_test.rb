@@ -12,7 +12,7 @@ require "rpms_rpc/api/patient_goal"
 #
 # WRITES against a disposable local container only.
 class PatientGoalLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_044 # THISTLEDOWN,RILEY, a synthetic seed patient; unused by other live specs
@@ -22,7 +22,7 @@ class PatientGoalLiveTest < LiveSpec::Test
   def test_a_filed_goal_reads_back_with_its_types_and_review
     facility = facility!
     stamp = Time.now.utc.strftime("%H%M%S")
-    name = "Walk 30 minutes a day #{persona} #{stamp}"
+    name = "Walk 30 minutes a day #{role} #{stamp}"
     number = rpc("BEHOPGAP NEXTGN", DFN.to_s, facility).to_s
     flunk "BEHOPGAP NEXTGN answered #{number.inspect}" unless number.match?(/\A\d+\z/)
 
@@ -52,7 +52,7 @@ class PatientGoalLiveTest < LiveSpec::Test
     assert_equal "D", gone&.dig(:status), "a deleted goal is listed with status D: #{gone.inspect}"
 
     assert_empty RpmsRpc::PatientGoal.for_patient(999_999_999)
-    puts "\n#{persona}: goal #{ien} (number #{number}) on DFN #{DFN} reads back through BEHOPGAP GETGOAL"
+    puts "\n#{role}: goal #{ien} (number #{number}) on DFN #{DFN} reads back through BEHOPGAP GETGOAL"
   end
 
   private

@@ -20,7 +20,7 @@ require "rpms_rpc/api/problem"
 #
 # WRITES against a disposable local container only.
 class ProblemIntegratedLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_046 # VANTAGE,TAYLOR, a synthetic seed patient; unused by other live specs
@@ -32,7 +32,7 @@ class ProblemIntegratedLiveTest < LiveSpec::Test
   def test_a_filed_problem_reads_back_through_the_integrated_list
     refute_nil RpmsRpc::Patient.find(DFN), "DFN #{DFN} must exist on this disposable container"
     stamp = Time.now.utc.strftime("%H%M%S")
-    narrative = "SYNTH IPL PROBLEM #{persona} #{stamp}"
+    narrative = "SYNTH IPL PROBLEM #{role} #{stamp}"
     added = RpmsRpc::Problem.add(DFN, icd_code: ICD, snomed_ct: SNOMED, description: narrative,
                                       location_ien: problem_location!, status: "Chronic", onset_date: "11/01/2026")
     assert added[:success], "Problem.add answered #{added.inspect}"
@@ -67,7 +67,7 @@ class ProblemIntegratedLiveTest < LiveSpec::Test
     assert_nil RpmsRpc::Problem.coded_active(DFN).find { |row| row[:ien] == ien }, "EDPROB does not list a deleted problem"
     assert_nil RpmsRpc::Problem.integrated_entry(999_999_999)
 
-    puts "\n#{persona}: PROBLEM #{ien} (SNOMED #{SNOMED}) reads back through BGOPROB GET, GETONE and EDPROB"
+    puts "\n#{role}: PROBLEM #{ien} (SNOMED #{SNOMED}) reads back through BGOPROB GET, GETONE and EDPROB"
   end
 
   def test_component_security_answers_the_users_keys_and_parameter_settings

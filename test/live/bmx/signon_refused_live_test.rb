@@ -22,7 +22,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> CIA_PORT=<its 9100> rake test:live
 class BmxSignonRefusedLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   broker :bmx
   connect_only!
   writes!

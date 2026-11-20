@@ -7,11 +7,11 @@ require "rpms_rpc/api/ddr_fileman"
 # The Tribal reads the pilot's registration slice uses, each on a generic
 # FileMan RPC (DDR GETS ENTRY DATA, DDR LISTER, DDR VALIDATOR) over IHS
 # PATIENT (#9000001), TRIBE (#9999999.03), SERVICE UNIT (#9999999.22) and
-# COMMUNITY (#9999999.05), as the registration persona (rpms-rpc#616).
+# COMMUNITY (#9999999.05), as the front desk clerk (rpms-rpc#616).
 # Enrollment on a panel patient is tribal_panel_enrollment_live_test.rb.
 # Reads only.
 class TribalReadsLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
 
   DFN = 990_001 # ALPHA,CASEY, a synthetic panel patient
 

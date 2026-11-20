@@ -14,7 +14,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class ChiefComplaintLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 2
@@ -24,7 +24,7 @@ class ChiefComplaintLiveTest < LiveSpec::Test
 
   def test_record_files_the_chief_complaint_on_the_visit_and_reads_back
     visit = open_visit!
-    text = "Joint pain and nausea for 4 days, live spec #{persona} #{Time.now.utc.strftime('%H%M%S')}"
+    text = "Joint pain and nausea for 4 days, live spec #{role} #{Time.now.utc.strftime('%H%M%S')}"
 
     result = RpmsRpc::ChiefComplaint.record(visit, text)
     assert result[:success], "ChiefComplaint.record answered #{result.inspect}"
@@ -45,7 +45,7 @@ class ChiefComplaintLiveTest < LiveSpec::Test
     assert_equal visit.to_s, fields.dig(".03", :internal), "V NARRATIVE TEXT #{ien} visit"
     assert_equal client.duz.to_s, fields.dig("1204", :internal), "V NARRATIVE TEXT #{ien} encounter provider"
 
-    puts "\n#{persona}: chief complaint #{ien} on visit #{visit} reads back through BGOCC GET and #{NARRATIVE_FILE}"
+    puts "\n#{role}: chief complaint #{ien} on visit #{visit} reads back through BGOCC GET and #{NARRATIVE_FILE}"
   end
 
   def test_a_visit_that_does_not_exist_is_refused_and_files_nothing

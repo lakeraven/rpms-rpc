@@ -16,7 +16,7 @@ require "rpms_rpc/server_clock"
 #
 # WRITES against a disposable local container only.
 class ErVisitLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_012       # LIMA,REESE, a synthetic seed patient; unused by other live specs

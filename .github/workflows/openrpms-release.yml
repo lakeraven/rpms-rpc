@@ -5,14 +5,16 @@ name: openrpms release
 #   Release gate  resolves the release (`rake openrpms:fetch`), then runs `rake test` with its RPC surface:
 #                 the name gate, the callable gate, Features and the stock-RPC checks run against it.
 #                 Writes tested-against.json (which release, how chosen, the result) as an artifact.
-#   Live          runs the live specs (`rake test:live`) against that release's image, once per persona
-#                 the live suite uses: PROV123 (least privilege) and SYS123 (programmer).
+#   Live          runs the live specs (`rake test:live`) against that release's image, once per test role
+#                 a live spec runs as (README, Test roles). Each role signs on with its row's published
+#                 pair (lib/rpms_rpc/test_roles.rb); the operator, the one role holding XUPROGMODE, takes
+#                 its verify code from a secret.
 #
 # Access. lakeraven/openrpms and its image are private, and GITHUB_TOKEN reaches only this repository:
 #   OPENRPMS_READ_TOKEN        a token that can read lakeraven/openrpms releases (Contents: read)
 #   GITHUB_TOKEN packages:read pulls the image once the openrpms package grants this repository
 #                              read access ("Manage Actions access" in the package settings)
-#   OPENRPMS_OPERATOR_VERIFY   SYS123's verify code (the operator pair is not published)
+#   OPENRPMS_OPERATOR_VERIFY   the operator role's verify code (SYS123's, the one pair not published)
 # A missing one fails its job with an error naming it; nothing is skipped quietly.
 #
 # The Release gate runs on every push to main and every pull request, daily (a new release moves "latest"
@@ -91,7 +93,7 @@ jobs:
           path: tested-against.json
 
   live:
-    name: Live (${{ matrix.persona }})
+    name: Live (${{ matrix.role }})
     needs: release
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -101,12 +103,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        persona: [PROV123, SYS123]
+        # Every role a live spec declares (LiveSpec.roles_in_use; live_spec_guard_test.rb checks the two agree).
+        role: [provider, nurse, medical_assistant, front_desk_clerk, registration_supervisor, scheduler, operator]
     env:
       GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
       OPENRPMS_RELEASE: ${{ needs.release.outputs.tag }}
       IMAGE: ${{ needs.release.outputs.image }}
-      PERSONA: ${{ matrix.persona }}
+      ROLE: ${{ matrix.role }}
       BROKER_HOST: 127.0.0.1
       BROKER_PORT: "9100"
       BMX_PORT: "9101"
@@ -140,22 +143,18 @@ jobs:
           docker logs rpms | tail -20
           echo "::error::RPMS did not become healthy"
           exit 1
-      - name: Sign-on pair
+      # Every other role signs on with its row's published pair; only the operator's verify code is a secret.
+      - name: The operator's verify code
+        if: matrix.role == 'operator'
         env:
           OPERATOR_VERIFY: ${{ secrets.OPENRPMS_OPERATOR_VERIFY }}
         run: |
-          case "$PERSONA" in
-            PROV123)
-              # The published staging pair; the gem's credential guard admits it only in development.
-              { echo "RPMS_ACCESS=PROV123"; echo "RPMS_VERIFY=PROV123!!"; echo "VISTA_RPC_ENV=development"; } >> "$GITHUB_ENV" ;;
-            SYS123)
-              if [ -z "$OPERATOR_VERIFY" ]; then
-                echo "::error title=No operator verify code::OPENRPMS_OPERATOR_VERIFY is not set, so the SYS123 (programmer) live run cannot sign on. An organization admin adds SYS123's verify code as that secret."
-                exit 1
-              fi
-              echo "::add-mask::$OPERATOR_VERIFY"
-              { echo "RPMS_ACCESS=SYS123"; echo "RPMS_VERIFY=$OPERATOR_VERIFY"; } >> "$GITHUB_ENV" ;;
-          esac
+          if [ -z "$OPERATOR_VERIFY" ]; then
+            echo "::error title=No operator verify code::OPENRPMS_OPERATOR_VERIFY is not set, so the operator role's live run cannot sign on. An organization admin adds SYS123's verify code as that secret."
+            exit 1
+          fi
+          echo "::add-mask::$OPERATOR_VERIFY"
+          echo "RPMS_VERIFY=$OPERATOR_VERIFY" >> "$GITHUB_ENV"
       - name: Run the live specs
         run: |
           set -o pipefail
@@ -164,7 +163,7 @@ jobs:
         if: failure()
         run: |
           {
-            echo "### Live specs that failed as $PERSONA on $OPENRPMS_RELEASE"
+            echo "### Live specs that failed as $ROLE on $OPENRPMS_RELEASE"
             echo
             grep -E '^ +[0-9]+\) (Failure|Error):' -A1 live.log | grep -E '^[A-Za-z].*#test_' | sed 's/^/- /' || true
           } >> "$GITHUB_STEP_SUMMARY"
@@ -172,7 +171,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-${{ matrix.persona }}
+          name: live-${{ matrix.role }}
           path: |
             coverage/live/
             live.log

@@ -12,9 +12,9 @@ require "rpms_rpc/api/coverage"
 # CMS example MBI 1EG4TE5MK73; FileMan subfile IENS are child-first (mien,dfn,);
 # assert row present before each delete, then gone after.
 class CoverageWriteLiveTest < LiveSpec::Test
-  # Registration (PREG123) holds AGGRPC but not BQIRPC on bcer-9.0-20261119-f67498c-ydb, and this
-  # sends BQI PATIENT INSURANCE, so the operator runs it until a release gives registration BQIRPC (#814).
-  runs_as "SYS123"
+  # The front desk clerk holds AGGRPC but not BQIRPC on bcer-9.0-20261119-f67498c-ydb, and this
+  # sends BQI PATIENT INSURANCE, so the operator runs it until a release gives the clerk BQIRPC (#814).
+  runs_as :operator
   writes!
 
   DFN = 990_048 # WILLOW,FINLEY on the pinned build; unused by other live specs
@@ -91,7 +91,7 @@ class CoverageWriteLiveTest < LiveSpec::Test
 
       assert_empty coverage_entries!, "coverage still listed after full cleanup: #{coverage_entries!.inspect}"
 
-      puts "\n#{persona}: Medicare/Medicaid coverage round-trip on DFN #{DFN}"
+      puts "\n#{role}: Medicare/Medicaid coverage round-trip on DFN #{DFN}"
     ensure
       cleanup_coverage!(mcr, mcd)
     end

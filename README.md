@@ -535,17 +535,17 @@ rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line p
   An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
 - **Registered:** each RPC is looked up on the #8994 registry of the openrpms release under test (`rake openrpms:fetch`), with its entry point `TAG^ROUTINE`.
 - **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`, including a call through a constant the file assigns a module (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.groups`) or a parameterless one-line helper that returns one (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.save_access_type`).
-  Each live spec runs as the persona whose role it proves (`runs_as`, see Live personas), so a proven method is proven as that persona.
+  Each live spec runs as the test role whose work it proves (`runs_as`, see Test roles), so a proven method is proven as those roles.
 - **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
-  This is static: whether the spec passes is `rake test:live`'s answer, per persona.
+  This is static: whether the spec passes is `rake test:live`'s answer, per role.
 
 The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input for a resource-oriented view of the API:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "registry": "bcer-9.0-20261012-e7923a4-ydb",
-  "personas": ["least-privilege", "programmer"],
+  "roles": ["provider", "nurse", "medical_assistant", "front_desk_clerk", "registration_supervisor", "scheduler", "billing_technician", "operator"],
   "summary": { "proven": 50, "public": 256, "unresolved_methods": 21, "unregistered_rpcs": [],
                "by_module": { "RpmsRpc::Patient": { "proven": 7, "public": 12 } } },
   "methods": [
@@ -557,7 +557,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
       "rpcs": [{ "name": "ORWPT SELECT", "registered": true, "entry_point": "SELECT^ORWPT", "reach": "client-callable", "via": "mapping :patient_select" }],
       "unresolved": [],
       "live_specs": ["test/live/patient_live_test.rb:59"],
-      "personas": ["least-privilege", "programmer"],
+      "roles": ["provider"],
       "status": "proven"
     }
   ]
@@ -571,7 +571,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 | `rpcs[]` | each RPC the method sends: `name`, `registered` on the release's registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the release's `rpcs.json`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
 | `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
 | `live_specs[]` | `file:line` of each call in `test/live/` |
-| `personas[]` | the personas those specs run as; empty when there are none |
+| `roles[]` | the test roles those specs run as (each spec's `runs_as`); empty when there are none |
 | `status` | `proven` or `not_in_contract` |
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
@@ -734,11 +734,11 @@ The gates (every RPC name registered, every RPC callable, every feature served) 
 The first `rake test` fetches it if needed, and `OPENRPMS_RELEASE=<tag>` names a specific release.
 That needs `gh` with read access to lakeraven/openrpms.
 `OPENRPMS_OFFLINE=1` keeps the run hermetic: those gate tests skip, each saying so, and the rest read a small fixture inventory cut from a real release.
-CI runs both: the hermetic `Test` job, and `.github/workflows/openrpms-release.yml`, which runs the gates and the live specs (PROV123 and SYS123) against the latest release and uploads `tested-against.json`.
+CI runs both: the hermetic `Test` job, and `.github/workflows/openrpms-release.yml`, which runs the gates and the live specs (once per test role) against the latest release and uploads `tested-against.json`.
 
 ### Test results, quickly
 
-`bundle exec rake report:daily` runs the hermetic suite, then the live specs once per live persona (PROV123, PMD123, PREG123, PSCH123 and SYS123; see Live personas), prints a summary with one row per persona, and writes one markdown file.
+`bundle exec rake report:daily` runs the hermetic suite, then the live specs once per test role a spec runs as (see Test roles), prints a summary with one row per role, and writes one markdown file.
 It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
 
 Point it at a broker in either of two ways.
@@ -746,7 +746,7 @@ Point it at a broker in either of two ways.
 - **An already-running broker.** Set `BROKER_HOST` and `BROKER_PORT` (a loopback address; `rake test:live` refuses any other host), and `BMX_PORT` for that target's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609). `BUILD`, when set, is the build under test; otherwise the build is the tag of the Docker image that publishes that port. A publish bound to `0.0.0.0` or `::` counts only when that host is loopback (`127.0.0.1`, `localhost`, or `::1`). When the tag cannot be determined, the report records `unknown` and the command exits non-zero.
 - **A fresh container of the newest `bcer-*-ydb` release.** `FRESH=1` starts that release's image with its CIA broker (9100) and BMX broker (9101) published on free `127.0.0.1` ports, passes the BMX port to each live run as `BMX_PORT`, waits until the CIA connect answers, runs the suites, and removes the container when it finishes, including after a suite failure, a connect timeout, or an interrupt. The build in the report is that release's tag, including when the image is pinned by digest. A `BUILD` value that names a different tag is an error and the suites do not run; a dry run applies the same check. Each run chooses a unique container name, the time plus a random hex token, before `docker run`, and removes only that name. A failed removal is reported and exits non-zero. `FRESH=1 DRY_RUN=1` prints the plan and leaves Docker, coverage, and the suites untouched. The release is the newest published GitHub release. When `gh api` cannot read that list, or `BUILD` does not match that tag, the error is written to the error stream, no plan is printed, and the command exits non-zero.
 
-The report process reads each persona's sign-on codes from `<PERSONA>_ACCESS` and `<PERSONA>_VERIFY` (`PMD123_ACCESS`, `PMD123_VERIFY`, and so on). Each persona's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that persona's `rake test:live` child, with `PERSONA` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. `<PERSONA>_ESIG` (`PROV123_ESIG`, `PMD123_ESIG`), the persona's electronic signature code, is placed in `RPMS_ESIG` in that child only. The clinician and the physician need it: the clinician's note-signing spec and the physician's sign-and-release spec fail without it, saying `RPMS_ESIG` is missing. PROV123 is a debug account, so that child also gets `VISTA_RPC_ENV=development`. A missing or blank pair skips that live run, records `missing PMD123_ACCESS/PMD123_VERIFY` (with that persona's names), and exits non-zero. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only. A demo access code is the persona's name, which the report prints anyway, so that value is left as it is; verify and signature codes are always scrubbed.
+Each role signs on with its row's published pair (`lib/rpms_rpc/test_roles.rb`), or with `<ROLE>_ACCESS` and `<ROLE>_VERIFY` when they are set (`PROVIDER_ACCESS`, `OPERATOR_VERIFY`, and so on). The operator's verify code is the one the table does not publish, so `OPERATOR_VERIFY` must be set; without it the operator's live run is skipped, records `missing OPERATOR_ACCESS/OPERATOR_VERIFY`, and the command exits non-zero. Each role's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that role's `rake test:live` child, with `ROLE` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. A signing role's electronic signature code is its row's; `<ROLE>_ESIG` (`PROVIDER_ESIG`), when set, is placed in `RPMS_ESIG` in that child only. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only. A published access code (PMD123) is left as it is; verify and signature codes are always scrubbed.
 
 The file is `<rpms-diffs>/rpc-coverage/daily/<date>-<build>.md`. `rpms-diffs` is the checkout beside this repo, or `RPMS_DIFFS_DIR`. The command stops before the suites, and before coverage, when `rpc-coverage/daily` is missing. Coverage does not run for `FRESH=1 DRY_RUN=1`. When `rake rpc:coverage` can run, its headline is included. When it cannot, the report says why. `rake rpc:coverage` reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR`.
 
@@ -755,8 +755,7 @@ The same checks can still be run one at a time:
 ```sh
 bundle exec rake report:daily
 FRESH=1 DRY_RUN=1 bundle exec rake report:daily
-FRESH=1 PROV123_ACCESS=... PROV123_VERIFY=... PROV123_ESIG=... PMD123_ACCESS=... PMD123_VERIFY=... PMD123_ESIG=... \
-  PREG123_ACCESS=... PREG123_VERIFY=... PSCH123_ACCESS=... PSCH123_VERIFY=... SYS123_ACCESS=... SYS123_VERIFY=... bundle exec rake report:daily
+FRESH=1 OPERATOR_VERIFY=... bundle exec rake report:daily
 
 bundle exec rake test
 bundle exec rake rpc:coverage
@@ -764,7 +763,7 @@ bundle exec rake rpc:coverage
 
 Each of those prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the live run's skips listed by issue (a live run in which no spec ran fails), and the coverage headline. Any failure exits non-zero.
 
-To run the live specs yourself, start one throwaway container of the newest `bcer-*-ydb` release, run the suite once per persona, then remove the container.
+To run the live specs yourself, start one throwaway container of the newest `bcer-*-ydb` release, run the suite once per test role, then remove the container.
 Many live specs write, so they run only when the target is declared disposable (`LIVE_DISPOSABLE=1`) and on this machine; without it each write spec fails with `LIVE_DISPOSABLE=1 is not set`.
 `BMX_PORT` is the same container's BMX broker, which patient registration uses for its duplicate lookup.
 `LIVE_BUILD` names the release in the run's summary; without it the summary names the release `rake openrpms:fetch` recorded.
@@ -775,40 +774,62 @@ docker run --detach --name rpms-live --publish 127.0.0.1:19100:9100 --publish 12
 docker inspect -f '{{.State.Health.Status}}' rpms-live   # repeat until it prints healthy
 
 export BROKER_HOST=127.0.0.1 BROKER_PORT=19100 BMX_PORT=19101 LIVE_DISPOSABLE=1 LIVE_BUILD=$TAG
-VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=PROV123 RPMS_VERIFY='PROV123!!' RPMS_ESIG=123456 bundle exec rake test:live
-PERSONA=PMD123 RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' RPMS_ESIG=123456 bundle exec rake test:live
-PERSONA=PREG123 RPMS_ACCESS=PREG123 RPMS_VERIFY='PREG123!!' bundle exec rake test:live
-PERSONA=PSCH123 RPMS_ACCESS=PSCH123 RPMS_VERIFY='PSCH123!!' bundle exec rake test:live
-PERSONA=SYS123 RPMS_ACCESS=SYS123 RPMS_VERIFY=... bundle exec rake test:live
+ROLE=provider bundle exec rake test:live
+ROLE=front_desk_clerk bundle exec rake test:live
+ROLE=scheduler bundle exec rake test:live
+ROLE=nurse bundle exec rake test:live   # and medical_assistant, registration_supervisor
+ROLE=operator RPMS_VERIFY=... bundle exec rake test:live
 
 docker rm -f rpms-live
 ```
 
-A file runs on its own the same way, as a persona it declares: `bundle exec ruby -Ilib -Itest test/live/<name>_live_test.rb`.
+A file runs on its own the same way, as a role it declares: `bundle exec ruby -Ilib -Itest test/live/<name>_live_test.rb`.
 A spec that writes changes the container's data, so start a new container for a clean run.
 
-#### Live personas
+#### Test roles
 
-Each live spec runs as the persona whose role it proves, with the least privilege that role needs (#452).
-A spec declares it (`runs_as "PREG123"`), and a run signs on as one persona and runs only the specs that declare it; the run's summary says how many spec classes ran as that persona and how many belong to another.
-A spec that declares no persona fails, and so does one run by hand as a persona it does not declare.
-`bundle exec rake test:live_personas` lists every spec under the persona that runs it.
+A live spec signs on as a test role, the way an app's tests sign on as an Admin or an Org Manager (#452).
 
-| Persona | User | Role | Runs |
-|---|---|---|---|
-| `PROV123` | PROVIDER,TEST | the clinician the pilot web tier signs on as | chart and clinical reads, notes, visits, problems, vitals, immunizations, referrals, alerts, Behavioral Health (AMHGRPC), sign-on and broker behaviour |
-| `PMD123` | PROFILE,MD | the physician | orders (including the unsigned order it authored), alerts, and the clinical writes PROV123 is not given |
-| `PREG123` | PROFILE,REG | registration | patient registration and edits, coverage, tribal enrollment (AGGRPC, and BMXRPC for the duplicate lookup) |
-| `PSCH123` | PROFILE,SCHED | scheduling | clinics, availability, booking, check-in and check-out, wait list (BSDXRPC) |
-| `SYS123` | MANAGER,SYSTEM | the operator | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration persona holds; #814) and build setup |
+- **Persona**: a role at the clinic, such as the provider or the front desk clerk, as openrpms-ux's `docs/product-cycle/PERSONAS.md` defines it.
+- **Test role**: what a test signs on as, named for the persona it plays (`provider`, `front_desk_clerk`).
+- **RPMS account**: the NEW PERSON (#200) entry behind a role, with its sign-on pair, the broker options its RPCs may run under, and its keys.
+- **Programmer**: an account holding XUPROGMODE. The broker answers a programmer under every option, so a programmer's run proves nothing about permissions. Only the operator is one.
 
-The demo personas' pairs are the build's published seed pairs; only the operator's is not shown here.
-What each persona is refused outside its role is itself proven: `test/live/least_privilege_live_test.rb` runs as every persona, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers its holders and refuses everyone else.
-When a release changes a persona's menus, that spec fails and its table moves with the build.
+A spec declares its role (`runs_as :scheduler`), and a run signs on as one role (`ROLE=scheduler`) and runs only the specs that declare it; the run's summary says how many spec classes ran as that role and how many belong to another.
+A spec that declares no role fails, and so does one run by hand as a role it does not declare.
+`PERSONA` is retired: a run that still sets it fails, naming the `ROLE` to set.
+`bundle exec rake test:live_roles` lists every spec under the role that runs it.
+
+Each role's account is defined once, in `lib/rpms_rpc/test_roles.rb`; the harness, `rake report:daily`, the wire captures and CI all read it.
+The accounts are the openrpms build's published demo users (SEEDPERS) on synthetic data, so their pairs are published there; only the operator's verify code is not, and a run as the operator takes it from `RPMS_VERIFY`.
+`RPMS_ACCESS`, `RPMS_VERIFY` and `RPMS_ESIG` override a row's codes for a target whose codes differ.
+
+| Role | RPMS account | Access code | Broker options its RPCs run under | Keys | XUPROGMODE | Runs |
+|---|---|---|---|---|---|---|
+| `provider` | PROFILE,MD | `PMD123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC, BMCRPC | PROVIDER, ORES, BMCZMENU, AMHZMENU | no | chart and clinical reads, notes, orders, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
+| `nurse` | PROFILE,RN | `PRN123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC | PROVIDER, ORELSE | no | the role refusal and key specs |
+| `medical_assistant` | PROFILE,MA | `PMA123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC | PROVIDER, OREMAS | no | the role refusal and key specs; the BMX context refusal |
+| `front_desk_clerk` | PROFILE,REG | `PREG123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU | no | patient registration and edits, coverage, tribal enrollment |
+| `registration_supervisor` | PROFILE,REGSUP | `PRSUP123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU, AGZMGR, AGZVIEWSSN, DGPF ASSIGNMENT | no | the role refusal and key specs |
+| `scheduler` | PROFILE,SCHED | `PSCH123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | SDZMENU, SDZREGMENU | no | clinics, availability, booking, check-in and check-out, wait list |
+| `billing_technician` | PROFILE,BILL | `PBIL123` | none a broker signs on with (no CIAV VUECENTRIC) | ABMZMENU, ABMDZ EDIT CLAIM AND EXPORT, BARZMENU | no | no spec yet; the CIA sign-on refusal uses its pair |
+| `operator` | MANAGER,SYSTEM | `SYS123` | every option (XUPROGMODE) | XUPROGMODE | yes | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration role holds; #814) and build setup |
+
+Least privilege means each row is minimal: the role holds what its persona's work needs and no more.
+`test/live/role_refusal_live_test.rb` proves every row: it runs as every role a broker signs on, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers the roles whose row holds it and refuses the rest.
+When a release changes an account's menus, that spec fails and the row moves with the build.
+One guard keeps a run honest: right after sign-on it asks whether the account holds XUPROGMODE, and every spec fails when that disagrees with the role's row, so an operator pair under another role's name cannot hide a permission gap.
+
+PROV123 (PROVIDER,TEST) is not a test role; it stays a stack's staging sign-on.
+Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it:
+
+- AMHGRPC for the provider, the Behavioral Health specs: https://github.com/lakeraven/openrpms/issues/1275
+- OR CPRS GUI CHART for the provider, the sensitive-record check, a note's patient, a user's roles, and the XWB user class: https://github.com/lakeraven/openrpms/issues/1276
+- XQAL GUI ALERTS for the provider, the notification spec: https://github.com/lakeraven/openrpms/issues/1277
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **Captured-reply tests** replay what a published release sent through the real broker client and assert what a host receives
-- **Live specs** (`test/live/`) call each public method on a container of a published release, as the persona whose role it proves
+- **Live specs** (`test/live/`) call each public method on a container of a published release, as the test role whose work it proves
 
 ### Releasing
 
@@ -820,11 +841,11 @@ The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverag
 `CHANGELOG.md` is not shipped, so the release section can quote the live summary without invalidating the source fingerprint.
 Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage config invalidates the suite.
 
-So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake changelog:assemble` and commit the result (`rake release` refuses while any fragment is left in `changelog.d/`), then `rake release`.
+So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per test role, then `rake changelog:assemble` and commit the result (`rake release` refuses while any fragment is left in `changelog.d/`), then `rake release`.
 A run during which a shipped file or the live suite changes is not recorded.
-A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
+A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that role. Delete the file if that role is not part of the release.
 
-The policy on top of that: a CIA summary is required (`<persona>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the release under test (`build_source` is `release`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
+The policy on top of that: a CIA summary is required (`<role>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the release under test (`build_source` is `release`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
 
 ## Contributing
 

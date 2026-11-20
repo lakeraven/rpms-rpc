@@ -17,10 +17,10 @@ require "rpms_rpc/api/ddr_fileman"
 # synthetic seed patients are DFNs 9900xx. When the seed changes, a spec fails
 # and names what it expected; it never skips.
 #
-# Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
-# and for the programmer alike. These specs read only; they file nothing.
+# Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for the provider
+# and for the operator alike. These specs read only; they file nothing.
 class PatientLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   MICKEY = { dfn: 3, name: "MOUSE,MICKEY M", sex: "M", dob: Date.new(1910, 2, 14), ssn: "000009999" }.freeze
   DEMO_ONE = { dfn: 4, name: "DEMO,PATIENT ONE", sex: "F", dob: Date.new(2001, 1, 1), mrn: "99901" }.freeze
   SEED_DFNS = (990_000..990_099)

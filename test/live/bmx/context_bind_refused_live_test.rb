@@ -16,27 +16,25 @@ require "date"
 # A registration by that user is refused the same way: AG checks each field
 # under AGGRPC, and the refused bind reaches the caller as a refusal, where it
 # used to read as :validation_unavailable (#702 left this BMX path open).
-# PROFILE,MA is that user on the build: a seeded persona whose secondary
-# menus are BMXRPC, BSTSRPC, BSDXRPC and CIAV VUECENTRIC, and not AGGRPC
-# (the release's personas.json). Its pair is a published demo pair.
+# The medical assistant (PROFILE,MA) is that user on the build: its row holds
+# BMXRPC and not AGGRPC (RpmsRpc::TestRoles, from the release's personas.json).
 #
-#   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
+#   ROLE=medical_assistant BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxContextBindRefusedLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :medical_assistant
   broker :bmx
   connect_only!
   writes! # the registration spec is refused before AG files anything
 
-  WITHOUT_AGGRPC = [ "PMA123", "PMA123!!" ].freeze
   HELD = "BMXRPC"
   NOT_HELD = "AGGRPC"
   UNKNOWN = "ZZ NO SUCH OPTION"
 
   def setup
     super
-    client.authenticate(*WITHOUT_AGGRPC)
+    client.authenticate(*sign_on_pair)
   rescue RpmsRpc::Client::AuthenticationError => e
-    flunk "PROFILE,MA cannot sign on over BMX on this build (#{e.message}): has the persona seed changed?"
+    flunk "#{role_row.account} cannot sign on over BMX on this build (#{e.message}): has the seed changed?"
   end
 
   def test_an_option_the_user_does_not_hold_is_refused_by_name

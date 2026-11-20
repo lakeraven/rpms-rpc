@@ -9,8 +9,9 @@ require "rpms_rpc/api/ddr_fileman"
 # RpmsRpc::BehavioralHealth.save_progress_note over AMHG SAVE PROGRESS NOTES
 # (PN^AMHGSVF, rpms-rpc#539). WRITES on a disposable container only.
 class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   writes!
 
   DFN = 990_033
@@ -114,7 +115,7 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
     assert_equal "", cleared.fetch(".18")
     assert_nil RpmsRpc::BehavioralHealth.visit_chief_complaint(visit_ien), "a cleared complaint reads back as none"
 
-    puts "\n#{persona}: BH visit #{visit_ien} progress note saved on DFN #{DFN} " \
+    puts "\n#{role}: BH visit #{visit_ien} progress note saved on DFN #{DFN} " \
          "(placement #{placement_ien}, multiline SOAP verified via AMHG GET VISIT SOAP)"
   end
 

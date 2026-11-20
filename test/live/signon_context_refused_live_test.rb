@@ -8,14 +8,14 @@ require_relative "live_helper"
 # PROFILE,BILL is that user on the build: a terminal user, the one SEEDPERS
 # persona without CIAV VUECENTRIC. Sign-on still fails closed.
 class SignonContextRefusedLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   connect_only!
 
-  TERMINAL_ONLY = [ "PBIL123", "PBIL123!!" ].freeze
-  HOLDS_THE_OPTION = [ "PMD123", "PMD123!!" ].freeze
+  def terminal_only = pair_of(:billing_technician) # its row holds no CIAV VUECENTRIC
+  def holds_the_option = sign_on_pair
 
   def test_valid_codes_without_the_option_are_told_that_and_stay_signed_out
-    error = assert_raises(RpmsRpc::Client::ContextRefusedError) { client.authenticate(*TERMINAL_ONLY) }
+    error = assert_raises(RpmsRpc::Client::ContextRefusedError) { client.authenticate(*terminal_only) }
 
     assert_kind_of RpmsRpc::Client::AuthenticationError, error, "a host that rescues AuthenticationError still fails closed"
     assert_match(/may not use CIAV VUECENTRIC/, error.message)
@@ -23,7 +23,7 @@ class SignonContextRefusedLiveTest < LiveSpec::Test
   end
 
   def test_a_user_who_holds_the_option_signs_on
-    result = client.authenticate(*HOLDS_THE_OPTION)
+    result = client.authenticate(*holds_the_option)
 
     assert result[:success]
     assert client.authenticated?

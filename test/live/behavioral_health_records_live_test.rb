@@ -12,8 +12,9 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # header back as a row whose IEN was "<seq>\x00T00010BMXIEN". Reads only.
 # The visit tabs of a filed visit are read in behavioral_health_save_pov_live_test.rb.
 class BehavioralHealthRecordsLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4"
   FROM = "3000101"

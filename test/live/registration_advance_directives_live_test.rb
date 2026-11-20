@@ -11,7 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Each write is read back through FileMan with DDR GETS ENTRY DATA, not through
 # the gem's own read, and the spec removes what it adds.
 class RegistrationAdvanceDirectivesLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   DFN = 990_046 # VANTAGE,TAYLOR, a synthetic seed patient no other live spec writes to

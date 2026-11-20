@@ -15,8 +15,9 @@ end
 # RpmsRpc::BehavioralHealth::Wellness — AMHG SAVE SCREENING and AMHG SAVE
 # MEASUREMENTS (rpms-rpc#540). WRITES on a disposable local container only.
 class BehavioralHealthWellnessLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   writes!
 
   DFN = 990_045
@@ -120,7 +121,7 @@ class BehavioralHealthWellnessLiveTest < LiveSpec::Test
     assert_equal 9, edited.find { |r| r[:type] == "GAD7" }&.fetch(:value),
                  "GAD7 must survive PHQ9 edit (mode A, not E)"
 
-    puts "\n#{persona}: BH visit #{record_ien} on DFN #{DFN} screening and measurements via Wellness (#540)"
+    puts "\n#{role}: BH visit #{record_ien} on DFN #{DFN} screening and measurements via Wellness (#540)"
   end
 
   private

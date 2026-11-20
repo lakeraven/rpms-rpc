@@ -9,7 +9,7 @@ require_relative "../live_helper"
 # that serves the DDR read family. Reads only.
 #   BROKER_PROTOCOL=xwb BROKER_PORT=<the IRIS build's 9100> rake test:live
 class XwbWireCharsetLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   broker :xwb
 
   FIXTURES = File.expand_path("../../fixtures/wire_charset", __dir__)
@@ -17,7 +17,7 @@ class XwbWireCharsetLiveTest < LiveSpec::Test
 
   def setup
     super
-    flunk "#{persona} cannot bind #{ENTRY['context']} over XWB on this build" unless client.create_context(ENTRY["context"])
+    flunk "#{role} cannot bind #{ENTRY['context']} over XWB on this build" unless client.create_context(ENTRY["context"])
   end
 
   def test_the_stored_bullet_arrives_as_one_byte_and_is_reported

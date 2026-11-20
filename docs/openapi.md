@@ -142,7 +142,7 @@ Unproven operations are not `deprecated`: they are waiting for a live spec, not 
 | `x-rpms.ruby` | the Ruby call |
 | `x-rpms.rpcs[]` | each RPC the method sends: `name`, `registered` on the build, `entry_point`, `reach` (its class on the build), `via` (`mapping :name` or `literal`) |
 | `x-rpms.status` | `proven` (a live spec calls the method) or `not_in_contract` (none does yet; ADR 0010) |
-| `x-rpms.live_specs`, `.personas` | the `file:line` of each live call, and the personas those specs run as |
+| `x-rpms.live_specs`, `.roles` | the `file:line` of each live call, and the test roles those specs run as |
 | `x-rpms.rule` | which mapping rule placed it: `read`, `query`, `query-sub-path`, `inquiry`, `create`, `write`, `delete`, `action`, `predicate`, `for`, `noun` or `retry-class` |
 | `x-rpms.folded` | other methods that are the same query (same module, same RPCs, same verb and path), folded in as optional query parameters |
 

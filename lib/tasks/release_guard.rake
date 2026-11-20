@@ -70,12 +70,12 @@ namespace :test do
     begin
       identity = summary.run_identity(ENV, root: root)
       dir = File.expand_path(summary.dir, root)
-      path = summary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      path = summary.path_for(dir, role: identity[:role], protocol: identity[:protocol])
       token = SecureRandom.hex(8)
       ENV["LIVE_RUN_ID"] = token
       summary.mark_pending(
         path,
-        persona: identity[:persona],
+        role: identity[:role],
         protocol: identity[:protocol],
         build: identity[:build],
         build_source: identity[:build_source],
@@ -85,7 +85,7 @@ namespace :test do
       )
       abort "test:live_summary_pending: no pending marker at #{path}; refusing to run" unless summary.pending_for?(path, token)
     rescue ArgumentError => e
-      abort "test:live_summary_pending: #{e.message}; check PERSONA and BROKER_PROTOCOL"
+      abort "test:live_summary_pending: #{e.message}; check ROLE and BROKER_PROTOCOL"
     end
   end
 end

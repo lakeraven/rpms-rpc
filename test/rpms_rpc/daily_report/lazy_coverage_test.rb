@@ -94,8 +94,8 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     end
   end
 
-  PERSONAS = RpmsRpc::DailyReport::LIVE_PERSONAS
-  SUITES = 1 + PERSONAS.size
+  ROLES = RpmsRpc::DailyReport::LIVE_ROLES
+  SUITES = 1 + ROLES.size
 
   def passing_minitest
     <<~OUT
@@ -104,19 +104,19 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     OUT
   end
 
-  def persona_sign_on_env(overrides = {})
+  def role_sign_on_env(overrides = {})
     {
       "BROKER_HOST" => "127.0.0.1",
       "BROKER_PORT" => "19300"
-    }.merge(PERSONAS.to_h { |p| [ "#{p}_ACCESS", "LAZY-COV-#{p}-ACCESS" ] })
-     .merge(PERSONAS.to_h { |p| [ "#{p}_VERIFY", "LAZY-COV-#{p}-VERIFY" ] })
+    }.merge(ROLES.to_h { |p| [ "#{p.upcase}_ACCESS", "LAZY-COV-#{p}-ACCESS" ] })
+     .merge(ROLES.to_h { |p| [ "#{p.upcase}_VERIFY", "LAZY-COV-#{p}-VERIFY" ] })
      .merge(overrides)
   end
 
   def orchestrator(**overrides)
     defaults = {
       root: ROOT,
-      env: persona_sign_on_env(overrides.dig(:env) || {}),
+      env: role_sign_on_env(overrides.dig(:env) || {}),
       releases: FakeReleases.new,
       runner: FakeRunner.new([ { stdout: passing_minitest } ] * SUITES),
       docker: FakeDocker.new,
@@ -150,7 +150,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
       runner = FakeRunner.new([])
       docker = FakeDocker.new
       io = StringIO.new
-      env = persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
+      env = role_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, docker: docker, coverage: coverage, env: env,
                           plan_io: io)
 
@@ -178,7 +178,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     coverage = CountingCoverage.new
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      env = persona_sign_on_env(
+      env = role_sign_on_env(
         "FRESH" => "1",
         "DRY_RUN" => "1",
         "RPMS_DIFFS_DIR" => diffs

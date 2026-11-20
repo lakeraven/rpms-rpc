@@ -171,7 +171,7 @@ class ShapeTest < Minitest::Test
       "module" => m[:module], "method" => m[:method], "arity" => 1,
       "params" => [ { "name" => "ien", "kind" => "req" } ],
       "rpcs" => m[:rpcs].map { |r| r.transform_keys(&:to_s) },
-      "unresolved" => [], "live_specs" => [], "personas" => [], "status" => "not_in_contract"
+      "unresolved" => [], "live_specs" => [], "roles" => [], "status" => "not_in_contract"
     }
     key = "#{m[:module]}.#{m[:method]}"
     write_rows = { key => :non_idempotent_write }

@@ -10,7 +10,7 @@ require_relative "../immunization_profile_checks"
 # Reads only. BGOVIMM PROFILE is in CIAV VUECENTRIC.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxImmunizationProfileLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   broker :bmx
   include ImmunizationProfileChecks
 
@@ -25,6 +25,6 @@ class BmxImmunizationProfileLiveTest < LiveSpec::Test
     super
     client.create_context(CONTEXT)
   rescue RpmsRpc::Client::RpcError => e
-    flunk "#{persona} cannot bind #{CONTEXT} on this build (#{e.message}): BGOVIMM PROFILE is registered there"
+    flunk "#{role} cannot bind #{CONTEXT} on this build (#{e.message}): BGOVIMM PROFILE is registered there"
   end
 end

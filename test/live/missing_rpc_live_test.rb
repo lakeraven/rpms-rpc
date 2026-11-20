@@ -45,7 +45,7 @@ require "rpms_rpc/api/scheduling"
 #
 # These specs read only; they file nothing.
 class MissingRpcLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   NotAvailable = RpmsRpc::Client::RpcNotAvailableError
   Refused = RpmsRpc::Client::RpcRefusedError
   MError = RpmsRpc::Client::RpcMError
@@ -120,7 +120,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # Sent bare, under the sign-on option, which does not list it.
   def test_a_registered_rpc_outside_the_option_is_refused_not_missing
     if canrun?(HOSPITAL_LOCATION_RPC)
-      refute_empty client.call_rpc(HOSPITAL_LOCATION_RPC), "#{persona} may run #{HOSPITAL_LOCATION_RPC}; it answered no clinics"
+      refute_empty client.call_rpc(HOSPITAL_LOCATION_RPC), "#{role} may run #{HOSPITAL_LOCATION_RPC}; it answered no clinics"
     else
       err = assert_raises(Refused) { client.call_rpc(HOSPITAL_LOCATION_RPC) }
       assert_match(/Access denied for remote procedure: #{HOSPITAL_LOCATION_RPC}/, err.message)
@@ -130,7 +130,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # The same RPC through the API, which binds BSDXRPC, the option that lists it.
   def test_scheduling_hospital_locations_binds_the_option_that_lists_its_rpc
     if canrun?(HOSPITAL_LOCATION_RPC, RpmsRpc::Scheduling::CONTEXT)
-      refute_empty RpmsRpc::Scheduling.hospital_locations, "#{persona} may run #{HOSPITAL_LOCATION_RPC} in BSDXRPC; it answered no clinics"
+      refute_empty RpmsRpc::Scheduling.hospital_locations, "#{role} may run #{HOSPITAL_LOCATION_RPC} in BSDXRPC; it answered no clinics"
     else
       err = assert_raises(Refused) { RpmsRpc::Scheduling.hospital_locations }
       assert_match(/Access denied for remote procedure: #{HOSPITAL_LOCATION_RPC}/, err.message)
@@ -139,7 +139,7 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   def test_xwb_is_rpc_available_over_cia_is_refused_or_answers
     if canrun?(IS_RPC_AVAILABLE_RPC)
-      refute_empty client.call_rpc(IS_RPC_AVAILABLE_RPC, "ORWPT LIST ALL"), "#{persona} may run #{IS_RPC_AVAILABLE_RPC}; it answered nothing"
+      refute_empty client.call_rpc(IS_RPC_AVAILABLE_RPC, "ORWPT LIST ALL"), "#{role} may run #{IS_RPC_AVAILABLE_RPC}; it answered nothing"
     else
       err = assert_raises(Refused) { client.call_rpc(IS_RPC_AVAILABLE_RPC, "ORWPT LIST ALL") }
       assert_match(/Access denied for remote procedure: #{IS_RPC_AVAILABLE_RPC}/, err.message)
@@ -151,7 +151,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # where the broker expects a global name, and OUT+5^CIANBACT fails after the
   # \x00 ack has gone out (2026-10-13, bcer-9.0-20261005-17411fa-ydb).
   def test_an_m_error_after_the_data_ack_raises
-    flunk "#{persona} may not run BMC SEARCH REFERRED TO in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRED TO", RpmsRpc::Referral::CONTEXT)
+    flunk "#{role} may not run BMC SEARCH REFERRED TO in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRED TO", RpmsRpc::Referral::CONTEXT)
 
     err = assert_raises(RpmsRpc::Client::RpcError) do
       RpmsRpc::ContextScope.scoped(client, RpmsRpc::Referral::CONTEXT) { client.call_rpc("BMC SEARCH REFERRED TO", "A") }
@@ -165,7 +165,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # formal undefined. The broker traps it as error 1 (ETRAP2^CIANBLIS), which
   # raises RpcMError (#357). Referral.for_patient sends all six since #210.
   def test_an_m_error_in_the_routine_raises_m_error
-    flunk "#{persona} may not run BMC SEARCH REFERRAL in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRAL", RpmsRpc::Referral::CONTEXT)
+    flunk "#{role} may not run BMC SEARCH REFERRAL in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRAL", RpmsRpc::Referral::CONTEXT)
 
     err = assert_raises(RpmsRpc::Client::RpcError) do
       RpmsRpc::ContextScope.scoped(client, RpmsRpc::Referral::CONTEXT) { client.call_rpc("BMC SEARCH REFERRAL", DFN.to_s) }
@@ -186,10 +186,10 @@ class MissingRpcLiveTest < LiveSpec::Test
 
       if denied.any?
         denied_msg = denied.map { |rpc, context| "#{rpc} in #{context}" }.join(", ")
-        err = assert_raises(Refused, "#{name} as #{persona}: #{denied_msg} refused, so it must raise") { instance_exec(&call) }
+        err = assert_raises(Refused, "#{name} as #{role}: #{denied_msg} refused, so it must raise") { instance_exec(&call) }
         assert_match(/Access denied for remote procedure/, err.message)
       elsif kind == :write
-        pass # CANRUN says this persona may run every RPC it sends; not called, so nothing is filed.
+        pass # CANRUN says this role may run every RPC it sends; not called, so nothing is filed.
       else
         assert_served(name) { instance_exec(&call) }
       end
@@ -243,10 +243,10 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   def assert_served(name)
     yield
-    refute_includes KNOWN_BINDING_BUGS, name, "#{name} as #{persona} answers now: drop it from KNOWN_BINDING_BUGS and #364"
+    refute_includes KNOWN_BINDING_BUGS, name, "#{name} as #{role} answers now: drop it from KNOWN_BINDING_BUGS and #364"
   rescue NotAvailable, Refused => e
-    flunk "#{name} as #{persona}: CANRUN said yes, yet the broker said #{e.class}: #{e.message}"
+    flunk "#{name} as #{role}: CANRUN said yes, yet the broker said #{e.class}: #{e.message}"
   rescue RpmsRpc::Client::RpcError => e
-    assert_includes KNOWN_BINDING_BUGS, name, "#{name} as #{persona} reached its routine and failed: #{e.message[0, 160]}"
+    assert_includes KNOWN_BINDING_BUGS, name, "#{name} as #{role} reached its routine and failed: #{e.message[0, 160]}"
   end
 end

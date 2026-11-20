@@ -185,8 +185,8 @@ They are captured only against a disposable rung we own: `LIVE_DISPOSABLE=1`,
 a loopback `BROKER_HOST` (`127.0.0.1`, `localhost`, or `::1`), and `RELEASE`
 set to a non-blank release tag. Never a customer instance. The task aborts
 before it loads the driver or opens a socket when those guards fail, when
-`RELEASE` is blank, or when `RPMS_ACCESS` is not a synthetic persona
-(`SYS123` or `PROV123`; the default is `SYS123`).
+`RELEASE` is blank, or when `RPMS_ACCESS` is not the operator's or the scheduler's
+account (`SYS123` or `PSCH123`, from `lib/rpms_rpc/test_roles.rb`; the default is the operator's).
 
 A write's reply is not proof. The fixture's `read_back` is DDR GETS ENTRY
 DATA taken immediately after the call: the appointment (`#9002018.4`) and

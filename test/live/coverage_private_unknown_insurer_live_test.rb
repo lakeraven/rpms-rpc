@@ -9,9 +9,9 @@ require "rpms_rpc/api/coverage"
 # ^AUTNINS(IIEN,0) bare, so the patient's Private Insurance window died on
 # every read and on_file timed out. The gem now checks AG's insurer list first.
 #
-# Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
+# Runs as the front desk clerk (PROFILE,REG): every call is in AGGRPC.
 class CoveragePrivateUnknownInsurerLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   DFN = 990_051 # unused by other live specs

@@ -14,8 +14,8 @@ end
 # Live specs (ADR 0009): over the wire against a disposable container of the
 # pinned build, or a stack over an SSM tunnel. Invoking this task means you
 # meant to reach RPMS, so it FAILS, before loading a spec, unless BROKER_HOST,
-# BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY and PERSONA are set; and a run in which
-# no live spec ran is never green. See test/live/live_helper.rb.
+# BROKER_PORT and ROLE are set (and RPMS_VERIFY for the operator, whose code is
+# not published); and a run in which no live spec ran is never green. See test/live/live_helper.rb.
 #
 # BROKER_PROTOCOL (cia, the default, xwb or bmx) picks the broker line and the
 # specs written for it: test/live/*_test.rb for CIA, test/live/xwb/ for XWB,
@@ -32,19 +32,20 @@ namespace :test do
   task :live_settings do
     error = LiveSpec.protocol_error
     abort "rake test:live: #{error}" if error
+    error = LiveSpec.role_error
+    abort "rake test:live: #{error}" if error
     missing = LiveSpec.missing_env
     abort "rake test:live: #{LiveSpec.missing_env_message(missing)}" unless missing.empty?
-    error = LiveSpec.persona_error
-    abort "rake test:live: #{error}" if error
     ENV["LIVE_RUN"] = "1" # the summary fails a run in which no live spec ran
   end
   task live: :live_settings
 
-  # Which persona runs which live spec (#452), read from each spec's runs_as.
-  desc "List the live specs each persona runs (BROKER_PROTOCOL picks cia, xwb or bmx)"
-  task :live_personas do
-    LiveSpec.persona_plan(LiveSpec.protocol).each do |persona, files|
-      puts "#{persona} (#{files.size}): #{LiveSpec::PERSONAS.fetch(persona)}"
+  # Which role runs which live spec (#452), read from each spec's runs_as.
+  desc "List the live specs each test role runs (BROKER_PROTOCOL picks cia, xwb or bmx)"
+  task :live_roles do
+    LiveSpec.role_plan(LiveSpec.protocol).each do |name, files|
+      row = LiveSpec::ROLES.fetch(name)
+      puts "#{name} (#{files.size}): #{row.account} (#{row.access}#{', XUPROGMODE' if row.xuprogmode})"
       files.each { |f| puts "  #{f}" }
     end
   end

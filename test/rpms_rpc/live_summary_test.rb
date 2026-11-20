@@ -57,17 +57,17 @@ module RpmsRpc
 
     def test_summary_for_a_different_build_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("build" => "bcer-9.0-20990102-other000-ydb"))
+        write_summary(dir, "ROLE_A.json", summary_fields("build" => "bcer-9.0-20990102-other000-ydb"))
         _ok, reasons = refuse_check(dir)
         assert_match(/build/i, reasons.join(" "))
-        # After a pin bump, a persona not re-run keeps the old build; say how out.
+        # After a pin bump, a role not re-run keeps the old build; say how out.
         assert_match(/re-run `rake test:live` for it, or delete the file/, reasons.join(" "))
       end
     end
 
     def test_failures_refuse
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("failures" => 2))
+        write_summary(dir, "ROLE_A.json", summary_fields("failures" => 2))
         _ok, reasons = refuse_check(dir)
         assert_match(/failure/i, reasons.join(" "))
       end
@@ -75,7 +75,7 @@ module RpmsRpc
 
     def test_errors_refuse
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("errors" => 1))
+        write_summary(dir, "ROLE_A.json", summary_fields("errors" => 1))
         _ok, reasons = refuse_check(dir)
         assert_match(/error/i, reasons.join(" "))
       end
@@ -83,7 +83,7 @@ module RpmsRpc
 
     def test_zero_runs_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 0, "skips" => 0))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 0, "skips" => 0))
         _ok, reasons = refuse_check(dir)
         assert_match(/no live spec ran|runs/i, reasons.join(" "))
       end
@@ -91,7 +91,7 @@ module RpmsRpc
 
     def test_all_skipped_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 5, "skips" => 5))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 5, "skips" => 5))
         _ok, reasons = refuse_check(dir)
         assert_match(/no live spec ran|runs/i, reasons.join(" "))
       end
@@ -100,7 +100,7 @@ module RpmsRpc
     def test_malformed_json_refuses
       Dir.mktmpdir do |dir|
         FileUtils.mkdir_p(dir)
-        File.write(File.join(dir, "PERSONA_A.json"), "{ not valid json")
+        File.write(File.join(dir, "ROLE_A.json"), "{ not valid json")
         _ok, reasons = refuse_check(dir)
         assert_match(/malformed|JSON/i, reasons.join(" "))
       end
@@ -109,16 +109,16 @@ module RpmsRpc
     def test_missing_field_refuses
       Dir.mktmpdir do |dir|
         fields = summary_fields
-        fields.delete("persona")
-        write_summary(dir, "PERSONA_A.json", fields)
+        fields.delete("role")
+        write_summary(dir, "ROLE_A.json", fields)
         _ok, reasons = refuse_check(dir)
-        assert_match(/persona/i, reasons.join(" "))
+        assert_match(/role/i, reasons.join(" "))
       end
     end
 
     def test_unknown_schema_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 2))
+        write_summary(dir, "ROLE_A.json", summary_fields("schema" => 2))
         _ok, reasons = refuse_check(dir)
         assert_match(/schema/i, reasons.join(" "))
       end
@@ -127,7 +127,7 @@ module RpmsRpc
     # rpms-rpc#441: a summary from before source identity says how to replace it.
     def test_a_summary_without_source_identity_refuses_and_says_rerun
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 1).except("source"))
+        write_summary(dir, "ROLE_A.json", summary_fields("schema" => 1).except("source"))
         _ok, reasons = refuse_check(dir)
         assert_match(/schema must be 3 \(got 1\); re-run `rake test:live`/, reasons.join(" "))
         assert_match(/missing field source/, reasons.join(" "))
@@ -136,7 +136,7 @@ module RpmsRpc
 
     def test_passed_false_refuses_even_when_counts_are_zero
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("failures" => 0, "errors" => 0, "passed" => false))
+        write_summary(dir, "ROLE_A.json", summary_fields("failures" => 0, "errors" => 0, "passed" => false))
         _ok, reasons = refuse_check(dir)
         assert_match(/passed/i, reasons.join(" "))
       end
@@ -146,7 +146,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         fields = summary_fields
         fields.delete("passed")
-        write_summary(dir, "PERSONA_A.json", fields)
+        write_summary(dir, "ROLE_A.json", fields)
         _ok, reasons = refuse_check(dir)
         assert_match(/passed/i, reasons.join(" "))
       end
@@ -156,7 +156,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         suite_a = "sha256:#{'a' * 64}"
         suite_b = "sha256:#{'b' * 64}"
-        write_summary(dir, "PERSONA_A.json", summary_fields("suite" => suite_a))
+        write_summary(dir, "ROLE_A.json", summary_fields("suite" => suite_a))
 
         assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: suite_a).first
         _ok, reasons = refuse_check(dir, suite: suite_b)
@@ -167,9 +167,9 @@ module RpmsRpc
     def test_persona_and_protocol_must_match_the_summary_file_name
       Dir.mktmpdir do |dir|
         # CIA content for alice, but the file name is bob over xwb.
-        write_summary(dir, "bob.xwb.json", summary_fields("persona" => "alice", "protocol" => "cia"))
+        write_summary(dir, "bob.xwb.json", summary_fields("role" => "alice", "protocol" => "cia"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/persona|protocol|bob\.xwb\.json/i, reasons.join(" "))
+        assert_match(/role|protocol|bob\.xwb\.json/i, reasons.join(" "))
       end
     end
 
@@ -178,7 +178,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         revision_a = "sha256:#{'a' * 64}"
         revision_b = "sha256:#{'b' * 64}"
-        write_summary(dir, "PERSONA_A.json", summary_fields("source" => revision_a))
+        write_summary(dir, "ROLE_A.json", summary_fields("source" => revision_a))
 
         assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: revision_a, suite: SYNTHETIC_SUITE).first
         _ok, reasons = refuse_check(dir, source: revision_b)
@@ -188,7 +188,7 @@ module RpmsRpc
 
     def test_a_blank_expected_source_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.json", summary_fields)
         _ok, reasons = refuse_check(dir, source: " ")
         assert_equal [ "expected source is blank" ], reasons
       end
@@ -275,7 +275,7 @@ module RpmsRpc
       Dir.mktmpdir do |parent|
         dir = File.join(parent, "live[1]{a}*?")
         FileUtils.mkdir_p(dir)
-        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.json", summary_fields)
 
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
@@ -283,9 +283,9 @@ module RpmsRpc
 
         outcomes = LiveSummary.outcomes(dir)
         refute_empty outcomes, "outcomes must list the green summary file"
-        assert_match(/\APERSONA_A\.json:/, outcomes.first)
+        assert_match(/\AROLE_A\.json:/, outcomes.first)
 
-        write_summary(dir, "PERSONA_A.json", summary_fields("failures" => 2))
+        write_summary(dir, "ROLE_A.json", summary_fields("failures" => 2))
         _ok, reasons = refuse_check(dir)
         assert_match(/failure/i, reasons.join(" "))
       end
@@ -376,12 +376,12 @@ module RpmsRpc
 
     def test_single_persona_is_allowed
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.json", summary_fields)
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
         assert_empty reasons
 
-        write_summary(dir, "PERSONA_B.json", summary_fields("persona" => "PERSONA_B", "failures" => 1))
+        write_summary(dir, "ROLE_B.json", summary_fields("role" => "ROLE_B", "failures" => 1))
         _ok, reasons = refuse_check(dir)
         assert_match(/failure/i, reasons.join(" "))
       end
@@ -389,8 +389,8 @@ module RpmsRpc
 
     def test_valid_pair_allows
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
-        write_summary(dir, "PERSONA_B.json", summary_fields("persona" => "PERSONA_B"))
+        write_summary(dir, "ROLE_A.json", summary_fields)
+        write_summary(dir, "ROLE_B.json", summary_fields("role" => "ROLE_B"))
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
         assert_empty reasons
@@ -399,7 +399,7 @@ module RpmsRpc
 
     def test_writer_writes_nothing_without_broker_env
       Dir.mktmpdir do |parent|
-        path = File.join(parent, "coverage", "live", "PERSONA_A.json")
+        path = File.join(parent, "coverage", "live", "ROLE_A.json")
         fields = summary_fields
 
         LiveSummary.write(path, fields, env: {})
@@ -418,7 +418,7 @@ module RpmsRpc
 
     def test_writer_round_trips_through_check
       Dir.mktmpdir do |dir|
-        path = File.join(dir, "PERSONA_A.json")
+        path = File.join(dir, "ROLE_A.json")
         fields = summary_fields
         env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
         LiveSummary.write(path, fields, env: env)
@@ -432,8 +432,8 @@ module RpmsRpc
 
     def test_cia_and_xwb_runs_for_one_persona_do_not_share_a_file
       Dir.mktmpdir do |dir|
-        cia = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "cia")
-        xwb = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "xwb")
+        cia = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "cia")
+        xwb = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "xwb")
         refute_equal cia, xwb
       end
     end
@@ -441,8 +441,8 @@ module RpmsRpc
     def test_red_cia_and_green_xwb_for_one_persona_refuses
       Dir.mktmpdir do |dir|
         env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
-        cia_path = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "cia")
-        xwb_path = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "xwb")
+        cia_path = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "cia")
+        xwb_path = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "xwb")
         LiveSummary.write(cia_path, summary_fields("protocol" => "cia", "failures" => 2), env: env)
         LiveSummary.write(xwb_path, summary_fields("protocol" => "xwb"), env: env)
         _ok, reasons = refuse_check(dir)
@@ -450,13 +450,13 @@ module RpmsRpc
       end
     end
 
-    # Release policy: CIA is the protocol every persona is released on, so a
+    # Release policy: CIA is the protocol every role is released on, so a
     # release needs a CIA summary. BMX and XWB are optional, but a summary of
     # either that is on disk must be green.
     def test_a_release_with_no_cia_summary_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
-        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx"))
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "ROLE_A.bmx.json", summary_fields("protocol" => "bmx"))
         _ok, reasons = refuse_check(dir)
         assert_match(/CIA/, reasons.join(" "))
       end
@@ -464,7 +464,7 @@ module RpmsRpc
 
     def test_a_cia_summary_alone_passes
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.json", summary_fields)
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.inspect
       end
@@ -472,9 +472,9 @@ module RpmsRpc
 
     def test_green_cia_with_green_xwb_and_bmx_passes
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
-        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx"))
+        write_summary(dir, "ROLE_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "ROLE_A.bmx.json", summary_fields("protocol" => "bmx"))
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.inspect
       end
@@ -482,19 +482,19 @@ module RpmsRpc
 
     def test_green_cia_with_a_red_xwb_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "failures" => 1))
+        write_summary(dir, "ROLE_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb", "failures" => 1))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.xwb\.json: 1 failures/, reasons.join(" "))
+        assert_match(/ROLE_A\.xwb\.json: 1 failures/, reasons.join(" "))
       end
     end
 
     def test_green_cia_with_a_red_bmx_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
-        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx", "errors" => 1))
+        write_summary(dir, "ROLE_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.bmx.json", summary_fields("protocol" => "bmx", "errors" => 1))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.bmx\.json: 0 failures, 1 errors/, reasons.join(" "))
+        assert_match(/ROLE_A\.bmx\.json: 0 failures, 1 errors/, reasons.join(" "))
       end
     end
 
@@ -502,18 +502,18 @@ module RpmsRpc
     # name says cia but whose content says another protocol does not count.
     def test_a_cia_file_that_holds_another_protocol_does_not_meet_the_cia_requirement
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "ROLE_A.json", summary_fields("protocol" => "xwb"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/persona|protocol/i, reasons.join(" "))
+        assert_match(/role|protocol/i, reasons.join(" "))
       end
     end
 
     def test_a_pending_cia_marker_does_not_meet_the_cia_requirement_beside_a_green_xwb
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("pending" => true))
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "ROLE_A.json", summary_fields("pending" => true))
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.json: pending live run was not recorded/, reasons.join(" "))
+        assert_match(/ROLE_A\.json: pending live run was not recorded/, reasons.join(" "))
       end
     end
 
@@ -521,31 +521,31 @@ module RpmsRpc
     # summary that only declares its build is refused.
     def test_a_declared_build_source_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("build_source" => "declared"))
+        write_summary(dir, "ROLE_A.json", summary_fields("build_source" => "declared"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.json: build_source "declared" is not "release"/, reasons.join(" "))
+        assert_match(/ROLE_A\.json: build_source "declared" is not "release"/, reasons.join(" "))
       end
     end
 
     def test_a_declared_xwb_beside_a_pinned_cia_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields)
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "build_source" => "declared"))
+        write_summary(dir, "ROLE_A.json", summary_fields)
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb", "build_source" => "declared"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.xwb\.json: build_source "declared"/, reasons.join(" "))
+        assert_match(/ROLE_A\.xwb\.json: build_source "declared"/, reasons.join(" "))
       end
     end
 
     def test_a_blank_or_missing_build_source_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("build_source" => ""))
+        write_summary(dir, "ROLE_A.json", summary_fields("build_source" => ""))
         _ok, reasons = refuse_check(dir)
         assert_match(/build_source/, reasons.join(" "))
       end
       Dir.mktmpdir do |dir|
         fields = summary_fields
         fields.delete("build_source")
-        write_summary(dir, "PERSONA_A.json", fields)
+        write_summary(dir, "ROLE_A.json", fields)
         _ok, reasons = refuse_check(dir)
         assert_match(/missing field build_source/, reasons.join(" "))
       end
@@ -555,7 +555,7 @@ module RpmsRpc
     # that skips more than that has not shown what it is releasing.
     def test_skips_at_the_ceiling_pass
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 10))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 100, "skips" => 10))
         ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.inspect
       end
@@ -563,25 +563,25 @@ module RpmsRpc
 
     def test_skips_one_over_the_ceiling_refuse
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 11))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 100, "skips" => 11))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.json: 11 of 100 skipped, over the 10% ceiling/, reasons.join(" "))
+        assert_match(/ROLE_A\.json: 11 of 100 skipped, over the 10% ceiling/, reasons.join(" "))
       end
     end
 
     def test_the_ceiling_is_per_file
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 10))
-        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "runs" => 20, "skips" => 5))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 100, "skips" => 10))
+        write_summary(dir, "ROLE_A.xwb.json", summary_fields("protocol" => "xwb", "runs" => 20, "skips" => 5))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.xwb\.json: 5 of 20 skipped/, reasons.join(" "))
-        refute_match(/PERSONA_A\.json: \d+ of/, reasons.join(" "))
+        assert_match(/ROLE_A\.xwb\.json: 5 of 20 skipped/, reasons.join(" "))
+        refute_match(/ROLE_A\.json: \d+ of/, reasons.join(" "))
       end
     end
 
     def test_one_skip_in_a_small_run_over_the_ceiling_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 9, "skips" => 1))
+        write_summary(dir, "ROLE_A.json", summary_fields("runs" => 9, "skips" => 1))
         _ok, reasons = refuse_check(dir)
         assert_match(/1 of 9 skipped/, reasons.join(" "))
       end
@@ -596,7 +596,7 @@ module RpmsRpc
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
         begin
-          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
+          write_summary(tmpdir, "ROLE_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
           load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
@@ -626,13 +626,13 @@ module RpmsRpc
 
     def test_path_for_refuses_an_unsafe_persona
       assert_raises(ArgumentError) do
-        LiveSummary.path_for("/tmp", persona: "../x", protocol: "cia")
+        LiveSummary.path_for("/tmp", role: "../x", protocol: "cia")
       end
     end
 
     def test_pending_marker_refuses
       Dir.mktmpdir do |dir|
-        path = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "cia")
+        path = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "cia")
         mark_pending_at(path)
         _ok, reasons = refuse_check(dir)
         assert_match(/pending|no live spec ran/i, reasons.join(" "))
@@ -641,7 +641,7 @@ module RpmsRpc
 
     def test_pending_marker_replaces_a_stale_green_file
       Dir.mktmpdir do |dir|
-        path = LiveSummary.path_for(dir, persona: "PERSONA_A", protocol: "cia")
+        path = LiveSummary.path_for(dir, role: "ROLE_A", protocol: "cia")
         write_summary(dir, File.basename(path), summary_fields)
         mark_pending_at(path)
         _ok, reasons = refuse_check(dir)
@@ -654,7 +654,7 @@ module RpmsRpc
       Dir.mktmpdir do |tmpdir|
         saved_live_run = ENV["LIVE_RUN"]
         saved_broker_host = ENV["BROKER_HOST"]
-        saved_persona = ENV["PERSONA"]
+        saved_role = ENV["ROLE"]
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         saved_live_build = ENV["LIVE_BUILD"]
         saved_live_run_id = ENV["LIVE_RUN_ID"]
@@ -667,13 +667,13 @@ module RpmsRpc
 
           ENV["LIVE_RUN"] = "1"
           ENV["BROKER_HOST"] = "127.0.0.1"
-          ENV["PERSONA"] = "PERSONA_A"
+          ENV["ROLE"] = "ROLE_A"
           ENV["LIVE_SUMMARY_DIR"] = tmpdir
           ENV["LIVE_BUILD"] = SYNTHETIC_BUILD
           ENV.delete("LIVE_RUN_ID")
           Rake::Task["test:live_summary_pending"].invoke
 
-          pending_path = LiveSummary.path_for(tmpdir, persona: "PERSONA_A", protocol: "cia")
+          pending_path = LiveSummary.path_for(tmpdir, role: "ROLE_A", protocol: "cia")
           data = JSON.parse(File.read(pending_path))
           refute data["run_id"].to_s.strip.empty?
           assert_match(/\A[0-9a-f]+\z/, data["run_id"])
@@ -681,7 +681,7 @@ module RpmsRpc
         ensure
           saved_live_run.nil? ? ENV.delete("LIVE_RUN") : ENV["LIVE_RUN"] = saved_live_run
           saved_broker_host.nil? ? ENV.delete("BROKER_HOST") : ENV["BROKER_HOST"] = saved_broker_host
-          saved_persona.nil? ? ENV.delete("PERSONA") : ENV["PERSONA"] = saved_persona
+          saved_role.nil? ? ENV.delete("ROLE") : ENV["ROLE"] = saved_role
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           saved_live_build.nil? ? ENV.delete("LIVE_BUILD") : ENV["LIVE_BUILD"] = saved_live_build
           saved_live_run_id.nil? ? ENV.delete("LIVE_RUN_ID") : ENV["LIVE_RUN_ID"] = saved_live_run_id
@@ -726,7 +726,7 @@ module RpmsRpc
       Dir.mktmpdir do |tmpdir|
         saved_live_run = ENV["LIVE_RUN"]
         saved_broker_host = ENV["BROKER_HOST"]
-        saved_persona = ENV["PERSONA"]
+        saved_role = ENV["ROLE"]
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         saved_live_build = ENV["LIVE_BUILD"]
         begin
@@ -743,19 +743,19 @@ module RpmsRpc
 
           ENV["LIVE_RUN"] = "1"
           ENV["BROKER_HOST"] = "127.0.0.1"
-          ENV["PERSONA"] = "PERSONA_A"
+          ENV["ROLE"] = "ROLE_A"
           ENV["LIVE_SUMMARY_DIR"] = tmpdir
           ENV["LIVE_BUILD"] = SYNTHETIC_BUILD
           Rake::Task["test:live_summary_pending"].invoke
 
-          pending_path = LiveSummary.path_for(tmpdir, persona: "PERSONA_A", protocol: "cia")
+          pending_path = LiveSummary.path_for(tmpdir, role: "ROLE_A", protocol: "cia")
           assert File.file?(pending_path)
           _ok, reasons = refuse_check(tmpdir)
           assert_match(/pending|no live spec ran/i, reasons.join(" "))
         ensure
           saved_live_run.nil? ? ENV.delete("LIVE_RUN") : ENV["LIVE_RUN"] = saved_live_run
           saved_broker_host.nil? ? ENV.delete("BROKER_HOST") : ENV["BROKER_HOST"] = saved_broker_host
-          saved_persona.nil? ? ENV.delete("PERSONA") : ENV["PERSONA"] = saved_persona
+          saved_role.nil? ? ENV.delete("ROLE") : ENV["ROLE"] = saved_role
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           saved_live_build.nil? ? ENV.delete("LIVE_BUILD") : ENV["LIVE_BUILD"] = saved_live_build
           Rake.application = original_app
@@ -768,7 +768,7 @@ module RpmsRpc
       Dir.mktmpdir do |tmpdir|
         saved_live_run = ENV["LIVE_RUN"]
         saved_broker_host = ENV["BROKER_HOST"]
-        saved_persona = ENV["PERSONA"]
+        saved_role = ENV["ROLE"]
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         begin
           Rake.application = Rake::Application.new
@@ -779,14 +779,14 @@ module RpmsRpc
 
           ENV["LIVE_RUN"] = "1"
           ENV["BROKER_HOST"] = "127.0.0.1"
-          ENV["PERSONA"] = "../x"
+          ENV["ROLE"] = "../x"
           ENV["LIVE_SUMMARY_DIR"] = tmpdir
           assert Rake::Task.task_defined?("test:live_summary_pending"), "missing rake task test:live_summary_pending"
           assert_raises(SystemExit) { Rake::Task["test:live_summary_pending"].invoke }
         ensure
           saved_live_run.nil? ? ENV.delete("LIVE_RUN") : ENV["LIVE_RUN"] = saved_live_run
           saved_broker_host.nil? ? ENV.delete("BROKER_HOST") : ENV["BROKER_HOST"] = saved_broker_host
-          saved_persona.nil? ? ENV.delete("PERSONA") : ENV["PERSONA"] = saved_persona
+          saved_role.nil? ? ENV.delete("ROLE") : ENV["ROLE"] = saved_role
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           Rake.application = original_app
         end
@@ -831,8 +831,8 @@ module RpmsRpc
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
         begin
-          path = File.join(tmpdir, "PERSONA_A.json")
-          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "release",
+          path = File.join(tmpdir, "ROLE_A.json")
+          write_summary(tmpdir, "ROLE_A.json", summary_fields("build" => build, "build_source" => "release",
                                                                  "source" => repo_source, "suite" => repo_suite))
 
           Rake.application = Rake::Application.new
@@ -842,7 +842,7 @@ module RpmsRpc
           out, err = capture_io { Rake::Task["release:live_guard"].invoke }
           assert_match(/OK #{Regexp.escape(build)}/, out + err)
           # A run with skips passes, so the OK names how many were skipped.
-          assert_match(/PERSONA_A\.json: 117 passed, 3 skipped \(release\)/, out + err)
+          assert_match(/ROLE_A\.json: 117 passed, 3 skipped \(release\)/, out + err)
         ensure
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           Rake.application = original_app
@@ -879,7 +879,7 @@ module RpmsRpc
     # so B's marker is the one left on disk, and the guard refuses until B reports.
     def test_a_competing_mark_pending_waits_for_the_replace_and_its_marker_survives
       Dir.mktmpdir do |dir|
-        path = File.join(dir, "PERSONA_A.json")
+        path = File.join(dir, "ROLE_A.json")
         env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
         mark_pending_at(path, run_id: "run-a", env: env)
         b = nil
@@ -899,7 +899,7 @@ module RpmsRpc
 
     def test_replace_refuses_when_another_run_marked_pending_first
       Dir.mktmpdir do |dir|
-        path = File.join(dir, "PERSONA_A.json")
+        path = File.join(dir, "ROLE_A.json")
         env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
         mark_pending_at(path, run_id: "run-a", env: env)
         mark_pending_at(path, run_id: "run-b", env: env)
@@ -910,7 +910,7 @@ module RpmsRpc
 
     def test_replace_refuses_a_marker_written_for_other_source
       Dir.mktmpdir do |dir|
-        path = File.join(dir, "PERSONA_A.json")
+        path = File.join(dir, "ROLE_A.json")
         env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
         mark_pending_at(path, run_id: "run-a", env: env)
         assert_equal :source_changed, LiveSummary.replace_pending(path, "run-a", "other-source", summary_fields, env: env)
@@ -941,7 +941,7 @@ module RpmsRpc
 
     def with_parallel_live_tasks
       original_app = Rake.application
-      keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL PERSONA LIVE_SUMMARY_DIR LIVE_BUILD]
+      keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL ROLE LIVE_SUMMARY_DIR LIVE_BUILD]
       saved = ENV.to_h.slice(*keys)
       saved_release_dir = Fragments.instance_variable_get(:@release_dir)
       Dir.mktmpdir do |dir|
@@ -950,12 +950,12 @@ module RpmsRpc
         # against an empty fragment directory regardless of what the repo holds.
         Fragments.release_dir = File.join(dir, "no-fragments").tap { |empty| FileUtils.mkdir_p(empty) }
         build = LiveSummary.release_build
-        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
+        write_summary(dir, "ROLE_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
         assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
 
         ENV.delete("LIVE_RUN")
         ENV.delete("LIVE_RUN_ID")
-        ENV.update("BROKER_HOST" => "127.0.0.1", "BROKER_PROTOCOL" => "cia", "PERSONA" => "PERSONA_A",
+        ENV.update("BROKER_HOST" => "127.0.0.1", "BROKER_PROTOCOL" => "cia", "ROLE" => "ROLE_A",
                    "LIVE_SUMMARY_DIR" => dir, "LIVE_BUILD" => build)
         Rake.application = Rake::Application.new
         Rake.application.options.always_multitask = true # rake -m
@@ -964,7 +964,7 @@ module RpmsRpc
         Rake::Task.define_task("release") { flunk "release action must not run after a failed live run" }
         load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
 
-        yield File.join(dir, "PERSONA_A.json"), build
+        yield File.join(dir, "ROLE_A.json"), build
       end
     ensure
       keys.each { |key| saved.key?(key) ? ENV[key] = saved[key] : ENV.delete(key) }
@@ -980,7 +980,7 @@ module RpmsRpc
         "source" => SYNTHETIC_SOURCE,
         "suite" => SYNTHETIC_SUITE,
         "protocol" => "cia",
-        "persona" => "PERSONA_A",
+        "role" => "ROLE_A",
         "passed" => true,
         "runs" => 120,
         "assertions" => 400,
@@ -1007,7 +1007,7 @@ module RpmsRpc
       env = kwargs.delete(:env) || { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
       run_id = kwargs.fetch(:run_id, SecureRandom.hex(8))
       pending_args = {
-        persona: kwargs.fetch(:persona, "PERSONA_A"),
+        role: kwargs.fetch(:role, "ROLE_A"),
         protocol: kwargs.fetch(:protocol, "cia"),
         build: kwargs.fetch(:build, SYNTHETIC_BUILD),
         build_source: kwargs.fetch(:build_source, "release"),

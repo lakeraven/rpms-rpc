@@ -10,7 +10,7 @@ require "rpms_rpc/server_clock"
 # race and ethnicity (S-REG-20.2 to 20.4). The cell phone (S-REG-21.5) is
 # read only: DDR FILER cannot file #2 .134 (its AXENR13 index needs DFN).
 class RegistrationEditsLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   Reg = RpmsRpc::Registration

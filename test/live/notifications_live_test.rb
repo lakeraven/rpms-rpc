@@ -19,21 +19,22 @@ require "rpms_rpc/api/notifications"
 #
 # XQAL GUI ALERTS is in no option but its own, so the spec binds that option
 # for the send and the delete: a user who holds it as a secondary menu may
-# call it (PROV123 does from openrpms#1192), and a holder of XUPROGMODE may
-# call it under any option (CIANBACT.m:141). Another persona is refused at
+# call it (the provider, once openrpms#1277 gives it), and a holder of XUPROGMODE may
+# call it under any option (CIANBACT.m:141). Another role is refused at
 # the send, and the spec says so. The second
-# user is a published demo persona of the build, signed on on its own
+# user is another test role (its published pair), signed on on its own
 # connection, as in scoped_client_two_identities_live_test.rb.
 class NotificationsLiveTest < LiveSpec::Test
-  # The clinician holds XQAL GUI ALERTS from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given XQAL GUI ALERTS yet (PROVIDER,TEST was, openrpms#1192).
+  needs "XQAL GUI ALERTS", tracked: "openrpms#1277"
   writes!
 
   SEND_RPC = "XQAL GUI ALERTS"
   DFN = 3 # MOUSE,MICKEY M, a demo patient of the image
   OTHER_DFN = 4
-  OTHER_PAIR = [ "PSCH123", "PSCH123!!" ].freeze
-  THIRD_PAIR = [ "PREG123", "PREG123!!" ].freeze
+  def other_pair = pair_of(:scheduler)
+  def third_pair = pair_of(:front_desk_clerk)
 
   def teardown
     Array(@sent).each { |alert_id| delete_alert(alert_id) }
@@ -42,7 +43,7 @@ class NotificationsLiveTest < LiveSpec::Test
     super
   end
 
-  # Send an alert to +to+ (DUZs, default the persona) and answer its ID, as
+  # Send an alert to +to+ (DUZs, default the run's role) and answer its ID, as
   # Kernel completed it (XQAID;sender;time). +xqaid+ is unique per call, so
   # two alerts sent in the same second never share an ID.
   def send_alert(message, to: [ client.duz ], removable: false, xqaid: "BEHOXQ,LIVESPEC#{SecureRandom.hex(3).upcase}")
@@ -52,7 +53,7 @@ class NotificationsLiveTest < LiveSpec::Test
     begin
       client.with_context(SEND_RPC) { client.call_rpc(SEND_RPC, data) }
     rescue RpmsRpc::Client::RpcError => e
-      flunk "#{persona} may not send an alert through #{SEND_RPC} (#{e.message}): does the persona hold the #{SEND_RPC} option?"
+      flunk "#{role} may not send an alert through #{SEND_RPC} (#{e.message}): does the role hold the #{SEND_RPC} option?"
     end
     reader = to.include?(client.duz) ? client : other
     alert_id = RpmsRpc.with_client(reader) { inbox_ids }.find { |id| id.start_with?("#{xqaid};") }
@@ -66,11 +67,11 @@ class NotificationsLiveTest < LiveSpec::Test
   end
 
   def other
-    @other ||= connect_as(OTHER_PAIR).tap { |c| refute_equal client.duz, c.duz, "the second persona is another user" }
+    @other ||= connect_as(other_pair).tap { |c| refute_equal client.duz, c.duz, "the second role is another user" }
   end
 
   def third
-    @third ||= connect_as(THIRD_PAIR).tap { |c| refute_includes [ client.duz, other.duz ], c.duz, "the third persona is another user" }
+    @third ||= connect_as(third_pair).tap { |c| refute_includes [ client.duz, other.duz ], c.duz, "the third role is another user" }
   end
 
   def connect_as(pair)
@@ -110,7 +111,7 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_includes RpmsRpc::Notifications.inbox(patient_dfn: DFN).map { |r| r[:alert_id] }, alert[:alert_id]
     refute_includes RpmsRpc::Notifications.inbox(patient_dfn: OTHER_DFN).map { |r| r[:alert_id] }, alert[:alert_id],
                     "with another patient in context, this patient's alert is not listed"
-    puts "\n#{persona}: alert #{alert[:alert_id]} for DFN #{DFN} listed by BEHOXQ ALRLIST"
+    puts "\n#{role}: alert #{alert[:alert_id]} for DFN #{DFN} listed by BEHOXQ ALRLIST"
   end
 
   def test_i_remove_a_removable_notification_and_it_leaves_my_inbox
@@ -120,7 +121,7 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_equal({ alert_id: alert_id, removed: true }, RpmsRpc::Notifications.remove(alert_id))
 
     refute_includes inbox_ids, alert_id, "BEHOXQ ALRPP removed it from my notifications"
-    puts "\n#{persona}: alert #{alert_id} removed through BEHOXQ ALRPP"
+    puts "\n#{role}: alert #{alert_id} removed through BEHOXQ ALRPP"
   end
 
   def test_a_notification_rpms_marks_not_removable_is_refused_and_stays
@@ -170,6 +171,6 @@ class NotificationsLiveTest < LiveSpec::Test
       refute_equal name_of(other), row[:sender], "not the forwarder"
       assert_equal comment, RpmsRpc::Notifications.message(alert_id).first, "BEHOXQ ALRMSG answers the forwarding comment first"
     end
-    puts "\n#{persona}: alert #{alert_id} forwarded by DUZ #{other.duz} to DUZ #{third.duz} with its comment"
+    puts "\n#{role}: alert #{alert_id} forwarded by DUZ #{other.duz} to DUZ #{third.duz} with its comment"
   end
 end

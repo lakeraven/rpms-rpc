@@ -9,10 +9,11 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # The AMHG reference, intake, group and case-management reads over the wire
 # (rpms-rpc#622, #673), under AMHGRPC. Each answers parsed rows, never the
 # recordset's typed header read as a record. Reads only.
-# Needs a persona AMHGRPC lets run these reads (the clinician, PROV123).
+# Needs a role AMHGRPC lets run these reads (the provider, once openrpms#1275 gives it).
 class BehavioralHealthReferenceLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4" # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
   FROM = "3000101"
@@ -47,10 +48,10 @@ class BehavioralHealthReferenceLiveTest < LiveSpec::Test
   def test_admin_records_answer_record_rows_or_raise_the_builds_adml_error
     rows = BH::Reference.admin_records(client.duz.to_s, from: FROM, to: TO)
     rows.each { |row| assert_match(/\A\d+\z/, row[:ien].to_s, "a row whose IEN is not a record IEN: #{row.inspect}") }
-    puts "\n#{persona}: admin_records answered #{rows.size} row(s)"
+    puts "\n#{role}: admin_records answered #{rows.size} row(s)"
   rescue RpmsRpc::Client::RpcMError => e
     assert_match(/ADML\+32\^AMHGDA/, e.message, "an M error other than openrpms#1119")
-    puts "\n#{persona}: admin_records raised the build's ADML error (openrpms#1119)"
+    puts "\n#{role}: admin_records raised the build's ADML error (openrpms#1119)"
   end
 
   def test_lists_answer_rows_with_record_iens_only
@@ -66,7 +67,7 @@ class BehavioralHealthReferenceLiveTest < LiveSpec::Test
     lists.each do |name, rows|
       assert_kind_of Array, rows
       rows.each { |row| assert_match(/\A\d+\z/, row[:ien].to_s, "#{name}: a row whose IEN is not a record IEN: #{row.inspect}") }
-      puts "\n#{persona}: #{name} answered #{rows.size} row(s)"
+      puts "\n#{role}: #{name} answered #{rows.size} row(s)"
     end
   end
 end

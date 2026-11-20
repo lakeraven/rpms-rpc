@@ -7,12 +7,12 @@
 #     BROKER_HOST=127.0.0.1 BROKER_PORT=9100 \
 #     RPMS_ACCESS=SYS123 RPMS_VERIFY=... ruby bin/wire_capture_writes_driver.rb
 #
-# Signs on as the setup persona (RPMS_ACCESS / RPMS_VERIFY), provisions the
+# Signs on as the operator (RPMS_ACCESS / RPMS_VERIFY), provisions the
 # synthetic resource and file-room printer when they are absent, then signs
-# on as the scheduling persona PROFILE,SCHED (PSCH123, a published demo pair)
-# and, as that persona, books three appointments at the next open weekday
+# on as the scheduler, PROFILE,SCHED (PSCH123, its row's published pair)
+# and, as that role, books three appointments at the next open weekday
 # times (a refused time is skipped, not captured), checks in the first,
-# cancels the second and no-shows the third (#626). Each persona's session
+# cancels the second and no-shows the third (#626). Each account's session
 # DUZ is recorded under the access code actually signed on as, and each
 # sign-on records that session's bound division institution IEN. The setup also reads every MEDICAL CENTER
 # DIVISION (#40.8) INSTITUTION (.07, internal) under CIAV VUECENTRIC. The
@@ -35,6 +35,7 @@ $LOAD_PATH.unshift(lib)
 require "rpms_rpc/version"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/wire_capture"
+require "rpms_rpc/test_roles"
 require "rpms_rpc/api/scheduling"
 require "rpms_rpc/api/ddr_fileman"
 
@@ -42,11 +43,11 @@ require "rpms_rpc/api/ddr_fileman"
 # recording wrapper. Does not write fixtures; the rake task does that.
 class WriteCaptureDriver
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
-  SYNTHETIC_PERSONAS = %w[SYS123 PSCH123].freeze
-  # The scheduling slice's pilot persona: scheduling is PROFILE,SCHED's role
-  # (rpms-rpc#452, #626). Its pair is the build's published demo pair.
-  PILOT_PERSONA = "PSCH123"
-  PILOT_PAIR = %w[PSCH123 PSCH123!!].freeze
+  # The setup account (the operator) and the scheduling slice's pilot, the
+  # scheduler (PROFILE,SCHED): scheduling is its work (rpms-rpc#452, #626).
+  SYNTHETIC_ACCOUNTS = %i[operator scheduler].map { |role| RpmsRpc::TestRoles.fetch(role).access }.freeze
+  PILOT_ACCOUNT = RpmsRpc::TestRoles.fetch(:scheduler).access
+  PILOT_PAIR = RpmsRpc::TestRoles.fetch(:scheduler).pair.freeze
   PATIENT_DFN = 3
   RESOURCE_NAME = "ZZ PILOT SCHED CAPTURE"
   HOSPITAL_LOCATION_ID = "3"
@@ -140,14 +141,14 @@ class WriteCaptureDriver
     unless LOOPBACK_HOSTS.include?(ENV["BROKER_HOST"].to_s.strip)
       problems << "BROKER_HOST must be loopback (127.0.0.1, localhost, or ::1)"
     end
-    problems << "RPMS_ACCESS must be a synthetic persona" unless SYNTHETIC_PERSONAS.include?(setup_access_from_env)
+    problems << "RPMS_ACCESS must be the operator's or the scheduler's" unless SYNTHETIC_ACCOUNTS.include?(setup_access_from_env)
     problems << "RPMS_VERIFY is unset" if ENV["RPMS_VERIFY"].to_s.strip.empty?
     raise problems.join("; ") if problems.any?
   end
 
   def setup_access_from_env
     access = ENV["RPMS_ACCESS"]
-    access.nil? || access.empty? ? "SYS123" : access
+    access.nil? || access.empty? ? RpmsRpc::TestRoles.fetch(:operator).access : access
   end
 
   def open_client
@@ -186,13 +187,13 @@ class WriteCaptureDriver
     @recorder.disconnect
     @recorder.connect
     @recorder.authenticate(*PILOT_PAIR)
-    remember_duz(PILOT_PERSONA)
-    remember_division(PILOT_PERSONA)
+    remember_duz(PILOT_ACCOUNT)
+    remember_division(PILOT_ACCOUNT)
   end
 
-  def remember_duz(persona)
-    key = persona.to_s
-    raise "signed-on persona is not synthetic" unless SYNTHETIC_PERSONAS.include?(key)
+  def remember_duz(account)
+    key = account.to_s
+    raise "signed-on account is not synthetic" unless SYNTHETIC_ACCOUNTS.include?(key)
 
     @session_duz[key] = positive_integer_duz(@recorder.duz)
     setup = @out["setup"]
@@ -208,9 +209,9 @@ class WriteCaptureDriver
     Integer(text, 10)
   end
 
-  def remember_division(persona)
-    key = persona.to_s
-    raise "signed-on persona is not synthetic" unless SYNTHETIC_PERSONAS.include?(key)
+  def remember_division(account)
+    key = account.to_s
+    raise "signed-on account is not synthetic" unless SYNTHETIC_ACCOUNTS.include?(key)
 
     @session_division[key] = positive_integer_division(@recorder.division)
     setup = @out["setup"]
@@ -380,7 +381,7 @@ class WriteCaptureDriver
 
   def unbooked(capture, message)
     text = message.to_s.empty? ? "add_appointment was not accepted" : message
-    payload = { "signed_on_as" => PILOT_PERSONA, "error" => text } if capture
+    payload = { "signed_on_as" => PILOT_ACCOUNT, "error" => text } if capture
     { id: nil, start_fm: nil, payload: payload }
   end
 
@@ -414,7 +415,7 @@ class WriteCaptureDriver
       read_appointment(held[:id], start_fm)
     end
     payload = if capture && held[:id]
-                build_payload(signed_on_as: PILOT_PERSONA, method: "add_appointment", args: [], kwargs: kwargs,
+                build_payload(signed_on_as: PILOT_ACCOUNT, method: "add_appointment", args: [], kwargs: kwargs,
                               rpc: ADD_RPC, calls: calls, error: error)
     end
     { id: held[:id], start_time: start_time, start_fm: start_fm, payload: payload,
@@ -499,7 +500,7 @@ class WriteCaptureDriver
       read_effect(booking[:id], booking[:start_fm], clinic: clinic)
     end
     @out["captures"][rpc] = build_payload(
-      signed_on_as: PILOT_PERSONA, method: method_name, args: args, kwargs: kwargs,
+      signed_on_as: PILOT_ACCOUNT, method: method_name, args: args, kwargs: kwargs,
       rpc: rpc, calls: calls, error: error
     )
   end
@@ -507,11 +508,11 @@ class WriteCaptureDriver
   def capture_step(rpc)
     yield
   rescue StandardError => e
-    @out["captures"][rpc] ||= { "signed_on_as" => PILOT_PERSONA, "error" => safe_error(e) }
+    @out["captures"][rpc] ||= { "signed_on_as" => PILOT_ACCOUNT, "error" => safe_error(e) }
   end
 
   def record_missing(rpc, message)
-    @out["captures"][rpc] = { "signed_on_as" => PILOT_PERSONA, "error" => message }
+    @out["captures"][rpc] = { "signed_on_as" => PILOT_ACCOUNT, "error" => message }
   end
 
   def read_appointment(appointment_ien, start_fm)
@@ -717,7 +718,7 @@ class WriteCaptureDriver
   end
 
   def credential_secrets
-    %w[RPMS_VERIFY RPMS_VERIFY_CODE SYS123_VERIFY].filter_map { |key| ENV[key] }.push(PILOT_PAIR.last)
+    %w[RPMS_VERIFY RPMS_VERIFY_CODE OPERATOR_VERIFY].filter_map { |key| ENV[key] }.push(PILOT_PAIR.last)
       .map(&:to_s).select { |value| value.strip.length >= 4 }.uniq.sort_by(&:length).reverse
   end
 

@@ -18,7 +18,7 @@ require "securerandom"
 # Creates one synthetic patient: run on a disposable container and discard it.
 # Needs BMX_PORT (the container's 9101). PROFILE,REG holds AGGRPC.
 class RegistrationLookupBmxLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   FAULT_PAIR = { "1BAD" => "X" }.freeze # not a valid M local: S @NAME=VALUE faults (AGGPTLKP.m:39)
@@ -31,7 +31,7 @@ class RegistrationLookupBmxLiveTest < LiveSpec::Test
     second = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert_equal :duplicate_identity, second[:error]
     assert_equal [ first[:dfn] ], second[:candidate_dfns]
-    puts "\n#{persona}: registered DFN #{first[:dfn]} after a BMX no-match; the repeat found it"
+    puts "\n#{role}: registered DFN #{first[:dfn]} after a BMX no-match; the repeat found it"
   end
 
   def test_a_lookup_that_faults_fails_closed_over_bmx_and_reads_as_no_match_over_cia

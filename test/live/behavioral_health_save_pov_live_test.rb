@@ -10,8 +10,9 @@ require "rpms_rpc/fileman_date_parser"
 # Replaces all POV and (mode E) Axis IV rows on each call. WRITES against a disposable
 # local container only.
 class BehavioralHealthSavePovLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   writes!
 
   # Synthetic seed patient; not used by save_visit (990033/990034) or other live write specs.
@@ -121,7 +122,7 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
       axis_iii: AXIS_III
     )
 
-    puts "\n#{persona}: BH visit #{record_ien} POV replace-all verified on DFN #{DFN}"
+    puts "\n#{role}: BH visit #{record_ien} POV replace-all verified on DFN #{DFN}"
   end
 
   private
@@ -131,7 +132,7 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
   def assert_visit_tabs_read_back!(record_ien, problems:, narratives:, axis_iv:)
     bh = RpmsRpc::BehavioralHealth
     pov = bh.visit_axis_ii(record_ien)
-    puts "\n#{persona}: visit #{record_ien} tabs read back: #{pov.size} POV, Axis III, IV and V"
+    puts "\n#{role}: visit #{record_ien} tabs read back: #{pov.size} POV, Axis III, IV and V"
     assert_equal problems.map(&:to_s).sort, pov.map { |r| r[:code_pointer] }.sort
     assert_equal narratives.sort, pov.map { |r| r[:narrative] }.sort
     assert_equal axis_iv.map(&:to_s).sort, bh.visit_axis_iv(record_ien).map { |r| r[:code_pointer] }.sort

@@ -19,7 +19,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class ProcedureAddLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_054 # a synthetic seed patient; unused by other live specs
@@ -52,7 +52,7 @@ class ProcedureAddLiveTest < LiveSpec::Test
     assert_equal :wrong_patient, RpmsRpc::Procedure.add(OTHER_DFN, visit, CPT)[:error]
     assert_equal count, cpt_rows_on(visit).size, "a refused add filed a V CPT on visit #{visit}"
 
-    puts "\n#{persona}: Procedure.add filed V CPT #{added[:ien]} (#{CPT} x2) on visit #{visit}, DFN #{DFN}"
+    puts "\n#{role}: Procedure.add filed V CPT #{added[:ien]} (#{CPT} x2) on visit #{visit}, DFN #{DFN}"
   end
 
   private

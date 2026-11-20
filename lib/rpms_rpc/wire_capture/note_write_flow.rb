@@ -329,9 +329,9 @@ module RpmsRpc
       end
     end
 
-    # README.md synthetic dev personas. A write may sign on as one of these
-    # and nothing else. The access code is never copied into a refusal or a fixture.
-    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+    # A write may sign on as a test role's account (RpmsRpc::TestRoles) and
+    # nothing else. The access code is never copied into a refusal or a fixture.
+    SYNTHETIC_ACCOUNTS = TestRoles.access_codes.freeze
     ONLY_REFUSAL = "WRITES=1 is refused when ONLY is set; the TIU note flow is captured together"
     # No spaces and no "1": a blank or one-character code must not appear in the text.
     ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-with-no-leading-or-trailing-whitespace-(field-20.4)"
@@ -345,7 +345,7 @@ module RpmsRpc
     # Host mode only. A read capture (writes false or nil) is not refused.
     # WRITES=1 is allowed only when the broker host resolves and every
     # address is loopback, CONTAINER is nil or "", and the access code is a
-    # synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused:
+    # test role's account. A blank ONLY is unset. A non-blank ONLY is refused:
     # the TIU flow is one unit, and the write run's only read is the
     # BEHOENCX GETVISIT linkage check before create.
     # RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
@@ -358,7 +358,7 @@ module RpmsRpc
       return "WRITES=1 is refused" unless writes == true
       return "WRITES=1 is refused when CONTAINER is set" unless container.to_s.strip.empty?
       return loopback_refusal unless resolved_loopback?(host, resolver)
-      return persona_refusal unless SYNTHETIC_PERSONAS.include?(access)
+      return account_refusal unless SYNTHETIC_ACCOUNTS.include?(access)
       return refusal_without(ONLY_REFUSAL, only, access, esig) if only_present?(only)
 
       esig_refusal(esig, access)
@@ -492,8 +492,8 @@ module RpmsRpc
         text
       end
 
-      def persona_refusal
-        "WRITES=1 is refused unless the sign-on is a synthetic persona"
+      def account_refusal
+        "WRITES=1 is refused unless the sign-on is a test role's account"
       end
 
       def resolved_loopback?(host, resolver)

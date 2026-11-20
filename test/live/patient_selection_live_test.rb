@@ -8,7 +8,7 @@ require "rpms_rpc/api/patient_selection"
 # MOUSE,MICKEY M is DFN 3, HRN 1001, born 1910-02-14, SSN ending 9999. It reads
 # only.
 class PatientSelectionLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   def dfns(text) = RpmsRpc::PatientSelection.find(text).map { |row| row[:dfn] }
 
   def test_a_last_name_lists_the_patients_whose_names_begin_with_it

@@ -11,10 +11,10 @@
 #   WRITES=1 runs the whole TIU note flow (its only read is the BEHOENCX GETVISIT
 #   linkage check before create) when the broker host
 #   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
-#   a synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused;
+#   a test role's account (lib/rpms_rpc/test_roles.rb). A blank ONLY is unset. A non-blank ONLY is refused;
 #   the flow is one unit:
 #   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
-#     RPMS_ACCESS=PROV123 rake wire:capture
+#     RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' rake wire:capture
 #   The driver connects to the resolved loopback address, not the host name.
 #   RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
 #   whitespace (field 20.4 stores the exact code). It is read from the
@@ -39,7 +39,7 @@
 # writes only the TIU write fixtures, and refuses a non-blank ONLY, because
 # the TIU flow is captured together. A blank ONLY is unset. It runs only when
 # the broker host resolves to loopback addresses, CONTAINER is unset, the
-# access code is a README synthetic persona, and RPMS_ESIG is unset or 6-20
+# access code is a test role's account, and RPMS_ESIG is unset or 6-20
 # characters with no leading or trailing whitespace (field 20.4 stores the
 # exact code). Any other WRITES=1 aborts before a connection. The allowed run
 # is host mode on this machine's ruby, so the broker must be reachable at
@@ -50,14 +50,16 @@
 # is written only when no fixture file exists yet.
 # wire:capture_writes is the separate scheduling-write path: it aborts unless
 # LIVE_DISPOSABLE=1 and the broker is loopback, and the read-back is the proof.
-# It provisions as the setup persona and writes as the scheduling persona,
-# PSCH123, whose role scheduling is (#626).
+# It provisions as the operator and writes as the scheduler (PSCH123), the
+# test role whose work scheduling is (#626).
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
-  SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
-  # The scheduling-write capture: the setup persona and the scheduling slice's
-  # pilot, PROFILE,SCHED (rpms-rpc#626). Both must record a DUZ and a division.
-  SCHEDULING_WRITE_PERSONAS = %w[SYS123 PSCH123].freeze
+  require_relative "../rpms_rpc/test_roles"
+  # The scheduling-write capture signs on as the operator, who provisions,
+  # and the scheduler, who books (rpms-rpc#626). Both must record a DUZ and a division.
+  SCHEDULING_WRITE_ACCOUNTS = %i[operator scheduler].map { |role| RpmsRpc::TestRoles.fetch(role).access }.freeze
+  # The account a capture signs on as when RPMS_ACCESS is unset.
+  DEFAULT_CAPTURE_ACCOUNT = RpmsRpc::TestRoles.fetch(:operator).access
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
   ADD_WRITE_RPC = "BSDX ADD NEW APPOINTMENT"
   # Check-in, cancel, and no-show are proven only when read_before shows the
@@ -71,7 +73,7 @@ namespace :wire do
   # to start, before the driver is loaded and before any socket is opened.
   WRITE_CAPTURE_REFUSAL = "wire:capture_writes: refusing to run. Write captures require " \
     "LIVE_DISPOSABLE=1, a loopback BROKER_HOST (127.0.0.1, localhost, or ::1), a " \
-    "synthetic RPMS_ACCESS (SYS123 or PROV123; default SYS123), and RELEASE " \
+    "RPMS_ACCESS of the operator or the scheduler (default the operator's), and RELEASE " \
     "(non-blank). They run only against a disposable rung we own, and they abort " \
     "before any broker connection."
 
@@ -90,10 +92,10 @@ namespace :wire do
     release = ENV["RELEASE"] || "bcer-9.0-ydb"
     runtime = ENV["RUNTIME"] || "docker"
     port = ENV["BROKER_PORT"] || "9100"
-    acc = ENV["RPMS_ACCESS"] || "SYS123"
+    acc = ENV["RPMS_ACCESS"] || DEFAULT_CAPTURE_ACCOUNT
     # Authenticates the driver only. Never written to a fixture or a message.
     ver = ENV["RPMS_VERIFY"] || "RPMS.000"
-    require_synthetic_persona!(acc)
+    require_synthetic_account!(acc)
     # Blank ONLY (nil, "", whitespace) is unset. A padded name is the stripped RPC.
     only = RpmsRpc::WireCapture.normalize_only(ENV["ONLY"])
     # CITE_ONLY="RPC A,RPC B": write routine-cite fixtures for these
@@ -326,21 +328,21 @@ namespace :wire do
     text.gsub(secret, RpmsRpc::WireCapture::NoteWriteFlow::WITHHELD)
   end
 
-  # Abort unless the sign-on access code is a README synthetic persona
-  # (WireCapture::SYNTHETIC_PERSONAS). The supplied value is never included
+  # Abort unless the sign-on access code is a test role's account
+  # (WireCapture::SYNTHETIC_ACCOUNTS). The supplied value is never included
   # in the message, and the verify code is never written.
-  def require_synthetic_persona!(access)
-    return access if RpmsRpc::WireCapture::SYNTHETIC_PERSONAS.include?(access)
+  def require_synthetic_account!(access)
+    return access if RpmsRpc::WireCapture::SYNTHETIC_ACCOUNTS.include?(access)
 
-    abort "wire:capture: captures must sign on as a synthetic persona"
+    abort "wire:capture: captures must sign on as a test role's account"
   end
 
-  # A fixture names who signed on: a synthetic persona, or the scheduling
-  # pilot (WireCapture::FIXTURE_PERSONAS). The value is never in the message.
-  def require_fixture_persona!(persona)
-    return persona if RpmsRpc::WireCapture::FIXTURE_PERSONAS.include?(persona)
+  # A fixture names who signed on (WireCapture::FIXTURE_ACCOUNTS). The value
+  # is never in the message.
+  def require_fixture_account!(account)
+    return account if RpmsRpc::WireCapture::FIXTURE_ACCOUNTS.include?(account)
 
-    abort "wire:capture: a fixture must name a synthetic persona"
+    abort "wire:capture: a fixture must name a synthetic account"
   end
 
   def fixture_data(entry, release, captured_at, signed_on_as)
@@ -350,9 +352,9 @@ namespace :wire do
       "kind" => entry.kind,
       "release_tag" => release,
       "captured_at" => captured_at,
-      # A synthetic persona or the scheduling pilot (FIXTURE_PERSONAS). The verify code is
+      # A synthetic account (FIXTURE_ACCOUNTS). The verify code is
       # never a fixture field.
-      "signed_on_as" => require_fixture_persona!(signed_on_as),
+      "signed_on_as" => require_fixture_account!(signed_on_as),
       "cite" => entry.cite,
       "note" => entry.note,
       "pieces" => entry.pieces.map do |p|
@@ -431,7 +433,7 @@ namespace :wire do
   end
 
   def disposable_write_capture?
-    ENV["LIVE_DISPOSABLE"] == "1" && loopback_broker_host? && SYNTHETIC_PERSONAS.include?(setup_access) &&
+    ENV["LIVE_DISPOSABLE"] == "1" && loopback_broker_host? && SCHEDULING_WRITE_ACCOUNTS.include?(setup_access) &&
       release_given?
   end
 
@@ -441,7 +443,7 @@ namespace :wire do
 
   def setup_access
     access = ENV["RPMS_ACCESS"]
-    access.nil? || access.empty? ? "SYS123" : access
+    access.nil? || access.empty? ? DEFAULT_CAPTURE_ACCOUNT : access
   end
 
   def release_given?
@@ -498,13 +500,13 @@ namespace :wire do
       return false
     end
 
-    persona = capture["signed_on_as"].to_s
-    unless SCHEDULING_WRITE_PERSONAS.include?(persona)
-      warn "SKIP #{entry.rpc}: signed_on_as is not a synthetic persona (existing fixture kept)"
+    account = capture["signed_on_as"].to_s
+    unless SCHEDULING_WRITE_ACCOUNTS.include?(account)
+      warn "SKIP #{entry.rpc}: signed_on_as is not a synthetic account (existing fixture kept)"
       return false
     end
     duz = session_duz_map(setup["duz"])
-    unless duz&.key?(persona)
+    unless duz&.key?(account)
       warn "SKIP #{entry.rpc}: setup did not record session DUZ (existing fixture kept)"
       return false
     end
@@ -531,7 +533,7 @@ namespace :wire do
     end
 
     source = RpmsRpc::WireCapture.data_rows(raw).empty? ? "no-data" : "live-capture"
-    data = fixture_data(entry, release, captured_at, persona).merge(
+    data = fixture_data(entry, release, captured_at, account).merge(
       "source" => source,
       "inputs" => capture["inputs"],
       "raw_return" => raw,
@@ -561,7 +563,7 @@ namespace :wire do
       !setup["hospital_location_id"].nil? && !setup["hospital_location_id"].to_s.empty?
   end
 
-  # One setup map for every fixture this run writes, including each persona's
+  # One setup map for every fixture this run writes, including each account's
   # division institution IEN and the institutions #40.8 points at. A run that
   # did not record those writes nothing.
   def fixture_setup(setup)
@@ -582,20 +584,20 @@ namespace :wire do
     }.compact
   end
 
-  # Synthetic persona to the division institution IEN bound at sign-on.
-  # Both personas are required. A non-synthetic key or a non-integer value
+  # Synthetic account to the division institution IEN bound at sign-on.
+  # Both accounts are required. A non-synthetic key or a non-integer value
   # rejects the whole map.
   def division_map(division)
     return nil unless division.is_a?(Hash)
 
     mapped = {}
-    division.each do |persona, value|
-      key = persona.to_s
-      return nil unless SCHEDULING_WRITE_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+    division.each do |account, value|
+      key = account.to_s
+      return nil unless SCHEDULING_WRITE_ACCOUNTS.include?(key) && value.is_a?(Integer) && value.positive?
 
       mapped[key] = value
     end
-    return nil unless SCHEDULING_WRITE_PERSONAS.all? { |persona| mapped.key?(persona) }
+    return nil unless SCHEDULING_WRITE_ACCOUNTS.all? { |account| mapped.key?(account) }
 
     mapped
   end
@@ -621,9 +623,9 @@ namespace :wire do
     return nil unless duz.is_a?(Hash) && !duz.empty?
 
     mapped = {}
-    duz.each do |persona, value|
-      key = persona.to_s
-      return nil unless SCHEDULING_WRITE_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+    duz.each do |account, value|
+      key = account.to_s
+      return nil unless SCHEDULING_WRITE_ACCOUNTS.include?(key) && value.is_a?(Integer) && value.positive?
 
       mapped[key] = value
     end

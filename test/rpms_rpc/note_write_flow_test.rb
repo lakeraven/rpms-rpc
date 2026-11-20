@@ -731,7 +731,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     esig = "PROVIDER"
     assert_includes read_back, esig
     assert_nil RpmsRpc::WireCapture.write_refusal(
-      writes: true, host: "127.0.0.1", container: nil, access: "PROV123", esig: esig
+      writes: true, host: "127.0.0.1", container: nil, access: "PMD123", esig: esig
     ), "the esig passes the pre-run gate; only the captures reveal it"
 
     client = ScriptedClient.new(

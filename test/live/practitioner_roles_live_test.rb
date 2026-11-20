@@ -12,8 +12,9 @@ require "rpms_rpc/api/ddr_fileman"
 # The spec lists the build's users with DDR LISTER and checks roles against
 # each one, so it holds on any build that has a user with a division.
 class PractitionerRolesLiveTest < LiveSpec::Test
-  # The clinician holds OR CPRS GUI CHART from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given OR CPRS GUI CHART yet (PROVIDER,TEST was, openrpms#1192).
+  needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   CONTEXT = "CIAV VUECENTRIC"
   KEYS = %i[duz name provider_class service_section divisions user_classes].freeze
 
@@ -52,14 +53,14 @@ class PractitionerRolesLiveTest < LiveSpec::Test
 
     with_division = found.select { |r| r[:divisions].any? }
     refute_empty with_division, "no listed user has a DIVISION (#200 field 16)"
-    puts "\n#{persona}: #{with_division.first(2).map(&:inspect).join(' ')}"
-    puts "#{persona}: pointers to no entry (name nil): #{dangling.join(', ')}" if dangling.any?
+    puts "\n#{role}: #{with_division.first(2).map(&:inspect).join(' ')}"
+    puts "#{role}: pointers to no entry (name nil): #{dangling.join(', ')}" if dangling.any?
   end
 
   def test_the_signed_on_user_has_the_division_it_signed_on_to
     roles = RpmsRpc::Practitioner.roles(client.duz)
     refute_nil roles, "Practitioner.roles(#{client.duz}) found the signed-on user nowhere"
-    refute_empty roles[:divisions], "#{persona} (DUZ #{client.duz}) signed on but has no DIVISION"
+    refute_empty roles[:divisions], "#{role} (DUZ #{client.duz}) signed on but has no DIVISION"
   end
 
   def test_an_unknown_or_invalid_ien_is_nil

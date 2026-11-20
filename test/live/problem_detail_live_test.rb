@@ -9,7 +9,7 @@ require "rpms_rpc/api/problem"
 # display report DETAIL builds, one text line per Y(I) (ORQQPL.m:26-59),
 # not a caret row (#821). These specs read only; they file nothing.
 class ProblemDetailLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
 
   PROBLEM_FILE = "9000011"
 

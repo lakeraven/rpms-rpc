@@ -12,7 +12,7 @@ require "rpms_rpc/server_clock"
 # FileMan, with DDR GETS ENTRY DATA for the fields the module's own reads do
 # not return.
 class RegistrationSetupLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   RS = RpmsRpc::RegistrationSetup

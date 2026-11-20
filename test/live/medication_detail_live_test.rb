@@ -14,7 +14,7 @@ require "rpms_rpc/api/medication"
 # build seeds rather than ids written down here. DETAIL reads a prescription by
 # its id alone, so find must not answer DFN 2's medication for DFN 4 (#837).
 class MedicationDetailLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   CONTEXT = "CIAV VUECENTRIC"
   DFN = 2 # USER,TEST, the seed patient
   OTHER_DFN = 4 # DEMO,PATIENT ONE

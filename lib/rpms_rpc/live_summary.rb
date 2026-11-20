@@ -7,9 +7,9 @@ require "time"
 require "yaml"
 
 # The live-run record a release is allowed to trust (rpms-rpc#361, ADR 0010
-# assertion 10). `rake test:live` writes one JSON file per persona and
-# protocol. CIA keeps <persona>.json, every other protocol is
-# <persona>.<protocol>.json — so a green run of one line cannot replace a
+# assertion 10). `rake test:live` writes one JSON file per role and
+# protocol. CIA keeps <role>.json, every other protocol is
+# <role>.<protocol>.json — so a green run of one line cannot replace a
 # red run of another. The release guard reads them back and refuses to tag
 # unless every file is a green run of the openrpms release under test (the one
 # `rake openrpms:fetch` recorded, rpms-rpc#724). A pending
@@ -25,15 +25,15 @@ require "yaml"
 module RpmsRpc
   module LiveSummary
     SCHEMA = 3
-    REQUIRED_FIELDS = %w[schema build build_source source suite protocol persona passed runs assertions failures errors skips written_at].freeze
+    REQUIRED_FIELDS = %w[schema build build_source source suite protocol role passed runs assertions failures errors skips written_at].freeze
     COUNT_FIELDS = %w[runs skips failures errors].freeze
     # A release is for the openrpms release under test; LIVE_BUILD is the runner's word.
     RELEASE_BUILD_SOURCE = "release"
     # Tracked skips are allowed, up to this share of a file's runs.
     MAX_SKIP_PERCENT = 10
     DEFAULT_DIR = "coverage/live"
-    # The file name is the persona and the protocol, so anything else is refused.
-    PERSONA_TOKEN = /\A[A-Za-z0-9_-]+\z/
+    # The file name is the role and the protocol, so anything else is refused.
+    ROLE_TOKEN = /\A[A-Za-z0-9_-]+\z/
     PROTOCOL_TOKEN = /\A[a-z]+\z/
 
     module_function
@@ -45,17 +45,17 @@ module RpmsRpc
       chosen.empty? ? DEFAULT_DIR : chosen
     end
 
-    # CIA keeps <persona>.json. Every other protocol is <persona>.<protocol>.json,
-    # so one line's summary cannot overwrite another's. Persona and protocol
+    # CIA keeps <role>.json. Every other protocol is <role>.<protocol>.json,
+    # so one line's summary cannot overwrite another's. Role and protocol
     # are stripped; anything but a plain token raises ArgumentError naming it.
-    def path_for(dir, persona:, protocol:)
-      persona = summary_token(persona, "persona", PERSONA_TOKEN)
+    def path_for(dir, role:, protocol:)
+      role = summary_token(role, "role", ROLE_TOKEN)
       protocol = summary_token(protocol, "protocol", PROTOCOL_TOKEN)
-      name = protocol == "cia" ? "#{persona}.json" : "#{persona}.#{protocol}.json"
+      name = protocol == "cia" ? "#{role}.json" : "#{role}.#{protocol}.json"
       File.join(dir, name)
     end
 
-    # Write one persona summary. Quiet, and creates nothing, unless this is a
+    # Write one role summary. Quiet, and creates nothing, unless this is a
     # live run that actually has a broker: the guard must not be fed a file
     # from `rake test` or from a half-configured shell. The file never holds
     # the host or the sign-on pair; callers must not put them in fields.
@@ -77,11 +77,11 @@ module RpmsRpc
     # A blank run_id raises ArgumentError. Same env gate as write. suite is
     # the suite_fingerprint at the start of the run, carried the same way as
     # source so a suite that changes before the summary is written is refused.
-    def mark_pending(path, persona:, protocol:, build:, build_source:, source:, run_id:, env: ENV, suite: nil)
+    def mark_pending(path, role:, protocol:, build:, build_source:, source:, run_id:, env: ENV, suite: nil)
       token = run_id.to_s.strip
       raise ArgumentError, "run_id #{run_id.inspect} is blank" if token.empty?
 
-      with_lock(path) { write_pending(path, persona:, protocol:, build:, build_source:, source:, suite:, token:, env:) }
+      with_lock(path) { write_pending(path, role:, protocol:, build:, build_source:, source:, suite:, token:, env:) }
     end
 
     # Replace this run's pending marker with its finished summary, as one step under the summary's
@@ -111,14 +111,14 @@ module RpmsRpc
       end
     end
 
-    def write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:, suite: nil)
+    def write_pending(path, role:, protocol:, build:, build_source:, source:, token:, env:, suite: nil)
       write(path, {
         "build" => build,
         "build_source" => build_source,
         "source" => source,
         "suite" => suite,
         "protocol" => protocol,
-        "persona" => persona,
+        "role" => role,
         "runs" => 0,
         "assertions" => 0,
         "failures" => 0,
@@ -237,13 +237,13 @@ module RpmsRpc
     # LIVE_BUILD, when set, is the runner's word ("declared"); otherwise the
     # release under test (release_build, "release"; blank when none is recorded, which
     # the guard refuses). The protocol
-    # defaults to cia. Persona and protocol are stripped; path_for still
+    # defaults to cia. Role and protocol are stripped; path_for still
     # refuses an unsafe token.
     def run_identity(env, root:)
       declared = env["LIVE_BUILD"].to_s.strip
       build, build_source = declared.empty? ? [ recorded_release(env), RELEASE_BUILD_SOURCE ] : [ declared, "declared" ]
       {
-        persona: env["PERSONA"].to_s.strip,
+        role: env["ROLE"].to_s.strip,
         protocol: broker_protocol(env),
         build: build,
         build_source: build_source,
@@ -268,7 +268,7 @@ module RpmsRpc
       return [ missing_summary(dir) ] if paths.empty?
 
       reasons = paths.flat_map { |path| reasons_for(path, build, source, suite) }
-      # CIA keeps <persona>.json; no persona token holds a dot. BMX and XWB are
+      # CIA keeps <role>.json; no role token holds a dot. BMX and XWB are
       # optional, but every file on disk is held to the same checks above.
       reasons.unshift("no CIA summary in #{dir}: a release needs a green CIA run (BMX and XWB are checked if present)") unless paths.any? { |path| cia_file?(path) }
       reasons
@@ -393,38 +393,38 @@ module RpmsRpc
       marked == current
     end
 
-    # CIA summaries are <persona>.json. Every other protocol is
-    # <persona>.<protocol>.json. The file name is the identity; content that
-    # names another persona or protocol is not evidence for this file.
+    # CIA summaries are <role>.json. Every other protocol is
+    # <role>.<protocol>.json. The file name is the identity; content that
+    # names another role or protocol is not evidence for this file.
     def filename_identity(basename)
       stem = basename.delete_suffix(".json")
       return nil if stem == basename
 
       if stem.include?(".")
-        persona, protocol = stem.split(".", 2)
+        role, protocol = stem.split(".", 2)
       else
-        persona = stem
+        role = stem
         protocol = "cia"
       end
-      return nil unless persona.match?(PERSONA_TOKEN) && protocol.match?(PROTOCOL_TOKEN)
+      return nil unless role.match?(ROLE_TOKEN) && protocol.match?(PROTOCOL_TOKEN)
       return nil if protocol == "cia" && stem.include?(".")
 
-      [ persona, protocol ]
+      [ role, protocol ]
     end
 
     def identity_reasons(name, data, reasons)
       expected = filename_identity(name)
       if expected.nil?
-        reasons << "#{name}: persona and protocol do not match the file name"
+        reasons << "#{name}: role and protocol do not match the file name"
         return
       end
 
-      persona, protocol = expected
-      return unless data.key?("persona") && data.key?("protocol")
-      return if data["persona"].nil? || data["protocol"].nil?
-      return if data["persona"] == persona && data["protocol"] == protocol
+      role, protocol = expected
+      return unless data.key?("role") && data.key?("protocol")
+      return if data["role"].nil? || data["protocol"].nil?
+      return if data["role"] == role && data["protocol"] == protocol
 
-      reasons << "#{name}: persona #{data['persona'].inspect} and protocol #{data['protocol'].inspect} do not match the file name"
+      reasons << "#{name}: role #{data['role'].inspect} and protocol #{data['protocol'].inspect} do not match the file name"
     end
 
     def outcome_of(path)

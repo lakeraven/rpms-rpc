@@ -17,17 +17,18 @@
 # digest-pinned image; a different BUILD= is an error on a real run and on
 # a dry run. A dry run that still cannot resolve a release writes the error
 # and exits non-zero. An unknown build exits non-zero.
-# Sign-on: <PERSONA>_ACCESS and <PERSONA>_VERIFY for each live persona
-# (PROV123, PMD123, PREG123, PSCH123, SYS123; README, Live personas).
-# Each pair is handed only to that persona's rake test:live child, with
-# <PERSONA>_ESIG (the persona's electronic signature code) as RPMS_ESIG;
-# PROV123's and PMD123's signing specs fail without it.
+# Sign-on: each live test role signs on with its row's published pair
+# (lib/rpms_rpc/test_roles.rb; README, Test roles), or with <ROLE>_ACCESS and
+# <ROLE>_VERIFY when set (PROVIDER_ACCESS, OPERATOR_VERIFY). The operator's
+# verify code is not published, so OPERATOR_VERIFY must be set. Each pair is
+# handed only to that role's rake test:live child, with <ROLE>_ESIG (its
+# electronic signature code, when it differs from the row's) as RPMS_ESIG.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
 # (RPMS_DIFFS_DIR selects the checkout). Each suite's output, redacted like
 # the report, is kept beside it as <date>-<build>.<suite id>.log and linked
 # from the suite's row (#757). The task exits with the report status.
 namespace :report do
-  desc "Run rake test and rake test:live once per live persona, and write rpc-coverage/daily/<date>-<build>.md"
+  desc "Run rake test and rake test:live once per live test role, and write rpc-coverage/daily/<date>-<build>.md"
   task :daily do
     require "rpms_rpc/daily_report"
 

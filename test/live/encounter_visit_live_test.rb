@@ -14,7 +14,7 @@ require_relative "seed_clinic"
 class EncounterVisitLiveTest < LiveSpec::Test
   include LiveSpec::SeedClinic
 
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 2
@@ -32,7 +32,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
     assert_equal [ { component: "E&M", message: "Visit has no note" } ], result[:missing_components]
   end
 
-  # Every persona: the PCC MASTER CONTROL gap that once refused PROV123's
+  # Every role: the PCC MASTER CONTROL gap that once refused PROVIDER,TEST's
   # create (TYPE OF VISIT MISSING) is closed on the build, and its create files.
   def test_create_is_get_or_create_and_reads_back
     # A new visit is not a higher IEN: FileMan hands out a free lower one

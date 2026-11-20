@@ -11,7 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 # nickname and is greeted by the .01 name. Each run checks the name against
 # FileMan's own record of the user, read with DDR GETS ENTRY DATA.
 class SignonNameLiveTest < LiveSpec::Test
-  runs_as "PROV123", "PMD123"
+  runs_as :provider
 
   def new_person_name(duz)
     reply = client.with_context("CIAV VUECENTRIC") do
@@ -23,7 +23,7 @@ class SignonNameLiveTest < LiveSpec::Test
   def test_sign_on_names_the_user_by_their_new_person_name
     signed = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
     signed.connect
-    result = signed.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+    result = signed.authenticate(*sign_on_pair)
 
     name = new_person_name(result[:duz])
     assert_equal name, result[:user], "authenticate's user: is the NEW PERSON name (greeting #{result[:greeting].inspect})"

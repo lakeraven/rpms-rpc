@@ -21,7 +21,7 @@ require "rpms_rpc/api/ddr_fileman"
 # answers no rows (#391). Every RPC here is in CIAV VUECENTRIC, the option
 # sign-on binds. These specs read only; they file nothing.
 class OrderLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   DEMO_DFNS = %w[3 4 990001 990027].freeze
 
   # AGET's MULT views (ORWORR.m: S MULT=...): the header's TXTVW is 0 for
@@ -84,7 +84,7 @@ class OrderLiveTest < LiveSpec::Test
     flunk_if_order_file_empty!(dfn)
 
     rows = RpmsRpc::Order.unsigned_for_patient(dfn)
-    refute_empty rows, "ORWOR UNSIGN listed no unsigned order for DFN #{dfn} to #{persona}; PROFILE,MD authored the seeded order"
+    refute_empty rows, "ORWOR UNSIGN listed no unsigned order for DFN #{dfn} to #{role}; PROFILE,MD authored the seeded order"
     assert(rows.all? { |r| r[:ien].positive? && r[:action_ien].positive? }, rows.inspect)
   end
 

@@ -8,7 +8,7 @@ require_relative "../live_helper"
 # Needs the BMXRPC context. Reads only.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxWireCharsetLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   broker :bmx
 
   FIXTURES = File.expand_path("../../fixtures/wire_charset", __dir__)
@@ -18,7 +18,7 @@ class BmxWireCharsetLiveTest < LiveSpec::Test
     super
     client.create_context(ENTRY["context"])
   rescue RpmsRpc::Client::RpcError => e
-    flunk "#{persona} cannot bind #{ENTRY['context']} on this build (#{e.message}): BMX SQL is registered there"
+    flunk "#{role} cannot bind #{ENTRY['context']} on this build (#{e.message}): BMX SQL is registered there"
   end
 
   def test_the_stored_bullet_arrives_as_one_byte_and_is_reported

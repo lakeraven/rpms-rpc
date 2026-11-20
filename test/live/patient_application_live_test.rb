@@ -11,7 +11,7 @@ require "rpms_rpc/server_clock"
 # (openrpms SEEDAPPT). An application cannot be deleted through AG, so run on
 # a disposable container; each run records one application on a new date.
 class PatientApplicationLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   DFN = 990_010 # a synthetic seed patient

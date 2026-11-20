@@ -10,7 +10,7 @@ require "rpms_rpc/api/phr"
 # MAGSIXG1, and the gem raises it rather than reporting no documents.
 # BEHOCIR1 GETCCDS is in CIAV VUECENTRIC; the spec reads only.
 class PhrCcdsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   CONTEXT = "CIAV VUECENTRIC"
   DFN = 4 # DEMO,PATIENT ONE on the pinned build
 

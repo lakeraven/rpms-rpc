@@ -27,7 +27,10 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   # The release the committed wire fixtures were captured on: their provenance, kept with them as
   # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
   PINNED_RELEASE = "bcer-9.0-20261119-f67498c-ydb"
+  # Who the committed TIU fixtures were captured as: PROVIDER,TEST, before tests signed on as roles.
   PILOT_PERSONA = "PROV123"
+  # Who a write capture signs on as now: the provider role.
+  CAPTURE_ACCOUNT = RpmsRpc::TestRoles.fetch(:provider).access
 
   CHECKLIST_LINE = /
     \A
@@ -179,7 +182,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   end
 
   def write_refusal_ok_kwargs
-    { writes: true, host: "127.0.0.1", container: nil, access: PILOT_PERSONA }
+    { writes: true, host: "127.0.0.1", container: nil, access: CAPTURE_ACCOUNT }
   end
 
   def note_text
@@ -523,14 +526,14 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
 
   def test_write_refusal_requires_loopback_host_and_host_mode
     assert RpmsRpc::WireCapture.respond_to?(:write_refusal), "WireCapture.write_refusal missing"
-    persona = { access: PILOT_PERSONA }
+    persona = { access: CAPTURE_ACCOUNT }
 
     [ false, nil ].each do |writes|
       assert_nil write_refusal(
         writes: writes, host: "10.0.0.5", container: "rpms-ydb-9.0", access: "REALCODE"
       ), "writes #{writes.inspect} must not be refused (access ignored on reads)"
       assert_nil write_refusal(
-        writes: writes, host: "127.0.0.1", container: nil, access: PILOT_PERSONA
+        writes: writes, host: "127.0.0.1", container: nil, access: CAPTURE_ACCOUNT
       ), "writes #{writes.inspect} must not be refused"
     end
 
@@ -579,7 +582,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       writes: true,
       host: "localhost",
       container: nil,
-      access: PILOT_PERSONA,
+      access: CAPTURE_ACCOUNT,
       resolver: ->(_host) { [ "10.0.0.5" ] }
     )
     refute_nil fake_localhost
@@ -598,7 +601,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       writes: true, host: "127.0.0.1", container: nil, access: "SYS123"
     )
     assert_nil write_refusal(
-      writes: true, host: "127.0.0.1", container: nil, access: PILOT_PERSONA
+      writes: true, host: "127.0.0.1", container: nil, access: CAPTURE_ACCOUNT
     )
   end
 

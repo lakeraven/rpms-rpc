@@ -36,7 +36,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_053 # a synthetic seed patient; unused by other live specs
@@ -60,7 +60,7 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     loc = clinic_ien!
     hf = first_health_factor!
     duz = client.duz.to_s
-    narrative = "SYNTH LIVE BEHOENPC #{persona} #{Time.now.utc.strftime('%H%M%S')}"
+    narrative = "SYNTH LIVE BEHOENPC #{role} #{Time.now.utc.strftime('%H%M%S')}"
     now = server_now
     when_fm = RpmsRpc::FilemanDateParser.format_datetime(Time.new(now.year, now.month, now.day, now.hour, now.min, 0))
 
@@ -120,7 +120,7 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     stamped = RpmsRpc::FilemanDateParser.parse_datetime(prv[4])
     assert stamped && stamped >= now, "V PROVIDER #{duz} on visit #{visit} was not stored by this call (1218 #{prv[4].inspect}, call at #{now})"
 
-    puts "\n#{persona}: BEHOENPC SAVE filed visit #{visit} on DFN #{DFN} with V POV, V CPT, V HF and V PROVIDER"
+    puts "\n#{role}: BEHOENPC SAVE filed visit #{visit} on DFN #{DFN} with V POV, V CPT, V HF and V PROVIDER"
   end
 
   private

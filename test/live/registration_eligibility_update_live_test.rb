@@ -14,7 +14,7 @@ require "rpms_rpc/api/ddr_fileman"
 # for every field, so a write that filed nothing fails, on the first run and
 # on every run after it on the same container (rpms-rpc#701).
 class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   DFN = 990_052 # BRAVO,REESE, a synthetic panel patient; unused by other live specs

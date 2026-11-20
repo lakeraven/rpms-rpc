@@ -16,8 +16,9 @@ require "rpms_rpc/api/clinical_event"
 # raises and no PCE data comes back. When the seed changes, a spec fails and
 # names what it expected; it never skips. These specs read only.
 class ClinicalEventNotePatientLiveTest < LiveSpec::Test
-  # The clinician holds OR CPRS GUI CHART from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given OR CPRS GUI CHART yet (PROVIDER,TEST was, openrpms#1192).
+  needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   NOTE_IEN = "1"       # a seeded note of DFN 4
   OWNER_DFN = 4        # DEMO,PATIENT ONE
   OTHER_DFN = 990_002  # BRAVO,ALEX, a synthetic seed patient

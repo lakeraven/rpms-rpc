@@ -9,12 +9,12 @@ require "rpms_rpc/api/authentication"
 # sign-on binds, is on their menus. An option that does not exist answers 0.
 # The spec reads only.
 class OptionAccessLiveTest < LiveSpec::Test
-  runs_as "PROV123", "PMD123", "PREG123", "PSCH123", "SYS123"
+  runs_as :provider, :nurse, :medical_assistant, :front_desk_clerk, :registration_supervisor, :scheduler, :operator
   def test_the_signed_on_user_may_run_the_ehr_option_and_not_one_that_does_not_exist
     allowed = RpmsRpc::Authentication.option_access([ "CIAV VUECENTRIC", "LIVESPEC NO SUCH OPTION" ])
 
     refute_nil allowed, "ORWU HAS OPTION ACCESS gave no 0/1 answer"
     assert_equal [ "CIAV VUECENTRIC" ], allowed
-    puts "\n#{persona}: may run #{allowed.inspect}"
+    puts "\n#{role}: may run #{allowed.inspect}"
   end
 end

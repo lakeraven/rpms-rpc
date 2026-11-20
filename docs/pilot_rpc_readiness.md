@@ -97,7 +97,7 @@ AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBH
 # entry, and PSCH123's sign-on division (7819) is a MEDICAL CENTER DIVISION (#40.8)
 # institution, so the seed gaps that refused PROV123's booking on the old pin do not apply
 # (the fixtures' setup.notes, setup.division and setup.medical_center_division_institutions).
-# PROV123 is refused BSDXRPC on this build (least_privilege_live_test.rb).
+# PROV123 was refused BSDXRPC on this build; the scheduler holds it (role_refusal_live_test.rb).
 # One line per RPC: RPC | status | reason | unproven: <effects or none>
 
 BSDX ADD NEW APPOINTMENT | pilot-ready | signed on as PSCH123 (DUZ 208, division 7819), appointment 1 booked at 3261209.09 for DFN 3 on the synthetic resource; #9002018.4 (.01 start, .05 patient, .07 resource) and #2.98 (.01 clinic) read back what was sent: not the .02 end time | unproven: none
