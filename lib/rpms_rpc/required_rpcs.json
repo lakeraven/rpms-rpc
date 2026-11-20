@@ -1456,7 +1456,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bgovcpt.yml",
-        "test/fixtures/captured_replies/procedure-add.yml"
+        "test/fixtures/captured_replies/procedure-add.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml"
       ]
     },
     "BGOVEXAM GET": {
@@ -2246,6 +2247,7 @@
         "test/fixtures/captured_replies/clinical-data.yml",
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orqqal-list.yml"
       ]
     },
@@ -2693,6 +2695,7 @@
       "replies": [
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
         "test/fixtures/captured_replies/orwpt-id-info.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-id-info.yml"
       ]
     },
@@ -2716,6 +2719,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/data-mapper-fetch.yml",
+        "test/fixtures/captured_replies/retry-safety-reads.yml",
         "test/fixtures/wire_captures/orwpt-select.yml"
       ]
     },

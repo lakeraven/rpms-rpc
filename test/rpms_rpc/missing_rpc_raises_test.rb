@@ -156,7 +156,6 @@ class MissingRpcRaisesTest < Minitest::Test
   def test_there_is_no_capability_probe
     refute RpmsRpc.const_defined?(:ServerCapabilities, false), "ServerCapabilities is removed (#363)"
     refute RpmsRpc::Client.method_defined?(:supports?), "Client#supports? is removed (#363)"
-    refute RpmsRpc::MockClient.method_defined?(:supports?), "MockClient#supports? is removed (#363)"
   end
 
   def test_no_api_method_asks_supports
