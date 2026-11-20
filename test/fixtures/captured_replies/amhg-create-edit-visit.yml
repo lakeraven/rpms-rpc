@@ -1,0 +1,119 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-create-edit-visit.rb.
+---
+rpc: AMHG CREATE/EDIT VISIT
+entry_point: PCC^AMHGPCC
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair), the clinician that holds
+  AMHGRPC
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:40:19Z'
+note: Run on a throwaway container. Setup files one BH visit for DFN 990033 (BehavioralHealth.save_visit,
+  as the live spec does) and finds a seeded PCC visit (#9000010) of that patient and
+  one of another; the flows run in this order on that visit. Synthetic patients only.
+captures:
+- name: activity_type_missing/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 3,
+    FIELDS: ".08;.16"
+    FLAGS: I
+  context: 'save_pcc_visit(record_ien:) on a visit with no activity type: the build
+    links nothing'
+  raw_return: "5\0[Data]\r9002011^3^.08^990033^\r9002011^3^.16^^\r"
+  sha256: ecf489d80e53c64af800e909834874bfbf9530bb9c4c0fdc10f9f02eae2b6145
+- name: activity_type_missing/2
+  rpc: AMHG CREATE/EDIT VISIT
+  inputs:
+  - 3|
+  context: 'save_pcc_visit(record_ien:) on a visit with no activity type: the build
+    links nothing'
+  raw_return: "6\0T00030Result\x1E0~Activity Type Missing!\x1E"
+  sha256: c34e5dcf8ae99f1467b45321df522350bbde745a5e1773acc03c056c9abcc9ff
+- name: activity_type_missing_with_visit/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 3,
+    FIELDS: ".08;.16"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit of the same patient: the build links
+    nothing'
+  raw_return: "5\0[Data]\r9002011^3^.08^990033^\r9002011^3^.16^^\r"
+  sha256: ecf489d80e53c64af800e909834874bfbf9530bb9c4c0fdc10f9f02eae2b6145
+- name: activity_type_missing_with_visit/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 74,
+    FIELDS: ".05;.11"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit of the same patient: the build links
+    nothing'
+  raw_return: "6\0[Data]\r9000010^74^.05^990033^\r9000010^74^.11^^\r"
+  sha256: ad5a26ecb07edf9a0c4aa8b6131cb6d68e27b1ca1da45dacdb675447fedf1677
+- name: activity_type_missing_with_visit/3
+  rpc: AMHG CREATE/EDIT VISIT
+  inputs:
+  - 3|74
+  context: 'save_pcc_visit naming a PCC visit of the same patient: the build links
+    nothing'
+  raw_return: "7\0T00030Result\x1E0~Activity Type Missing!\x1E"
+  sha256: 77ef23e6bc06a97ea206d69b6d4ad30ddb7cb789422f6e089568bef90b827bb4
+- name: visit_of_another_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 3,
+    FIELDS: ".08;.16"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit of another patient: refused after the
+    pre-reads'
+  raw_return: "5\0[Data]\r9002011^3^.08^990033^\r9002011^3^.16^^\r"
+  sha256: ecf489d80e53c64af800e909834874bfbf9530bb9c4c0fdc10f9f02eae2b6145
+- name: visit_of_another_patient/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 16,
+    FIELDS: ".05;.11"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit of another patient: refused after the
+    pre-reads'
+  raw_return: "6\0[Data]\r9000010^16^.05^990003^\r9000010^16^.11^^\r"
+  sha256: cc2a8a3f7ae9a084ecb766e8ec59559b0e10c0c229e0dd84fd326456a7fb82a4
+- name: visit_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 3,
+    FIELDS: ".08;.16"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit IEN no entry has: refused after the
+    pre-reads'
+  raw_return: "5\0[Data]\r9002011^3^.08^990033^\r9002011^3^.16^^\r"
+  sha256: ecf489d80e53c64af800e909834874bfbf9530bb9c4c0fdc10f9f02eae2b6145
+- name: visit_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 999999,
+    FIELDS: ".05;.11"
+    FLAGS: I
+  context: 'save_pcc_visit naming a PCC visit IEN no entry has: refused after the
+    pre-reads'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: record_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 999888777,
+    FIELDS: ".08;.16"
+    FLAGS: I
+  context: 'save_pcc_visit on a BH record IEN no visit has: refused after the pre-read'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
