@@ -1,0 +1,410 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-hrn-readback.rb.
+---
+rpc: AGG ADD NEW PATIENT
+entry_point: ADD^AGGPTADD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient
+  reply frame'
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:36:17Z'
+note: 'Run on a throwaway container: each register flow files a new synthetic patient,
+  and the DFNs and derived HRNs are the ones that container assigned. The BMX sign-on''s
+  access/verify pair is withheld.'
+captures:
+- name: lookup_derive/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,DERIVEHRN, over BMX
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_derive/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for SYNTHETIC,DERIVEHRN, over BMX
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n\x04"
+  sha256: cbda765965e34ab1f2089a9f15290030aadcf9256be9df7f10961a55b7e634ef
+- name: lookup_derive/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,DERIVEHRN, over BMX
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_derive/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "$Z33uB4,"
+  context: the duplicate lookup for SYNTHETIC,DERIVEHRN, over BMX
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_derive/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=DERIVEHRN\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=03/01/1902"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for SYNTHETIC,DERIVEHRN, over BMX
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: lookup_temporary/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,TEMPHRN, over BMX
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_temporary/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for SYNTHETIC,TEMPHRN, over BMX
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 03:35\r\n\x04"
+  sha256: 294b33db7650c57e6c38723646f87506d0e70eb12a696c6bd298fefd15b2dde2
+- name: lookup_temporary/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,TEMPHRN, over BMX
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_temporary/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - " GnnNaU*"
+  context: the duplicate lookup for SYNTHETIC,TEMPHRN, over BMX
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_temporary/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=TEMPHRN\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=03/02/1902"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for SYNTHETIC,TEMPHRN, over BMX
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: lookup_given/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,GIVENHRN, over BMX
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_given/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for SYNTHETIC,GIVENHRN, over BMX
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 03:35\r\n\x04"
+  sha256: 294b33db7650c57e6c38723646f87506d0e70eb12a696c6bd298fefd15b2dde2
+- name: lookup_given/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,GIVENHRN, over BMX
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_given/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "#J++hG{$"
+  context: the duplicate lookup for SYNTHETIC,GIVENHRN, over BMX
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_given/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=GIVENHRN\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=03/03/1902"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for SYNTHETIC,GIVENHRN, over BMX
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: lookup_clerk/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,CLERKHRN, over BMX
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_clerk/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for SYNTHETIC,CLERKHRN, over BMX
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n
+    \    You last signed on today at 03:35\r\n\x04"
+  sha256: 294b33db7650c57e6c38723646f87506d0e70eb12a696c6bd298fefd15b2dde2
+- name: lookup_clerk/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for SYNTHETIC,CLERKHRN, over BMX
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_clerk/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "!C005ze'"
+  context: the duplicate lookup for SYNTHETIC,CLERKHRN, over BMX
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_clerk/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=CLERKHRN\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=03/04/1902"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for SYNTHETIC,CLERKHRN, over BMX
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: derive/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900623001\x1CAGGNOSSN=\x1CDFN="
+  context: register in derive mode
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: derive/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900623001\x1CDFN="
+  context: register in derive mode
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: derive/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=03/01/1902\x1CDFN="
+  context: register in derive mode
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: derive/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=DERIVEHRN\x1CAGGPTDOB=03/01/1902\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900623001"
+  context: register in derive mode
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990057\x1E"
+  sha256: dad423ce7e2fdfeccb23bd3a982e2d36683ac2f673220b2dd0dff7c7c55c6af9
+- name: derive/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990057\x1CDFN=990057"
+  context: register in derive mode
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: derive/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990057'
+  - AGGPTHRN=990057
+  context: register in derive mode
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: derive/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990057,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register in derive mode
+  raw_return: "2\0[Data]\r7819^990057\r"
+  sha256: 04fe004c55e68353539f8b867f7f4eeebb96a21863ce39f183dd61e4612a212a
+- name: temporary/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900623002\x1CAGGNOSSN=\x1CDFN="
+  context: register with a temporary HRN
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: temporary/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900623002\x1CDFN="
+  context: register with a temporary HRN
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: temporary/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=03/02/1902\x1CDFN="
+  context: register with a temporary HRN
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: temporary/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=TEMPHRN\x1CAGGPTDOB=03/02/1902\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900623002"
+  context: register with a temporary HRN
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990058\x1E"
+  sha256: 2db84bb725f8f762e113d8302cab730e57f01bb7ae59d24aff3a490dd0809b46
+- name: temporary/5
+  rpc: AGG GET TEMP PAT HRN
+  inputs:
+  - '990058'
+  context: register with a temporary HRN
+  raw_return: "9\0T00010AGGPTHRN\x1ET00001\x1E"
+  sha256: c77857da3e86b5707f6e06814ff1c03c2543cb10f7069116b07ab7aeec2ff53d
+- name: temporary/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990058'
+  - AGGPTHRN=T00001
+  context: register with a temporary HRN
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: temporary/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990058,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register with a temporary HRN
+  raw_return: "2\0[Data]\r7819^T00001\r"
+  sha256: 7f6971a0c4423dfb8ffc767e4f60c32d127d6865fad02340d8b0da8100ce32a1
+- name: given/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900623003\x1CAGGNOSSN=\x1CDFN="
+  context: register with the given HRN 77123
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: given/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900623003\x1CDFN="
+  context: register with the given HRN 77123
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: given/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=03/03/1902\x1CDFN="
+  context: register with the given HRN 77123
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: given/4
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=77123\x1CDFN="
+  context: register with the given HRN 77123
+  raw_return: "8\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: d3105ac2f58f82ac49a8337d636192a91c89b43364224023f6dc52e4977f2d06
+- name: given/5
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=GIVENHRN\x1CAGGPTDOB=03/03/1902\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900623003\x1CAGGPTHRN=77123"
+  context: register with the given HRN 77123
+  raw_return: "9\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990059\x1E"
+  sha256: 944d73918213536891f62a27210344251ee539eae2e20a9595dcb7c202cd4290
+- name: given/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990059,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register with the given HRN 77123
+  raw_return: "1\0[Data]\r7819^77123\r"
+  sha256: 8b47dc2a775d01382136aecaeeb12a9e831399f269527fb88e184810ea70fc88
+- name: clerk/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900623004\x1CAGGNOSSN=\x1CDFN="
+  context: register in clerk mode, with no HRN
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: clerk/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900623004\x1CDFN="
+  context: register in clerk mode, with no HRN
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: clerk/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=03/04/1902\x1CDFN="
+  context: register in clerk mode, with no HRN
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: clerk/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=CLERKHRN\x1CAGGPTDOB=03/04/1902\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900623004"
+  context: register in clerk mode, with no HRN
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990060\x1E"
+  sha256: b6c2c99c80232886fc1b34675de60cd7675073815b76f6d8bfb38cf72a77653e
+- name: no_hrn_on_file/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990060,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: "#9000001.41 of the clerk-mode patient, which has no HRN"
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: refused_iens/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",ABC,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: "#9000001.41 with an IENS FileMan refuses"
+  raw_return: "5\0[Errors]\r"
+  sha256: 428c0cad386869f767ebb91137b96f1ccb33859a4d04ce2f2fef243025a05abf

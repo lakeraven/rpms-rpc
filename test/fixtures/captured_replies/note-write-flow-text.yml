@@ -1,0 +1,53 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb note-write-flow-text.rb.
+---
+rpc: TIU SET DOCUMENT TEXT
+entry_point: SETTEXT^TIUSRVPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206), the note's author
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:36:19Z'
+note: 'Run on a throwaway container: the flow files one unsigned note with synthetic
+  text; its IEN is whatever TIU CREATE RECORD returned.'
+captures:
+- name: update_text/1
+  rpc: TIU CREATE RECORD
+  inputs:
+  - '4'
+  - '248'
+  - ''
+  - ''
+  - '4'
+  context: create a note, then update_text with NoteWriteFlow::NOTE_TEXT
+  raw_return: "5\06"
+  sha256: 5ece2ad31dd52a915c239e72cd2492732e4bf54ddb90f3dc7cc9d223e3ab5f9f
+- name: update_text/2
+  rpc: TIU AUTHORIZATION
+  inputs:
+  - '6'
+  - EDIT RECORD
+  context: create a note, then update_text with NoteWriteFlow::NOTE_TEXT
+  raw_return: "6\01"
+  sha256: 6eff1937e808320fe4b7c06e5d01df487ff1857993cce09081dd27095cfc672a
+- name: update_text/3
+  rpc: TIU SET DOCUMENT TEXT
+  inputs:
+  - '6'
+  - HDR: 1^1
+    ? - TEXT
+      - 1
+      - 0
+    : Synthetic pilot note for wire capture.
+    ? - TEXT
+      - 2
+      - 0
+    : This synthetic clinical-neutral sentence exists so wire capture wraps a
+    ? - TEXT
+      - 3
+      - 0
+    : progress-note line.
+  context: create a note, then update_text with NoteWriteFlow::NOTE_TEXT
+  raw_return: "7\06^1^1"
+  sha256: 314ce111204df266b905bb7e093b568107c01aea42dbb707ae49478cd14b2620
