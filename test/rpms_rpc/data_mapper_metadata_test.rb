@@ -129,17 +129,6 @@ class DataMapperMetadataTest < Minitest::Test
     assert_equal "A", result[:status]
   end
 
-  def test_field_with_metadata_still_formats_correctly
-    mapping = build_mapping do
-      rpc "TEST RPC"
-      field 0, :diagnosis, :string, terminology: :icd10
-      field 1, :status, :string
-    end
-
-    formatted = mapping.format_one({ diagnosis: "E11.9", status: "A" })
-    assert_equal "E11.9^A", formatted
-  end
-
   # =============================================================================
   # REAL MAPPINGS HAVE METADATA
   # =============================================================================

@@ -591,7 +591,7 @@ module RpmsRpc
 
     def test_the_readme_releasing_section_follows_the_testing_list
       readme = File.read(File.join(REPO_ROOT, "README.md"))
-      list = readme.index("- **Gateway tests**")
+      list = readme.index("- **Live specs**")
       releasing = readme.index("### Releasing")
       testing = readme.index(/^## Testing$/)
       refute_nil list

@@ -69,7 +69,7 @@ module RpmsRpc
     # BehavioralHealth.save_health_factors (#629), and the lock is polled
     # with the client's wire free between polls.
     # No client this gem ships defines session_id. CiaClient has
-    # session_uid; XwbClient, BmxClient, MockClient have neither, so with
+    # session_uid; XwbClient and BmxClient have neither, so with
     # stock clients the guard keys on the captured client's object_id.
     # Two different wrapper objects around one session do not share the
     # exclusion. A host that wraps one session in several objects must
@@ -237,7 +237,7 @@ module RpmsRpc
       # keeps using it if the configured client changes. A save already in
       # progress for this record on that client's identity raises SaveError
       # before any RPC. No client this gem ships defines session_id
-      # (CiaClient has session_uid; XwbClient, BmxClient, MockClient have
+      # (CiaClient has session_uid; XwbClient and BmxClient have
       # neither), so with stock clients the guard keys on the captured
       # client's object_id. Two different wrapper objects around one
       # session do not share the exclusion. A host that wraps one session
@@ -307,8 +307,8 @@ module RpmsRpc
       # captures the client at entry and keeps using it if the configured
       # client changes. A save already in progress for this record on that
       # client's identity raises SaveError before any RPC. No client this
-      # gem ships defines session_id (CiaClient has session_uid; XwbClient,
-      # BmxClient, MockClient have neither), so with stock clients the
+      # gem ships defines session_id (CiaClient has session_uid; XwbClient
+      # and BmxClient have neither), so with stock clients the
       # guard keys on the captured client's object_id. Two different
       # wrapper objects around one session do not share the exclusion. A
       # host that wraps one session in several objects must expose

@@ -2175,8 +2175,8 @@ module RpmsRpc
     # save_visit_rows drops a line that is only LF. ARRAYT keeps that LF,
     # and joining these rows is the stored note or comment.
     #
-    # MockClient splits a text seed on LF, so a $C(30) frame is still
-    # inside the elements. Joining those on LF restores the frame, and
+    # A client that splits the reply on LF (Client#split_response) leaves
+    # a $C(30) frame inside the elements. Joining those on LF restores the frame, and
     # that String goes through save_visit_frame_parts. BMX #call_rpc has
     # already split on $C(30): each element is a row and keeps its
     # trailing LF. Joining those on LF and splitting again would drop

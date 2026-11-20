@@ -8,8 +8,7 @@ module RpmsRpc
   # uses it should carry its own copy before then.
   #
   # FHIR client interface for reading RPMS data via FHIR R4 API.
-  # In production, this wraps HTTP calls to an IRIS for Health FHIR endpoint.
-  # In test, MockFhirClient returns FHIR-shaped JSON from seeded data.
+  # It wraps HTTP calls to an IRIS for Health FHIR endpoint.
   #
   #   # Search
   #   RpmsRpc.fhir_client.search("Patient", name: "Anderson")
