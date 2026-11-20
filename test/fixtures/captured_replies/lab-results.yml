@@ -3,12 +3,12 @@
 ---
 rpc: ORWLRR INTERIMG
 entry_point: INTERIMG^ORWLRR
-release_tag: bcer-9.0-20261116-2a9b3fe-ydb
-image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+release_tag: bcer-9.0-20261119-f67498c-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-19T23:20:02Z'
+captured_at: '2026-11-20T00:11:22Z'
 note: 'Run on a throwaway container. Setup files four synthetic chemistry specimens
   for DFN 990031 through DDR FILER (#63, #2 field 63, #63.04): 3261110.0915 POC GLUCOSE
   96 and COVID-19 Negative, 3261105.1 POC GLUCOSE 120 with no DATE REPORT COMPLETED,
@@ -62,5 +62,28 @@ captures:
   - '1'
   - '1'
   context: 'results(4, ...): a patient with no LAB DATA'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: specimen_default/1
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '990031'
+  - '3261120'
+  - '1'
+  - '1'
+  context: 'specimen(990031) with no from: (rpms-rpc#840): the newest released specimen,
+    asked from tomorrow'
+  raw_return: "5\02^CH^3261110.0915^70^BLOOD^CH 1110 2^PROVIDER,TEST^^^3261110.0915\r2096008^_COVID-19(Abbott
+    ID NOW)^COVID-19 Negative^^^\r2096016^POC GLUCOSE^      96^^mg/dL^70 - 110^^^^^^^^^2340-8\r
+    \rReport Released Date/Time: 11/10/2026 12:00 PM\r"
+  sha256: fd41061c5c1e3abfb8f83abb905311024f7e2c5a99c24e5d1b75df69923b8dbc
+- name: specimen_no_lab_data/1
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '4'
+  - '3261120'
+  - '1'
+  - '1'
+  context: 'specimen(4) with no from:: a patient with no LAB DATA'
   raw_return: "5\0"
   sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
