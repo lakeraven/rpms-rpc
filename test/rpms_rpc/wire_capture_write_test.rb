@@ -441,7 +441,7 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
       "WIRE_FIXTURES_DIR" => Dir.mktmpdir("wire_capture_writes"),
       "LIVE_DISPOSABLE" => "1",
       "BROKER_HOST" => "127.0.0.1",
-      "RPMS_ACCESS" => "PROV123",
+      "RPMS_ACCESS" => "SYS123",
       "RELEASE" => "bcer-9.0-20261012-e7923a4-ydb"
     }
   end

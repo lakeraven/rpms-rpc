@@ -316,7 +316,7 @@ module OpenApi
           "rpcs" => method["rpcs"].map { |r| { "name" => r["name"], "registered" => r["registered"], "entry_point" => r["entry_point"], "reach" => r["reach"], "via" => r["via"] } },
           "status" => method["status"],
           "live_specs" => method["live_specs"],
-          "personas" => method["personas"],
+          "roles" => method["roles"],
           "rule" => addr[:rule]
         }
       )
@@ -338,7 +338,7 @@ module OpenApi
     # Only a verb whose arguments are query parameters folds: a POST alias's arguments are its request body,
     # which `fold` does not copy.
     def catalog(input, retry_table: RpmsRpc::RetrySafety.table)
-      raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 1" unless input["schema"] == 1
+      raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 2" unless input["schema"] == 2
 
       excluded = { "no_rpc" => [], "unresolved" => [], "unregistered" => [] }
       key_of = ->(a) { "#{a[:verb].upcase} #{a[:path].gsub(/\{[^}]+\}/, '{}')}" }

@@ -19,7 +19,7 @@ require "rpms_rpc/api/ddr_fileman"
 # with DDR GETS ENTRY DATA, and then files it ACTIVE again with the same RPC,
 # so the container ends as it began and a rerun reuses the same referral.
 class ReferralCancelLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   REFERRAL_FILE = "90001"
@@ -32,7 +32,7 @@ class ReferralCancelLiveTest < LiveSpec::Test
       result = RpmsRpc::Referral.cancel(ien)
       assert result[:success], "Referral.cancel(#{ien}) answered #{result.inspect}"
       assert_equal RpmsRpc::Referral::CANCELLED_STATUS, status_of(ien), "referral #{ien} is not cancelled after cancel"
-      puts "\n#{persona}: referral #{ien} cancelled, status read back #{status_of(ien).inspect}"
+      puts "\n#{role}: referral #{ien} cancelled, status read back #{status_of(ien).inspect}"
     ensure
       restore_active(ien)
     end
@@ -68,7 +68,7 @@ class ReferralCancelLiveTest < LiveSpec::Test
     assert_equal filed[:fields].dig(".03", :internal).to_i, record[:patient_dfn], "the patient filed on the referral"
     assert_kind_of Array, record[:diagnoses]
     assert_equal [ "N", "O" ], record.values_at(:type, :visit_type), "in-house (.04) and outpatient (.14), as filed"
-    puts "\n#{persona}: Referral.find(#{ien}) read referral #{number} of DFN #{record[:patient_dfn]}"
+    puts "\n#{role}: Referral.find(#{ien}) read referral #{number} of DFN #{record[:patient_dfn]}"
   end
 
   # GTRFBYID^BMCRPC1 answers "Not a valid Referral Ien" as a scalar under a

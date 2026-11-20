@@ -8,21 +8,21 @@ require "rpms_rpc/api/authentication"
 # signed-on user holds, one ORWU NPHASKEY per name under CIAV VUECENTRIC
 # (rpms-rpc#521). Read-only.
 #
-# Every live persona runs this spec. What a persona holds is the build's seed,
-# not the gem's contract: an empty oracle list (PROV123 on the pinned build)
+# Every role a broker signs on runs this spec. What a role holds is its row,
+# not the gem's contract: an empty oracle list (an account with no keys)
 # is a valid outcome. The spec always checks that a synthetic unheld name
-# answers [] (not nil); when the persona holds keys it also checks held plus
+# answers [] (not nil); when the role holds keys it also checks held plus
 # unheld; when it holds none it cross-checks held_keys against has_security_key?
 # on a few role-policy names from SecurityKeys::REGISTRY so a refusal is not
 # read as "holds none".
 class HeldKeysLiveTest < LiveSpec::Test
-  runs_as "PROV123", "PMD123", "PREG123", "PSCH123", "SYS123"
+  runs_as :provider, :nurse, :medical_assistant, :front_desk_clerk, :registration_supervisor, :scheduler, :operator
   CONTEXT = "CIAV VUECENTRIC"
   UNHELD = "LIVESPEC NO SUCH KEY"
 
   def test_held_keys_reports_a_held_key_and_an_unheld_key
     duz = client.duz
-    refute_nil duz, "sign-on as #{persona} set no DUZ"
+    refute_nil duz, "sign-on as #{role} set no DUZ"
 
     held_names = client.with_context(CONTEXT) do
       RpmsRpc::Authentication.user_security_keys(duz)
@@ -50,13 +50,13 @@ class HeldKeysLiveTest < LiveSpec::Test
         end
       end
 
-      puts "\n#{persona} holds no security keys on this build; held_keys([#{UNHELD.inspect}]) => []"
+      puts "\n#{role} holds no security keys on this build; held_keys([#{UNHELD.inspect}]) => []"
     else
       held = held_names.first
       result = RpmsRpc::Authentication.held_keys([ held, UNHELD ])
       assert_equal [ held ], result
 
-      puts "\n#{persona} held_keys([#{held.inspect}, #{UNHELD.inspect}]) => #{result.inspect}"
+      puts "\n#{role} held_keys([#{held.inspect}, #{UNHELD.inspect}]) => #{result.inspect}"
     end
   end
 end

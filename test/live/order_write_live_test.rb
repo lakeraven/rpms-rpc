@@ -14,13 +14,13 @@ require "rpms_rpc/fileman_date_parser"
 # order and is read back from file 100. OR GXTEXT WORD PROCESSING ORDER
 # WRITES against a disposable local container.
 #
-# The sign-and-release spec needs the persona's electronic signature code in
-# RPMS_ESIG (never logged; rake report:daily passes <PERSONA>_ESIG, #848).
-# Every PMD123 run supplies it (README, Running the live specs), so a run
+# The sign-and-release spec needs the provider's electronic signature code:
+# the provider row's, or RPMS_ESIG (never logged, #848). Every provider run
+# has it (README, Test roles), so a run
 # without it fails and says so, rather than skip and leave signing unproven
 # (#851).
 class OrderWriteLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   writes!
 
   DFN = 990_034 # synthetic patient; not used by other live order specs
@@ -41,7 +41,7 @@ class OrderWriteLiveTest < LiveSpec::Test
     display_group = resolve_display_group!(dialog.fetch(:ien))
 
     start = server_now_fm
-    text = "#{ORDER_SNIPPET} #{persona}"
+    text = "#{ORDER_SNIPPET} #{role}"
     responses = ordialog_responses(prompts, start, text)
     saved = RpmsRpc::Order.save(
       DFN, client.duz, location, dialog.fetch(:name), responses, display_group: display_group
@@ -79,21 +79,20 @@ class OrderWriteLiveTest < LiveSpec::Test
       assert_equal "DELAYED", status[:fields].dig("5", :external)
     end
 
-    puts "\n#{persona}: order #{saved[:ien]} (#{saved[:status]}) on DFN #{DFN} " \
+    puts "\n#{role}: order #{saved[:ien]} (#{saved[:status]}) on DFN #{DFN} " \
          "(dialog #{dialog.fetch(:ien)}, location #{location}, " \
          "prompts COMMENT/START/STOP=#{prompts.values_at(:comment, :start, :stop).join('/')}) " \
          "reads back through list and file 100"
   end
 
   def test_sign_and_release_releases_a_saved_order_and_reads_it_back
-    esig = ENV["RPMS_ESIG"].to_s
-    flunk "RPMS_ESIG is missing: set it to #{persona}'s electronic signature code (rake report:daily: #{persona}_ESIG)" if esig.strip.empty?
+    esig = signature_code!
 
     dialog = resolve_dialog!
     prompts = resolve_dialog_prompts!(dialog.fetch(:name))
     location = resolve_hospital_location!
     display_group = resolve_display_group!(dialog.fetch(:ien))
-    responses = ordialog_responses(prompts, server_now_fm, "#{ORDER_SNIPPET} sign #{persona}")
+    responses = ordialog_responses(prompts, server_now_fm, "#{ORDER_SNIPPET} sign #{role}")
 
     saved = RpmsRpc::Order.save(
       DFN, client.duz, location, dialog.fetch(:name), responses, display_group: display_group
@@ -119,7 +118,7 @@ class OrderWriteLiveTest < LiveSpec::Test
     assert_nil unsigned.find { |row| row[:ien] == saved[:ien] },
                "order #{saved[:ien]} must leave the unsigned list once signed"
 
-    puts "\n#{persona}: order #{saved[:ien]} signed and released on DFN #{DFN} (status #{internal})"
+    puts "\n#{role}: order #{saved[:ien]} signed and released on DFN #{DFN} (status #{internal})"
   end
 
   # USID^ORWDXC reads an outpatient drug item's PkgInfo as a DRUG (#50) IEN
@@ -151,7 +150,7 @@ class OrderWriteLiveTest < LiveSpec::Test
     assert_match(/duplicate drug order/i, duplicate.text)
     assert_includes duplicate.text, orderable.fetch(:name), duplicate.text
 
-    puts "\n#{persona}: ORWDXC ACCEPT flagged #{orderable.fetch(:name)} (drug #{rx.fetch(:drug)}) as a duplicate " \
+    puts "\n#{role}: ORWDXC ACCEPT flagged #{orderable.fetch(:name)} (drug #{rx.fetch(:drug)}) as a duplicate " \
          "of prescription #{rx.fetch(:number)} on DFN #{rx.fetch(:dfn)}: #{duplicate.text}"
   end
 

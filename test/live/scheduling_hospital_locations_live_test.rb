@@ -17,7 +17,7 @@ require "rpms_rpc/api/ddr_fileman"
 # least-privilege user is refused it under CIAV VUECENTRIC). DDR FILER is in
 # CIAV VUECENTRIC, the option sign-on binds.
 class SchedulingHospitalLocationsLiveTest < LiveSpec::Test
-  runs_as "PSCH123"
+  runs_as :scheduler
   writes!
 
   CLINIC_FILE = 44

@@ -138,11 +138,11 @@ class RpmsRpc::WireContractTest < Minitest::Test
     failures = []
     FIXTURES.select { |f| signed_on_as_required?(f) }.each do |fixture|
       data = YAML.safe_load_file(fixture.path)
-      persona = data["signed_on_as"]
-      if persona.nil? || persona.to_s.empty?
+      account = data["signed_on_as"]
+      if account.nil? || account.to_s.empty?
         failures << "#{File.basename(fixture.path)} (#{fixture.source}): missing signed_on_as"
-      elsif !RpmsRpc::WireCapture::FIXTURE_PERSONAS.include?(persona)
-        failures << "#{File.basename(fixture.path)}: signed_on_as #{persona.inspect} is not a README synthetic persona"
+      elsif !RpmsRpc::WireCapture::FIXTURE_ACCOUNTS.include?(account)
+        failures << "#{File.basename(fixture.path)}: signed_on_as #{account.inspect} is not a synthetic account (WireCapture::FIXTURE_ACCOUNTS)"
       end
     end
     assert_empty failures, failures.join("\n  ")

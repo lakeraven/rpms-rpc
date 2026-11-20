@@ -8,7 +8,7 @@ require "rpms_rpc/api/scheduling"
 # clinic, time, status and who made it, and the patient's address and phone are
 # not returned. Books one appointment on a disposable container.
 class SchedulingPatientAppointmentsLiveTest < LiveSpec::Test
-  runs_as "PSCH123"
+  runs_as :scheduler
   writes!
 
   PATIENT = 3 # MOUSE,MICKEY M, on every demo build

@@ -10,8 +10,9 @@ require "rpms_rpc/fileman_date_parser"
 # rpms-rpc#536). Files BH VISIT (#9002011) only — not a PCC visit. WRITES
 # against a disposable local container only.
 class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   writes!
 
   # Synthetic seed patient; not used by other live write specs (see test/live/*write*).
@@ -122,7 +123,7 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
       patient: DFN
     )
 
-    puts "\n#{persona}: BH visit #{ien} on DFN #{DFN} added and edited via AMHG SAVE VISIT " \
+    puts "\n#{role}: BH visit #{ien} on DFN #{DFN} added and edited via AMHG SAVE VISIT " \
          "(clinic #{clinic_ien}, types #{type_add}->#{type_edit}, communities #{community_add}->#{community_edit})"
   end
 

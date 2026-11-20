@@ -18,7 +18,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class ProblemWriteLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 990_055 # a synthetic seed patient; unused by other live specs
@@ -33,7 +33,7 @@ class ProblemWriteLiveTest < LiveSpec::Test
     duz = client.duz.to_s
     location = problem_location!
     stamp = Time.now.utc.strftime("%H%M%S")
-    narrative = "SYNTH LIVE PROBLEM #{persona} #{stamp}"
+    narrative = "SYNTH LIVE PROBLEM #{role} #{stamp}"
     problem = { icd_code: ICD, description: narrative, location_ien: location, status: "Chronic", onset_date: "11/01/2026" }
 
     added = RpmsRpc::Problem.add(DFN, problem)
@@ -71,7 +71,7 @@ class ProblemWriteLiveTest < LiveSpec::Test
     assert_equal "Entered in error", row.dig("2.03", :internal), "2.03 is not the reason sent"
 
     assert_equal :not_found, RpmsRpc::Problem.delete(DFN, 999_999_999, reason: "Entered in error")[:error]
-    puts "\n#{persona}: PROBLEM #{ien} on DFN #{DFN} added, edited and deleted through BGOPROB SET / DEL"
+    puts "\n#{role}: PROBLEM #{ien} on DFN #{DFN} added, edited and deleted through BGOPROB SET / DEL"
   end
 
   private

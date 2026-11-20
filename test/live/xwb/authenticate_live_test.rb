@@ -23,7 +23,9 @@ require "rpms_rpc/api/authentication"
 # The harness only connects (connect_only!): the sign-on under test is the
 # spec's own. It reads only; it files nothing.
 class AuthenticateXwbLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given OR CPRS GUI CHART yet (PROVIDER,TEST was, openrpms#1192).
+  needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   broker :xwb
   connect_only!
 
@@ -45,13 +47,13 @@ class AuthenticateXwbLiveTest < LiveSpec::Test
   def test_authenticate_signs_on_and_reports_the_message_count_and_user_class
     client.singleton_class.prepend(AvCodeTap)
 
-    result = RpmsRpc::Authentication.authenticate(access_code: ENV.fetch("RPMS_ACCESS"),
-                                                  verify_code: ENV.fetch("RPMS_VERIFY"))
+    result = RpmsRpc::Authentication.authenticate(access_code: sign_on_pair.first,
+                                                  verify_code: sign_on_pair.last)
     if result[:verify_needs_change]
-      flunk "#{persona}'s verify code must be changed on this build before it can sign on. " \
+      flunk "#{role}'s verify code must be changed on this build before it can sign on. " \
             "This spec never changes codes: change it by hand, or use a pair that never expires."
     end
-    assert_equal true, result[:success], "authenticate as #{persona} failed: #{result[:error].inspect}"
+    assert_equal true, result[:success], "authenticate as #{role} failed: #{result[:error].inspect}"
     assert_kind_of Integer, result[:duz]
     assert_operator result[:duz], :>, 0
 
@@ -72,21 +74,21 @@ class AuthenticateXwbLiveTest < LiveSpec::Test
     if count.positive?
       assert_equal count, following, "RET(5) counts the lines RET(6..5+n) that follow it (XUSRB.m:86)"
     end
-    puts "\n#{persona}: post_signon_message_count #{count}, #{following} line(s) after RET(5)"
+    puts "\n#{role}: post_signon_message_count #{count}, #{following} line(s) after RET(5)"
   end
 
   def assert_user_type(duz)
     unless client.create_context(CONTEXT)
-      flunk "#{persona} cannot bind #{CONTEXT} on this build, so no user class can be read over XWB; " \
-            "give the persona that option, or pick one that carries ORWU USERINFO."
+      flunk "#{role} cannot bind #{CONTEXT} on this build, so no user class can be read over XWB; " \
+            "give the role that option, or pick one that carries ORWU USERINFO."
     end
     usrcls = Array(client.call_rpc("ORWU USERINFO")).first.to_s.split("^")[2]
     expected = RpmsRpc::Authentication.user_type_for(usrcls)
-    refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls.inspect} for #{persona}, which ORWU.m:19 never returns"
+    refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls.inspect} for #{role}, which ORWU.m:19 never returns"
 
     read = RpmsRpc::Authentication.user_type(duz)
 
-    assert_equal expected, read, "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; user_type said #{read.inspect}"
-    puts "#{persona}: DUZ #{duz}, USRCLS #{usrcls} -> user_type #{read}"
+    assert_equal expected, read, "ORWU USERINFO says USRCLS #{usrcls} for #{role}; user_type said #{read.inspect}"
+    puts "#{role}: DUZ #{duz}, USRCLS #{usrcls} -> user_type #{read}"
   end
 end

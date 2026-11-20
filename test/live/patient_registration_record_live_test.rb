@@ -17,7 +17,7 @@ require "securerandom"
 class PatientRegistrationRecordLiveTest < LiveSpec::Test
   include FreeSsn
 
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   IHS_PATIENT_FILE = "9000001"

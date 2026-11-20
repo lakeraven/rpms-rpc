@@ -6,6 +6,7 @@ require "securerandom"
 require "socket"
 require "yaml"
 require_relative "core"
+require_relative "test_roles"
 
 # One command for the day's picture (rpms-rpc#365): `rake report:daily`.
 #
@@ -13,37 +14,33 @@ require_relative "core"
 # Orchestrator runs the suites through injected collaborators. The real
 # defaults — GitHub releases, a child process, the docker CLI, a CIA connect,
 # a loopback port, a file — are what Orchestrator.from_env wires in. Sign-on
-# codes, and the persona's optional signature code, are copied into that
-# persona's `rake test:live` child and nowhere else.
+# codes, and the role's optional signature code, are copied into that
+# role's `rake test:live` child and nowhere else.
 # That child gets LIVE_DISPOSABLE=1 under FRESH=1, and otherwise only when the
 # operator set LIVE_DISPOSABLE=1. BROKER_PROTOCOL is copied there when set.
 # `rake test` receives none of those.
 module RpmsRpc
   module DailyReport
-    # Every persona a live spec runs as, in the order of LiveSpec::PERSONAS
-    # (test/live/live_env.rb, which the gem does not load). Each spec runs as
-    # the persona whose role it proves (#452), so the report runs the live
-    # suite once per persona (#815); a hermetic test fails when the two lists
-    # disagree.
-    LIVE_PERSONAS = %w[PROV123 PMD123 PREG123 PSCH123 SYS123].freeze
-    DEVELOPMENT_PERSONAS = %w[PROV123].freeze
+    # Every test role a live spec runs as, in table order (LiveSpec.roles_in_use
+    # in test/live/live_env.rb, which the gem does not load). Each spec runs as
+    # the role whose work it proves (#452), so the report runs the live suite
+    # once per role (#815); a hermetic test fails when the two lists disagree.
+    LIVE_ROLES = %w[provider nurse medical_assistant front_desk_clerk registration_supervisor scheduler operator].freeze
+
+    # A role's sign-on key in the report's environment: PROVIDER_ACCESS,
+    # OPERATOR_VERIFY, PROVIDER_ESIG. Each overrides its row's published value
+    # (RpmsRpc::TestRoles); the operator's verify code is not published, so
+    # OPERATOR_VERIFY must be set.
+    def self.role_key(role, suffix) = "#{role.upcase}_#{suffix}"
+
     # Names whose values are sign-on codes, or electronic signature codes
     # (#848). They are omitted from every string form of a child environment
     # and scrubbed from reports, plans, and errors.
     SIGN_ON_KEYS = (%w[RPMS_ACCESS RPMS_VERIFY RPMS_ESIG] +
-                    LIVE_PERSONAS.flat_map do |persona|
-                      [ "#{persona}_ACCESS", "#{persona}_VERIFY", "#{persona}_ESIG" ]
-                    end).freeze
-    # The id each suite's log is filed and linked under (#757). Not the
-    # persona name, so a link never depends on what redaction leaves of it.
+                    LIVE_ROLES.flat_map { |role| %w[ACCESS VERIFY ESIG].map { |suffix| role_key(role, suffix) } }).freeze
+    # The id each suite's log is filed and linked under (#757).
     UNIT_SUITE_ID = "rake-test"
-    LIVE_SUITE_IDS = {
-      "PROV123" => "rake-test-live-provider",
-      "PMD123" => "rake-test-live-physician",
-      "PREG123" => "rake-test-live-registration",
-      "PSCH123" => "rake-test-live-scheduling",
-      "SYS123" => "rake-test-live-operator"
-    }.freeze
+    LIVE_SUITE_IDS = LIVE_ROLES.to_h { |role| [ role, "rake-test-live-#{role.tr('_', '-')}" ] }.freeze
     IMAGE_REPOSITORY = "ghcr.io/lakeraven/openrpms"
     OPS_RELEASES = "repos/lakeraven/openrpms/releases"
     CONTAINER_PORT = 9100
@@ -225,13 +222,14 @@ module RpmsRpc
         # A blank code is "missing", not a secret to scrub. Scrubbing it would
         # eat the spaces that markdown uses between empty table cells.
         next if string.strip.empty?
-        # A demo access code is its persona's name (PMD123), which the report
-        # prints in every row and the plan; scrubbing it would leave five rows
-        # reading "[redacted]" and hide nothing. Verify codes are still scrubbed.
-        next if LIVE_PERSONAS.include?(string)
+        # A demo access code is published with its role (PMD123); scrubbing it
+        # would hide nothing. Verify codes are still scrubbed.
+        next if TestRoles.access_codes.include?(string)
 
         string
       end
+      # The published verify codes a child may sign on with are scrubbed too.
+      secrets.concat(TestRoles::ROLES.values.filter_map(&:verify))
       secrets.uniq.sort_by { |secret| -secret.length }.each do |secret|
         body = body.gsub(secret, "[redacted]")
       end
@@ -393,7 +391,6 @@ module RpmsRpc
       # builder and replace pieces.
       def self.from_env(root:, env:, **overrides)
         report = RpmsRpc::DailyReport
-        env = persona_slots(env)
         new(
           root: root,
           env: env,
@@ -413,18 +410,6 @@ module RpmsRpc
           error_io: overrides.fetch(:error_io, $stderr)
         )
       end
-
-      # Every live persona is always part of the run. An unset sign-on
-      # variable is nil, which is a missing pair, not a persona to skip.
-      def self.persona_slots(env)
-        filled = {}
-        env.each { |key, value| filled[key.to_s] = value }
-        LIVE_PERSONAS.each do |persona|
-          [ "#{persona}_ACCESS", "#{persona}_VERIFY" ].each { |key| filled[key] = filled.fetch(key, nil) }
-        end
-        filled
-      end
-      private_class_method :persona_slots
 
       def initialize(root:, env:, releases:, runner:, docker:, broker_probe:, clock:, port_picker:, writer:,
                      rpms_diffs_dir:, pinned_release:, rpms_rpc_commit:, coverage:,
@@ -568,7 +553,7 @@ module RpmsRpc
           release: #{latest[:tag]}
           bind: 127.0.0.1:#{port}:#{CONTAINER_PORT} 127.0.0.1:#{bmx_port}:#{BMX_CONTAINER_PORT}
           broker: 127.0.0.1:#{port} (BMX 127.0.0.1:#{bmx_port})
-          suites: rake test; #{LIVE_PERSONAS.map { |persona| "rake test:live PERSONA=#{persona}" }.join('; ')}
+          suites: rake test; #{LIVE_ROLES.map { |role| "rake test:live ROLE=#{role}" }.join('; ')}
         PLAN
       end
 
@@ -576,7 +561,7 @@ module RpmsRpc
         build = resolve_build(host, port, image) if build.nil?
         suites = collect_suites(host, port, bmx_port)
         write_report(build, latest, suites)
-        # An unknown build is recorded and fails the run. Every live persona
+        # An unknown build is recorded and fails the run. Every live role
         # is reported; a missing sign-on pair is an errored suite and also
         # fails the run.
         return 1 if build == "unknown"
@@ -593,28 +578,36 @@ module RpmsRpc
 
       def collect_suites(host, port, bmx_port)
         suites = [ run_command("rake test", %w[rake test], unit_env(host, port), id: UNIT_SUITE_ID) ]
-        LIVE_PERSONAS.each { |persona| suites << live_suite(host, port, bmx_port, persona) }
+        LIVE_ROLES.each { |role| suites << live_suite(host, port, bmx_port, role) }
         suites
       end
 
-      def live_suite(host, port, bmx_port, persona)
-        pair = sign_on_pair(persona)
+      def live_suite(host, port, bmx_port, role)
+        pair = sign_on_pair(role)
         if pair.nil?
-          return errored_suite("rake test:live (#{persona})", "missing #{persona}_ACCESS/#{persona}_VERIFY")
+          return errored_suite("rake test:live (#{role})",
+                               "missing #{DailyReport.role_key(role, 'ACCESS')}/#{DailyReport.role_key(role, 'VERIFY')}")
         end
 
         access, verify = pair
-        run_command("rake test:live (#{persona})", %w[rake test:live], live_env(host, port, bmx_port, persona, access, verify),
-                    id: LIVE_SUITE_IDS.fetch(persona))
+        run_command("rake test:live (#{role})", %w[rake test:live], live_env(host, port, bmx_port, role, access, verify),
+                    id: LIVE_SUITE_IDS.fetch(role))
       end
 
-      def sign_on_pair(persona)
-        access = @env["#{persona}_ACCESS"]
-        verify = @env["#{persona}_VERIFY"]
+      # The role's pair: <ROLE>_ACCESS and <ROLE>_VERIFY when set, else its
+      # row's published pair; nil when neither gives one (the operator's verify).
+      def sign_on_pair(role)
+        row = TestRoles.fetch(role)
+        access = present(@env[DailyReport.role_key(role, "ACCESS")]) || row.access
+        verify = present(@env[DailyReport.role_key(role, "VERIFY")]) || row.verify
         return nil if access.nil? || verify.nil?
-        return nil if access.to_s.strip.empty? || verify.to_s.strip.empty?
 
-        [ access.to_s, verify.to_s ]
+        [ access, verify ]
+      end
+
+      def present(value)
+        value = value.to_s
+        value.strip.empty? ? nil : value
       end
 
       def errored_suite(name, reason)
@@ -719,16 +712,15 @@ module RpmsRpc
         ChildEnv.new(DailyReport.baseline_env(@env).merge(broker_pairs(host, port)))
       end
 
-      def live_env(host, port, bmx_port, persona, access, verify)
+      def live_env(host, port, bmx_port, role, access, verify)
         pairs = DailyReport.baseline_env(@env).merge(broker_pairs(host, port))
         pairs["BMX_PORT"] = bmx_port.to_s unless bmx_port.to_s.strip.empty?
-        pairs["PERSONA"] = persona
+        pairs["ROLE"] = role
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
-        # Only a signing persona needs one (PROV123, PMD123); its signing spec fails without it (#848, #851).
-        esig = @env["#{persona}_ESIG"].to_s
+        # A signing role's code is its row's (the harness reads it); <ROLE>_ESIG overrides it (#848, #851).
+        esig = @env[DailyReport.role_key(role, "ESIG")].to_s
         pairs["RPMS_ESIG"] = esig unless esig.strip.empty?
-        pairs["VISTA_RPC_ENV"] = "development" if DEVELOPMENT_PERSONAS.include?(persona)
         pairs["LIVE_DISPOSABLE"] = "1" if enabled?("FRESH") || @env["LIVE_DISPOSABLE"].to_s.strip == "1"
         protocol = @env["BROKER_PROTOCOL"].to_s.strip
         pairs["BROKER_PROTOCOL"] = protocol unless protocol.empty?

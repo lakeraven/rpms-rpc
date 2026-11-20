@@ -12,7 +12,7 @@ require "rpms_rpc/api/patient"
 # (adt-movements.yml); its live spec joins this file when the demo build seeds
 # a stay (openrpms#1263).
 class AdtMovementsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
 
   NEVER_ADMITTED = 990_014 # NOVEMBER,ROWAN, a synthetic seed patient; unused by other live specs
 

@@ -8,7 +8,7 @@ require "rpms_rpc/api/note_template"
 # whose 0-node is the word-processing header "^^lines^lines^date^^"
 # (TIUSRVD.m:81, :88): text must return only the expanded lines.
 class NoteTemplateTextLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   PATIENT_NAME_TEMPLATE = 8 # "Patient Name", a stock TIU template object
   DFN = 4                   # DEMO,PATIENT ONE
 

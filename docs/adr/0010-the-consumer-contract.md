@@ -25,7 +25,7 @@ Each assertion is checkable, and names how.
 
 1. **Real.** Every RPC a public method sends is callable on the pinned build: registered, with an entry point, active, and its reach class `client-callable` or `broker-exempt` in the build's published reach face.
    *Checked by* the build-signature conformance gate (ADR 0008, #330) and the callable gate (`test/rpms_rpc/callable_rpc_names_test.rb`, #394). A build defect that breaks one is recorded with its issue in `data/fingerprints/uncallable_exceptions.yml` and printed on every run.
-2. **Proven.** Every public method has a live spec that passes against a fresh container of the pinned build, as the least-privilege persona and as the programmer persona, or names the persona it requires.
+2. **Proven.** Every public method has a live spec that passes against a fresh container of the pinned build, as the test role whose work it is (`runs_as`; README, Test roles; amended 2026-11-20, when tests moved from the least-privilege and programmer personas to named roles).
    A method without one is not part of the contract.
    *Checked by* `rake test:live` (ADR 0009) and a coverage report listing public methods without a live spec.
 3. **Facts, not policy.** Methods return what RPMS answered: Ruby hashes and arrays with typed values (Integer IENs, `Date`/`Time`, `String`), `nil` for "none", `[]` for "no rows".

@@ -18,7 +18,7 @@ require "rpms_rpc/api/reminders"
 # the consult reads and categories prove the empty answer, checked against
 # the empty file; a build that files them is checked entry by entry.
 class ConsultReminderReadsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 2 # the demo patient
   REMINDER_WITH_OWN_SITES = 9 # IHS-INFLUENZA IMMUNIZATION: its own WEB SITES entry on the pinned build
 

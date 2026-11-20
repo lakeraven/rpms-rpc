@@ -12,7 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # It WRITES, so it runs only against a disposable local container.
 class ImmunizationLotLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   TETANUS_TOXOID = "104"   # IMMUNIZATION (#9999999.14), HL7-CVX CODE 35
@@ -26,7 +26,7 @@ class ImmunizationLotLiveTest < LiveSpec::Test
       assert_equal({ ien: ien.to_i, lot_number: @number, active: true, vaccine_ien: 104, vaccine: "TETANUS TOXOID",
                      cvx: "35", expiration_date: Date.new(2027, 12, 31), source: "v", source_label: "VFC" }, lot)
       assert_includes RpmsRpc::ImmunizationLot.list, lot, "DDR LISTER did not list lot #{ien} as find reads it"
-      puts "\n#{persona}: lot #{ien} (#{@number}) reads back VFC, CVX 35"
+      puts "\n#{role}: lot #{ien} (#{@number}) reads back VFC, CVX 35"
     ensure
       retire(ien)
     end

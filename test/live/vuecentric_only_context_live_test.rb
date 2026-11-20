@@ -31,7 +31,7 @@ require "rpms_rpc/server_clock"
 # patient, vaccine and day edits the first (REFSET2^BGOUTL2), so it is dated a
 # random past day, as in empty_reply_writes_live_test.rb.
 class VuecentricOnlyContextLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   OTHER_OPTION = "OR CPRS GUI CHART"
   DFN = 4 # DEMO,PATIENT ONE, the build's seeded patient
 
@@ -76,12 +76,12 @@ class VuecentricOnlyContextLiveTest < LiveSpec::Test
       assert_equal OTHER_OPTION, client.current_context, "#{name} left the session off #{OTHER_OPTION}"
     end
 
-    puts "\n#{persona}: #{reads.size} reads of VueCentric-only RPCs answered the same under #{OTHER_OPTION}"
+    puts "\n#{role}: #{reads.size} reads of VueCentric-only RPCs answered the same under #{OTHER_OPTION}"
   end
 end
 
 class VuecentricOnlyContextWriteLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   OTHER_OPTION = VuecentricOnlyContextLiveTest::OTHER_OPTION
@@ -105,7 +105,7 @@ class VuecentricOnlyContextWriteLiveTest < LiveSpec::Test
     client.create_context(RpmsRpc::CiaClient::SIGNON_CONTEXT)
     filed = refusal_iens - before
     assert_equal 1, filed.size, "expected one new refusal for DFN #{REFUSAL_DFN}, found #{filed.inspect}"
-    puts "\n#{persona}: refusal #{filed.first} recorded under #{OTHER_OPTION} for DFN #{REFUSAL_DFN}"
+    puts "\n#{role}: refusal #{filed.first} recorded under #{OTHER_OPTION} for DFN #{REFUSAL_DFN}"
   end
 
   private

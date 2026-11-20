@@ -7,13 +7,13 @@ require "securerandom"
 # Creates one synthetic patient on a disposable container. There is no
 # supported patient-delete RPC; discard the container after running this spec.
 class RegistrationDuplicateLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   writes!
 
   def test_second_registration_refuses_without_creating_another_chart
     privilege = client.call_rpc("ORWU HASKEY", "XUPROGMODE")
     assert_includes [ [ "0" ], [ "1" ] ], privilege
-    puts "\n#{persona}: XUPROGMODE=#{privilege.first} (read from server)"
+    puts "\n#{role}: XUPROGMODE=#{privilege.first} (read from server)"
 
     # Alphabetic suffix keeps the synthetic FileMan name valid and unique.
     suffix = SecureRandom.hex(6).tr("0-9", "G-P").upcase

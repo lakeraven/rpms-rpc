@@ -11,7 +11,7 @@ require_relative "seed_clinic"
 class EncounterVisitsLiveTest < LiveSpec::Test
   include LiveSpec::SeedClinic
 
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 2
   VISIT_IEN = 1
 

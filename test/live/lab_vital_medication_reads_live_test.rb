@@ -19,7 +19,7 @@ require "rpms_rpc/api/vital"
 # by entry (Lab.results against #63.04; on a container seeded as
 # tools/captured_replies/lab-results.rb seeds one, that branch runs).
 class LabVitalMedicationReadsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 2 # the demo patient with vitals on the pinned build
 
   def test_latest_vitals_read_back_against_v_measurement

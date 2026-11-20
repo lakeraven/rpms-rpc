@@ -7,7 +7,7 @@ require "rpms_rpc/api/tribal"
 # DFN 2 (openrpms#1079, rpms-rpc#616). SEEDPNL files TRIBAL ENROLLMENT NO. as
 # SYN<DFN> on every panel patient, with a tribe and both quanta.
 class TribalPanelEnrollmentLiveTest < LiveSpec::Test
-  runs_as "PREG123"
+  runs_as :front_desk_clerk
   DFN = 990_001 # ALPHA,CASEY, a synthetic panel patient
 
   def test_a_panel_patient_answers_enrollment_classification_and_community

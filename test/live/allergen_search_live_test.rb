@@ -10,7 +10,7 @@ require "rpms_rpc/fileman_date_parser"
 # goes into Allergy.save unchanged, and #120.8 holds the agent and the pointer
 # the search gave. It WRITES against a disposable local container only.
 class AllergenSearchLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   # An isolated synthetic patient no other live spec writes to.
@@ -74,7 +74,7 @@ class AllergenSearchLiveTest < LiveSpec::Test
     flunk "DDR GETS on allergy #{row[:ien]} returned nothing: #{entry.inspect}" if entry.nil? || entry[:fields].empty?
     assert_equal match[:agent_pointer], entry[:fields].dig(GMR_ALLERGY_FIELD, :internal), "GMR ALLERGY (#120.8, 1) pointer"
 
-    puts "\n#{persona}: #{match[:agent]} (#{match[:agent_pointer]}) found by search, filed as allergy #{row[:ien]} on DFN #{DFN}"
+    puts "\n#{role}: #{match[:agent]} (#{match[:agent_pointer]}) found by search, filed as allergy #{row[:ien]} on DFN #{DFN}"
   end
 
   def server_now_fm

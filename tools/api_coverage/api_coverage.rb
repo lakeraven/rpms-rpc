@@ -5,6 +5,7 @@ require "json"
 require "yaml"
 require_relative "../../lib/rpms_rpc/conformance/build_surface"
 require_relative "../../lib/rpms_rpc/conformance/release_inventory"
+require_relative "../../test/live/live_env"
 
 # API coverage (rpms-rpc#358, ADR 0010 assertion 2): which public methods of the API modules a live
 # spec proves. Generated from the code each run; there is no hand-maintained list.
@@ -28,13 +29,9 @@ require_relative "../../lib/rpms_rpc/conformance/release_inventory"
 #               as undeclared). The summary's undeclared is the count of "undeclared" entries.
 #
 # "proven" is static: a live spec calls the method. Whether that spec passes is `rake test:live`'s
-# answer, run per persona. Lives under tools/ so it never ships in the gem.
+# answer, run per test role. Lives under tools/ so it never ships in the gem.
 module ApiCoverage
   STATUSES = %w[proven not_in_contract].freeze
-  # The live harness (test/live/live_helper.rb) signs on as whichever persona the run's PERSONA names,
-  # and runs every spec under it; a spec has no way to declare a persona of its own. So every live
-  # spec runs as both personas ADR 0010 names.
-  PERSONAS = %w[least-privilege programmer].freeze
   RPC_SENDERS = /\Acall_rpc/ # call_rpc, call_rpc_raw, call_rpc_lines, call_rpc_global_array
   # Methods followed into when a public method calls them: module functions under lib/rpms_rpc/,
   # except DataMapper (its mappings are resolved, not followed) and the broker clients.
@@ -419,7 +416,7 @@ module ApiCoverage
         end,
         unresolved: r[:unresolved],
         live_specs: specs,
-        personas: specs.empty? ? [] : PERSONAS,
+        roles: roles_of(specs),
         status: specs.empty? ? "not_in_contract" : "proven",
         shape: shape,
         shape_status: shape_status(shape, r[:rpcs])
@@ -455,8 +452,15 @@ module ApiCoverage
     }
   end
 
+  # The test roles the live specs at these call sites run as (each spec's `runs_as`), in table order.
+  def roles_of(call_sites, root: File.expand_path("../..", __dir__))
+    files = call_sites.map { |site| site.split(":").first }.uniq
+    declared = files.flat_map { |file| LiveSpec.declared_roles(File.join(root, file)) }
+    LiveSpec::ROLES.names.select { |name| declared.include?(name) }.map(&:to_s)
+  end
+
   def document(entries, registry_tag:)
-    { schema: 1, registry: registry_tag, personas: PERSONAS, summary: summary(entries), methods: entries }
+    { schema: 2, registry: registry_tag, roles: LiveSpec::ROLES.names.map(&:to_s), summary: summary(entries), methods: entries }
   end
 
   def report_lines(entries)

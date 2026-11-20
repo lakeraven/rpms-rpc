@@ -11,7 +11,7 @@ require "rpms_rpc/api/scheduling_maintenance"
 # access types and resource groups of Windows Scheduling's table maintenance.
 # Each test puts back what it changed, or adds names of its own.
 class SchedulingClinicSetupLiveTest < LiveSpec::Test
-  runs_as "PSCH123"
+  runs_as :scheduler
   writes!
 
   CLINIC = "DEMO PODIATRY"

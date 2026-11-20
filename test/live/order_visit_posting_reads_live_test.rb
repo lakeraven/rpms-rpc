@@ -16,7 +16,7 @@ require "rpms_rpc/api/patient_education"
 # V ACTIVITY TIME (#9000010.19), TIU DOCUMENT (#8925) and PRF ASSIGNMENT
 # (#26.13). Read only.
 class OrderVisitPostingReadsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 4 # the demo patient with an order, coded problems, a visit's activity time and a clinical warning on the pinned build
   ACTIVITY_VISIT = 4
   EDUCATION_VISIT = 2 # its V PATIENT ED entry names a problem

@@ -9,7 +9,7 @@ require "rpms_rpc/api/health_summary"
 # #662 the gem sent report 1 with an invented type IEN, which the build ran
 # as a VA type and faulted on. The spec reads only.
 class HealthSummaryLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   DFN = 4 # DEMO,PATIENT ONE
 
   def test_the_site_lists_ihs_summary_types_with_their_iens
@@ -18,7 +18,7 @@ class HealthSummaryLiveTest < LiveSpec::Test
     refute_nil types, "DDR LISTER could not list #9001015"
     refute_empty types
     assert(types.all? { |t| t[:ien].match?(/\A\d+\z/) && !t[:name].empty? }, types.inspect)
-    puts "\n#{persona}: #{types.size} IHS summary types, first #{types.first.inspect}"
+    puts "\n#{role}: #{types.size} IHS summary types, first #{types.first.inspect}"
   end
 
   def test_for_patient_prints_the_default_summary_with_its_sections
@@ -28,7 +28,7 @@ class HealthSummaryLiveTest < LiveSpec::Test
     assert_equal RpmsRpc::HealthSummary::DEFAULT_SUMMARY_TYPE, summary[:type]
     assert_includes summary[:raw_content], "(#{summary[:type]} SUMMARY)", "the report names the type it printed"
     refute_empty summary[:sections]
-    puts "\n#{persona}: #{summary[:sections].map { |s| s[:name] }.first(4).inspect}"
+    puts "\n#{role}: #{summary[:sections].map { |s| s[:name] }.first(4).inspect}"
   end
 
   def test_every_listed_type_prints_without_a_fault

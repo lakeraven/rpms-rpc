@@ -13,7 +13,7 @@ require "rpms_rpc/api/ddr_fileman"
 # The spec lists the build's locations with DDR LISTER and checks find
 # against each one, so it holds on any build that has a location.
 class LocationFindLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   CONTEXT = "CIAV VUECENTRIC"
 
   def test_find_returns_each_listed_location
@@ -36,7 +36,7 @@ class LocationFindLiveTest < LiveSpec::Test
     typed = found.select { |l| l[:type] }
     refute_empty typed, "no listed location has a TYPE (#44 field 2)"
     typed.each { |l| refute_match(/\A[A-Z]{1,2}\z/, l[:type], "type should be the external form: #{l.inspect}") }
-    puts "\n#{persona}: #{found.first(3).map(&:inspect).join(' ')}"
+    puts "\n#{role}: #{found.first(3).map(&:inspect).join(' ')}"
   end
 
   def test_an_unknown_or_invalid_ien_is_nil

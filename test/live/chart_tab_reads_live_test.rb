@@ -16,7 +16,7 @@ require "rpms_rpc/api/dg_sensitive"
 # ACCESS may write a DG SECURITY LOG entry (DGSEC4.m:65), so the spec is
 # declared as writing.
 class ChartTabReadsLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 4 # DEMO,PATIENT ONE on the pinned build, an outpatient
@@ -94,11 +94,12 @@ class ChartTabReadsLiveTest < LiveSpec::Test
 end
 
 # PTSEC^DGSEC4 answers 0 (access granted, no warning) for a patient whose
-# record is not sensitive. The demo build has no sensitive record. The
-# clinician may run DG SENSITIVE RECORD ACCESS from bcer-9.0-20261119-f67498c-ydb,
-# where it holds OR CPRS GUI CHART (openrpms#1192, #814).
+# record is not sensitive. The demo build has no sensitive record. DG
+# SENSITIVE RECORD ACCESS is registered only in OR CPRS GUI CHART, which
+# PROFILE,MD is not given yet (PROVIDER,TEST was, openrpms#1192).
 class ChartTabSensitiveRecordLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
+  needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   writes!
 
   def test_sensitive_record_access_to_a_record_that_is_not_sensitive

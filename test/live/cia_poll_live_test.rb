@@ -10,7 +10,7 @@ require_relative "live_helper"
 # after 11 empty 10 s header reads, about 110 s (IRIS); the YottaDB image's own
 # listener ends it at 60 s. These specs wait past the longer, so they hold on both.
 class CiaPollLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   # Stock CIANBLIS: CIARETRY gains .5 per empty $$TCPREAD(8,10) and the session
   # ends when CIARETRY>5, so about 110 s; plus margin.
   IDLE_CUT = 120

@@ -20,7 +20,7 @@ require "rpms_rpc/data_mapper"
 # Needs the BMXRPC context (BMX SQL is registered there). Reads only.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxReplyParsingLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   broker :bmx
 
   CONTEXT = "BMXRPC"
@@ -30,7 +30,7 @@ class BmxReplyParsingLiveTest < LiveSpec::Test
     super
     client.create_context(CONTEXT)
   rescue RpmsRpc::Client::RpcError => e
-    flunk "#{persona} cannot bind #{CONTEXT} on this build (#{e.message}): BMX SQL is registered there"
+    flunk "#{role} cannot bind #{CONTEXT} on this build (#{e.message}): BMX SQL is registered there"
   end
 
   def test_a_recordset_splits_into_its_typed_header_and_rows

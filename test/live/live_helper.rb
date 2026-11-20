@@ -2,19 +2,23 @@
 
 # Live specs (ADR 0009): Ruby tests that call the gem's real API over the wire
 # against a fresh, disposable container of the pinned build. They assert shape
-# and invariants, run as the persona whose role they prove, and are run by
+# and invariants, run as the test role whose work they prove, and are run by
 # `rake test:live`, never by `rake test`.
 #
 # Env (all required; a spec FAILS without them, it never skips: a live spec
 # is loaded only by `rake test:live` or by path, so a missing setting is a
 # mistake, not an opt-out):
 #   BROKER_HOST, BROKER_PORT   the broker of the target
-#   RPMS_ACCESS, RPMS_VERIFY   the persona's sign-on pair (never logged)
-#   PERSONA                    which user that is, one of LiveSpec::PERSONAS
-# The staging pair PROV123 also needs VISTA_RPC_ENV=development (Client's
-# credential guard).
+#   ROLE                       the test role the run signs on as, one of
+#                              RpmsRpc::TestRoles (README, Test roles)
 #
 # Optional:
+#   RPMS_ACCESS, RPMS_VERIFY   the sign-on pair, when the target's codes differ
+#                              from the role's published pair (never logged).
+#                              The operator's verify code is not published, so
+#                              ROLE=operator needs RPMS_VERIFY.
+#   RPMS_ESIG                  the electronic signature code, when it differs
+#                              from the role's
 #   BROKER_PROTOCOL            cia (default), xwb or bmx: the broker line spoken
 #   LIVE_BUILD                 the target's build, when it is not the pin
 #   BMX_PORT                   the BMX broker of the same target, for a CIA
@@ -39,13 +43,16 @@
 # skip_tracked("#NNN", why), which names a tracked issue; the run's summary
 # lists those by issue. A bare `skip` in a live spec fails the spec.
 #
-# Least privilege (#452). Each spec declares the persona whose role it proves
-# (`runs_as "PSCH123"`; several when the spec is about every persona, such as
-# the keys a user holds). A run signs on as one persona and runs only the
-# specs that declare it: another persona's spec loads and runs none of its
-# tests, and the summary counts it. A spec that declares no persona, or one
-# run by hand as another persona, fails, naming who it runs as. What a persona
-# is refused outside its role is proven by least_privilege_live_test.rb.
+# Test roles (#452). Each spec declares the role whose work it proves
+# (`runs_as :scheduler`; several when the spec is about every role, such as
+# the keys a user holds). A run signs on as one role and runs only the specs
+# that declare it: another role's spec loads and runs none of its tests, and
+# the summary counts it. A spec that declares no role, or one run by hand as
+# another role, fails, naming who it runs as. What a role is refused outside
+# its row is proven by role_refusal_live_test.rb. Right after sign-on the run
+# asks whether the account holds XUPROGMODE and fails, every spec, when that
+# disagrees with the role's row: a programmer is answered under every option,
+# so an operator pair under another role's name would hide a permission gap.
 #
 # A spec that WRITES declares `writes!`. It runs only when the target is
 # declared disposable (LIVE_DISPOSABLE=1) and is on this machine (a loopback
@@ -53,11 +60,11 @@
 # shared stack by a mistyped env.
 #
 # The run ends in one summary block (LiveSpec::Summary): backend, build,
-# persona, counts, skips by issue. Under `rake test:live` (LIVE_RUN=1) a run in
+# role, counts, skips by issue. Under `rake test:live` (LIVE_RUN=1) a run in
 # which no live spec ran is a failure, and those counts are written for the
-# release guard: coverage/live/<persona>.json for CIA, and
-# coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
-# An unsafe persona is reported and not written. So is a filtered run (TEST,
+# release guard: coverage/live/<role>.json for CIA, and
+# coverage/live/<role>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
+# An unsafe role is reported and not written. So is a filtered run (TEST,
 # TESTOPTS, TESTOPT, TEST_OPTS, TEST_OPT, or --name/--exclude), a run that
 # reported fewer live specs than were loaded, and a run whose file is not the
 # pending marker for this LIVE_RUN_ID: Ctrl-C still reaches report, and writing
@@ -69,6 +76,7 @@ require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
+require "rpms_rpc/api/authentication"
 require_relative "live_env"
 
 module LiveSpec
@@ -84,20 +92,30 @@ module LiveSpec
         @broker || (superclass.respond_to?(:broker) ? superclass.broker : "cia")
       end
 
-      # Declare the persona(s) whose role this spec proves (#452).
+      # Declare the test role(s) whose work this spec proves (#452).
       def runs_as(*names)
-        @runs_as = names.map(&:to_s).freeze unless names.empty?
+        @runs_as = names.map { |name| name.to_s.to_sym }.freeze unless names.empty?
         @runs_as
       end
 
-      def runs_as?(name) = Array(runs_as).include?(name.to_s)
+      def runs_as?(name) = !name.to_s.empty? && Array(runs_as).include?(name.to_s.to_sym)
 
-      # A run as another persona loads the spec and runs none of its tests. A
-      # spec that declares no persona runs, so its setup can say so.
+      # A run as another role loads the spec and runs none of its tests. A
+      # spec that declares no role runs, so its setup can say so.
       def runnable_methods
-        return super if runs_as.nil? || runs_as?(ENV["PERSONA"])
+        return super if runs_as.nil? || runs_as?(ENV["ROLE"].to_s.strip)
 
         []
+      end
+
+      # Declare a broker option this spec's RPCs run under that its role's row
+      # does not give yet, and the issue tracking the grant (`needs "AMHGRPC",
+      # tracked: "openrpms#NNN"`). A run as a role whose row lacks the option
+      # skips the spec by that issue before signing on; once the row holds it,
+      # the spec runs.
+      def needs(option = nil, tracked: nil)
+        @needs = { option: option.to_s, tracked: tracked.to_s }.freeze if option
+        @needs
       end
 
       # Declare that this spec signs on itself: connect, but do not sign on.
@@ -109,6 +127,8 @@ module LiveSpec
 
     def setup
       super
+      error = LiveSpec.role_error
+      flunk error if error
       missing = LiveSpec.missing_env
       flunk LiveSpec.missing_env_message(missing) unless missing.empty?
       error = LiveSpec.protocol_error
@@ -118,17 +138,21 @@ module LiveSpec
               "#{LiveSpec.protocol}: set BROKER_PROTOCOL=#{self.class.broker} and its broker's port"
       end
       if self.class.runs_as.nil?
-        flunk "#{self.class} declares no persona: add runs_as \"<PERSONA>\", the persona whose role it proves " \
-              "(one of #{LiveSpec::PERSONAS.keys.join(', ')}; README, Live personas)"
+        flunk "#{self.class} declares no role: add runs_as :<role>, the test role whose work it proves " \
+              "(one of #{LiveSpec::ROLES.names.join(', ')}; README, Test roles)"
       end
-      unless self.class.runs_as?(persona)
-        flunk "#{self.class} runs as #{self.class.runs_as.join(', ')}, and this run signs on as #{persona}: " \
-              "run it as #{self.class.runs_as.first}"
+      unless self.class.runs_as?(role)
+        flunk "#{self.class} runs as #{self.class.runs_as.join(', ')}, and this run signs on as #{role}: " \
+              "run it with ROLE=#{self.class.runs_as.first}"
       end
       if self.class.writes? && (reason = LiveSpec.write_refusal)
         flunk "live spec writes, refused: #{reason}"
       end
+      if (need = self.class.needs) && !role_row.holds?(need[:option])
+        skip_tracked(need[:tracked], "#{role} (#{role_row.account}) is not given #{need[:option]}, which this spec's RPCs run under")
+      end
       @client = sign_on
+      check_xuprogmode!
     end
 
     def teardown
@@ -138,9 +162,31 @@ module LiveSpec
       super
     end
 
-    def persona = ENV.fetch("PERSONA")
+    # The run's test role, as a symbol (:provider).
+    def role = ENV.fetch("ROLE").strip.to_sym
 
-    # A BmxClient on the same target, signed on as the same persona: the
+    # The run's role row: its account, pair, options, keys and XUPROGMODE.
+    def role_row = LiveSpec::ROLES.fetch(role)
+
+    # The pair this run signs on with (LiveSpec.sign_on_pair).
+    def sign_on_pair = LiveSpec.sign_on_pair
+
+    # Another role's published pair, for a spec that needs a second user.
+    def pair_of(name)
+      row = LiveSpec::ROLES.fetch(name)
+      flunk "#{name}'s verify code is not published, so a spec cannot sign on as it beside the run's role" if row.verify.nil?
+      row.pair
+    end
+
+    # The run's electronic signature code (RPMS_ESIG, else the role's), or a
+    # failure naming what to set.
+    def signature_code!
+      esig = LiveSpec.esig
+      flunk "no electronic signature code for #{role}: set RPMS_ESIG to #{role_row.account}'s code" if esig.nil?
+      esig
+    end
+
+    # A BmxClient on the same target, signed on as the same role: the
     # client Registration.with_lookup_client scopes for a registration over
     # CIA (#609).
     def lookup_client
@@ -150,18 +196,21 @@ module LiveSpec
 
         bmx = RpmsRpc::BmxClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(port), timeout: 30)
         bmx.connect
-        bmx.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+        bmx.authenticate(*sign_on_pair)
         bmx
       rescue RpmsRpc::Client::ConnectionError, RpmsRpc::Client::AuthenticationError => e
         bmx&.disconnect # a failed sign-on must not hold a broker session
-        flunk "no BMX sign-on as #{persona} at #{ENV['BROKER_HOST']}:#{port} (#{e.class.name.split('::').last}): #{e.message}"
+        flunk "no BMX sign-on as #{role} at #{ENV['BROKER_HOST']}:#{port} (#{e.class.name.split('::').last}): #{e.message}"
       end
     end
+
+    # An issue of this repository (#NNN) or of another (openrpms#NNN).
+    TRACKED_ISSUE = /(?:[a-z][a-z0-9-]*)?#\d+/
 
     # The one acceptable skip: it names the tracked issue that will make the
     # spec runnable, and the summary counts it under that issue.
     def skip_tracked(issue, why)
-      flunk "skip_tracked(#{issue.inspect}, ...) names no issue: pass \"#NNN\", or fail the spec instead" unless issue.to_s.match?(/\A#\d+\z/)
+      flunk "skip_tracked(#{issue.inspect}, ...) names no issue: pass \"#NNN\" (or \"openrpms#NNN\"), or fail the spec instead" unless issue.to_s.match?(/\A#{TRACKED_ISSUE}\z/)
 
       @tracked_skip = true
       skip "#{issue}: #{why}"
@@ -192,15 +241,38 @@ module LiveSpec
       return c if self.class.connect_only?
 
       begin
-        c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+        c.authenticate(*sign_on_pair)
       rescue RpmsRpc::Client::CredentialError => e
-        flunk "sign-on as #{persona} refused by the client's credential guard: #{e.message}. " \
-              "A staging pair such as PROV123 needs VISTA_RPC_ENV=development."
+        flunk "sign-on as #{role} refused by the client's credential guard: #{e.message}"
       rescue RpmsRpc::Client::AuthenticationError => e
-        flunk "sign-on as #{persona} refused at #{host}:#{port}: #{e.message}. " \
-              "Check RPMS_ACCESS/RPMS_VERIFY are #{persona}'s pair on that build."
+        flunk "sign-on as #{role} (#{role_row.account}) refused at #{host}:#{port}: #{e.message}. " \
+              "Check the pair is #{role_row.account}'s on that build (RPMS_ACCESS/RPMS_VERIFY override the row's)."
       end
       c
+    end
+
+    # The one guard on the row: the account the run's pair signs on as holds
+    # XUPROGMODE exactly when its role's row says so. Asked once per process,
+    # on a connection of its own so no spec's session or bound option changes
+    # (ORWU NPHASKEY under CIAV VUECENTRIC, Authentication.held_keys), and the
+    # answer fails every spec of the run when it disagrees.
+    def check_xuprogmode!
+      verdict = LiveSpec.xuprogmode_verdict(role_row) { xuprogmode_held }
+      flunk verdict if verdict
+    end
+
+    # ["XUPROGMODE"] when the run's account holds it, [] when not, nil when
+    # the broker would not say, or why the probe could not sign on.
+    def xuprogmode_held
+      probe = BROKER_CLIENTS.fetch(LiveSpec.protocol).new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
+      probe.connect
+      probe.authenticate(*sign_on_pair)
+      RpmsRpc.with_client(probe) { RpmsRpc::Authentication.held_keys([ "XUPROGMODE" ]) }
+    rescue RpmsRpc::Client::ConnectionError, RpmsRpc::Client::AuthenticationError => e
+      "could not sign on as #{role} (#{role_row.account}) to ask whether it holds XUPROGMODE " \
+        "(#{e.class.name.split('::').last}): #{e.message}"
+    ensure
+      probe&.disconnect
     end
   end
 
@@ -248,8 +320,8 @@ module LiveSpec
       io.puts "== live run " + ("=" * 56)
       io.puts format("%-9s %s", "backend", "#{@env['BROKER_HOST']}:#{@env['BROKER_PORT']} (#{LiveSpec.protocol(@env)})")
       io.puts format("%-9s %s", "build", LiveSpec.build_label(@env))
-      io.puts format("%-9s %s", "persona", @env["PERSONA"])
-      io.puts format("%-9s %d spec classes run as this persona; %d run as another", "specs", *spec_classes_split) if live_run?
+      io.puts format("%-9s %s", "role", @env["ROLE"])
+      io.puts format("%-9s %d spec classes run as this role; %d run as another", "specs", *spec_classes_split) if live_run?
       io.puts format("%-9s %d runs, %d assertions, %d failures, %d errors, %d skips",
                      "result", count, assertions, failures, errors, skips)
       skipped_by_issue.each do |issue, tests|
@@ -262,18 +334,18 @@ module LiveSpec
 
     private
 
-    # [this persona's spec classes, other personas' spec classes] loaded in
+    # [this role's spec classes, other roles' spec classes] loaded in
     # this process.
     def spec_classes_split
       specs = Minitest::Runnable.runnables.grep(Class).select { |klass| klass < LiveSpec::Test }
-      mine = specs.count { |klass| klass.runs_as.nil? || klass.runs_as?(@env["PERSONA"]) }
+      mine = specs.count { |klass| klass.runs_as.nil? || klass.runs_as?(@env["ROLE"].to_s.strip) }
       [ mine, specs.size - mine ]
     end
 
     # Machine-readable copy of the block above, for release:live_guard.
     # The path and the build identity come from LiveSummary, the same helper
     # the pending marker uses, so the two cannot name different files. An
-    # unsafe persona or protocol is reported and not written; any other
+    # unsafe role or protocol is reported and not written; any other
     # failure of the writer is reported and not raised, so a pending marker
     # left by test:live_summary_pending stays on disk and the guard refuses.
     # A filtered run, a count short of the loaded specs, and a file that is
@@ -295,7 +367,7 @@ module LiveSpec
       root = File.expand_path("../..", __dir__)
       identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
       dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
-      path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      path = RpmsRpc::LiveSummary.path_for(dir, role: identity[:role], protocol: identity[:protocol])
       # The check and the write are one step under the summary lock that mark_pending also takes.
       case RpmsRpc::LiveSummary.replace_pending(path, @env["LIVE_RUN_ID"], identity[:source],
                                                 summary_document(identity), env: @env)
@@ -330,7 +402,7 @@ module LiveSpec
         "source" => identity[:source],
         "suite" => identity[:suite],
         "protocol" => identity[:protocol],
-        "persona" => identity[:persona],
+        "role" => identity[:role],
         "passed" => results.reject(&:skipped?).all?(&:passed?),
         "runs" => count,
         "assertions" => assertions,
@@ -341,7 +413,7 @@ module LiveSpec
     end
 
     def skipped_by_issue
-      results.select(&:skipped?).group_by { |r| r.failure.message[/\A#\d+/] || "(none)" }
+      results.select(&:skipped?).group_by { |r| r.failure.message[/\A#{LiveSpec::Test::TRACKED_ISSUE}/] || "(none)" }
              .transform_values { |rs| rs.map { |r| "#{r.klass}##{r.name}" } }
     end
   end

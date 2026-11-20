@@ -22,7 +22,7 @@ require "rpms_rpc/server_clock"
 # a random past day: the spec files a new entry whichever spec or persona
 # refused the vaccine today.
 class EmptyReplyWritesLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   REFUSAL_FILE = "9000022"   # PERSONAL HISTORY REFUSALS (^AUPNPREF)
@@ -42,7 +42,7 @@ class EmptyReplyWritesLiveTest < LiveSpec::Test
     assert result[:success], "record answered #{result.inspect}"
     filed = refusal_iens - before
     assert_equal 1, filed.size, "expected one new refusal for DFN #{REFUSAL_DFN}, found #{filed.inspect}"
-    puts "\n#{persona}: refusal #{filed.first} filed for DFN #{REFUSAL_DFN}, record reported success"
+    puts "\n#{role}: refusal #{filed.first} filed for DFN #{REFUSAL_DFN}, record reported success"
   end
 
   def test_a_refusal_for_an_unknown_patient_is_a_failure
@@ -61,7 +61,7 @@ class EmptyReplyWritesLiveTest < LiveSpec::Test
 
       assert result[:success], "delete answered #{result.inspect}"
       assert_equal "D", problem_status(ien), "problem #{ien} is not deleted after delete"
-      puts "\n#{persona}: problem #{ien} deleted, status read back D"
+      puts "\n#{role}: problem #{ien} deleted, status read back D"
     ensure
       restore_active(ien)
     end

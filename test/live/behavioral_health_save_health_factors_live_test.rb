@@ -9,8 +9,9 @@ require "rpms_rpc/api/behavioral_health/wellness"
 # RpmsRpc::BehavioralHealth.save_health_factors over AMHG SAVE HEALTH FACTORS (HF^AMHGSVF).
 # WRITES on a disposable container only; synthetic patient DFN 990037.
 class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
-  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
-  runs_as "PROV123"
+  runs_as :provider
+  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
+  needs "AMHGRPC", tracked: "openrpms#1275"
   writes!
 
   DFN = 990_037
@@ -45,7 +46,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
     refute_hf_name!(visit_ien, name_a)
     assert_hf_row_count!(visit_ien, 1)
 
-    puts "\n#{persona}: BH visit #{visit_ien} edit replaced #{name_a.inspect} with #{name_b.inspect}"
+    puts "\n#{role}: BH visit #{visit_ien} edit replaced #{name_a.inspect} with #{name_b.inspect}"
   end
 
   def test_save_health_factors_add_keeps_existing_factors
@@ -138,7 +139,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   def hold_visit_lock_elsewhere!(visit_ien)
     other = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
     other.connect
-    other.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+    other.authenticate(*sign_on_pair)
     held = on_fileman(other) { RpmsRpc::DdrFileman.lock(node: "^AMHREC(#{visit_ien})", timeout: 0) }
     assert_equal true, held, "the second job took the visit lock"
     other

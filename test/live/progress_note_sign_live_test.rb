@@ -11,13 +11,12 @@ require "rpms_rpc/api/ddr_fileman"
 # (1502). A wrong code is refused with 89250005 and the note stays unsigned
 # (rpms-rpc#720). WRITES on a disposable container only.
 #
-# The spec needs the persona's electronic signature code in RPMS_ESIG (never
-# logged; rake report:daily passes <PERSONA>_ESIG, #848). PROVIDER,TEST holds
-# the published demo code from openrpms' SEEDPERS (openrpms#1247). Every
-# PROV123 run supplies it (README, Running the live specs), so a run without
-# it fails and says so, rather than skip and leave signing unproven (#851).
+# The spec needs the provider's electronic signature code: the row's published
+# demo code (PROFILE,MD's, from openrpms' SEEDPERS), or RPMS_ESIG when a target's
+# differs (never logged, #848). A run without one fails and says so, rather
+# than skip and leave signing unproven (#851).
 class ProgressNoteSignLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   # The seed patient, visit and title the TIU wire capture files its note on
@@ -47,7 +46,7 @@ class ProgressNoteSignLiveTest < LiveSpec::Test
     assert_equal client.duz.to_s, fields.dig("1502", :internal), "SIGNED BY must be the session user"
     assert_match(/\A\d{7}\.\d+\z/, fields.dig("1501", :internal).to_s, "SIGNATURE DATE/TIME must be a FileMan date/time")
 
-    puts "\n#{persona}: note #{note} on DFN #{DFN} signed by DUZ #{fields.dig('1502', :internal)} " \
+    puts "\n#{role}: note #{note} on DFN #{DFN} signed by DUZ #{fields.dig('1502', :internal)} " \
          "at #{fields.dig('1501', :internal)} (#{fields.dig('.05', :external)})"
   end
 
@@ -70,19 +69,13 @@ class ProgressNoteSignLiveTest < LiveSpec::Test
     assert_equal :sign, RpmsRpc::ESignature.which_action(note, client.duz),
                  "the author can still sign the note after a refused code"
 
-    puts "\n#{persona}: wrong code on note #{note} refused (#{raw}); note stays UNSIGNED"
+    puts "\n#{role}: wrong code on note #{note} refused (#{raw}); note stays UNSIGNED"
   end
 
   private
 
-  def signature_code!
-    esig = ENV["RPMS_ESIG"].to_s
-    flunk "RPMS_ESIG is missing: set it to #{persona}'s electronic signature code (rake report:daily: #{persona}_ESIG)" if esig.strip.empty?
-    esig
-  end
-
-  # The persona's code with every letter and digit shifted by one, so it is
-  # never the persona's own.
+  # The role's code with every letter and digit shifted by one, so it is
+  # never the role's own.
   def wrong_code_for(esig)
     wrong = esig.tr("0-9A-Za-z", "1-90B-ZAb-za")
     wrong == esig ? "#{esig}1" : wrong

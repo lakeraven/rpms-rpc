@@ -167,11 +167,11 @@ class ApiCoverageTest < Minitest::Test
     report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.fixture.surface)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
 
-    assert_equal %w[schema registry personas summary methods], doc.keys
+    assert_equal %w[schema registry roles summary methods], doc.keys
     assert_equal methods.size, doc["methods"].size
     assert_equal %w[proven public unresolved_methods unregistered_rpcs undeclared by_module], doc["summary"].keys
     doc["methods"].each do |e|
-      assert_equal %w[module method arity params rpcs unresolved live_specs personas status shape shape_status], e.keys
+      assert_equal %w[module method arity params rpcs unresolved live_specs roles status shape shape_status], e.keys
       assert_includes ApiCoverage::STATUSES, e["status"]
       assert_equal e["live_specs"].empty?, e["status"] == "not_in_contract"
       e["rpcs"].each { |r| assert_equal %w[name registered entry_point reach via], r.keys }

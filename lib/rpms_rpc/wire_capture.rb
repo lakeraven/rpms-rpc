@@ -3,6 +3,7 @@
 require "digest"
 require "yaml"
 require_relative "core"
+require_relative "test_roles"
 require_relative "fileman_date_parser"
 require_relative "wire_capture/evidence"
 require_relative "wire_capture/note_write_flow"
@@ -50,13 +51,14 @@ module RpmsRpc
     SOURCES = [ "live-capture", "no-data", "routine-cite" ].freeze
     KINDS = [ "fields", "scalar", "text_blob", "lines" ].freeze
 
-    # Access codes README.md documents as synthetic dev personas. A capture
-    # may record one of these as signed_on_as and nothing else.
-    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
-    # The personas a committed fixture may name as signed_on_as: those, and
-    # the scheduling slice's pilot, PROFILE,SCHED (rpms-rpc#626), a published
-    # demo pair that only the scheduling-write capture signs on as.
-    FIXTURE_PERSONAS = (SYNTHETIC_PERSONAS + %w[PSCH123]).freeze
+    # The accounts a capture may sign on as: the test roles' (RpmsRpc::TestRoles),
+    # synthetic demo users of the build. A capture records the access code as
+    # signed_on_as and nothing else.
+    SYNTHETIC_ACCOUNTS = TestRoles.access_codes.freeze
+    # What a committed fixture may name as signed_on_as: those, and PROV123
+    # (PROVIDER,TEST), which captured fixtures before tests signed on as roles
+    # and is no test role now. Its fixtures stay readable as the evidence they are.
+    FIXTURE_ACCOUNTS = (SYNTHETIC_ACCOUNTS + %w[PROV123]).freeze
 
     # BMX recordset column: a type letter, a 5-digit width, then the name
     # (I00020APPOINTMENTID, T00020ERRORID). A header row is one whose every
@@ -469,8 +471,8 @@ module RpmsRpc
       end
 
       def validate_write_capture!
-        unless FIXTURE_PERSONAS.include?(@signed_on_as.to_s)
-          fail!("signed_on_as must be a synthetic persona")
+        unless FIXTURE_ACCOUNTS.include?(@signed_on_as.to_s)
+          fail!("signed_on_as must be a synthetic account")
         end
         entries = @read_back
         fail!("write fixture requires non-empty read_back") if !entries.is_a?(Array) || entries.empty?
@@ -504,8 +506,8 @@ module RpmsRpc
         raw = probe["raw_return"].to_s
         actual = Digest::SHA256.hexdigest(raw)
         fail!("persona_probe sha256 does not match raw_return (#{actual})") unless actual == probe["sha256"]
-        unless FIXTURE_PERSONAS.include?(probe["signed_on_as"].to_s)
-          fail!("persona_probe signed_on_as must be a synthetic persona")
+        unless FIXTURE_ACCOUNTS.include?(probe["signed_on_as"].to_s)
+          fail!("persona_probe signed_on_as must be a synthetic account")
         end
         fail!("persona_probe must be a booking refusal") unless WireCapture.persona_probe_refusal?(raw)
       end

@@ -8,7 +8,7 @@ require_relative "live_helper"
 # old default, "VEH,EXTERNAL", names a namespace a broker may not have, and
 # one that does not have it hangs up on the connect.
 class CiaConnectUciLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   connect_only!
 
   def test_an_unset_uci_connects_and_signs_on_in_the_brokers_namespace
@@ -18,10 +18,10 @@ class CiaConnectUciLiveTest < LiveSpec::Test
     c.connect
     assert c.connected?, "the broker did not answer a connect with an empty UCI"
 
-    result = c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+    result = c.authenticate(*sign_on_pair)
     assert result[:success]
     assert_operator result[:duz], :>, 0, "sign-on in the broker's own namespace resolved no DUZ"
-    puts "\n#{persona}: empty UCI connected and signed on as DUZ #{result[:duz]}"
+    puts "\n#{role}: empty UCI connected and signed on as DUZ #{result[:duz]}"
   ensure
     c&.disconnect
     had ? ENV["RPMS_UCI"] = prev : ENV.delete("RPMS_UCI")

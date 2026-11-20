@@ -15,7 +15,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class VitalAddTakenAtLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 2
@@ -40,7 +40,7 @@ class VitalAddTakenAtLiveTest < LiveSpec::Test
     assert_equal visit.to_s, fields.dig(".03", :internal)
     assert_equal RpmsRpc::FilemanDateParser.format_datetime(taken, seconds: true).sub(/0+\z/, "").chomp("."),
                  fields.dig("1201", :internal).to_s, "EVENT DATE AND TIME is the time given"
-    puts "\n#{persona}: WT #{row[:measurement_ien]} on visit #{visit} filed at #{fields.dig('1201', :internal)}"
+    puts "\n#{role}: WT #{row[:measurement_ien]} on visit #{visit} filed at #{fields.dig('1201', :internal)}"
   end
 
   private

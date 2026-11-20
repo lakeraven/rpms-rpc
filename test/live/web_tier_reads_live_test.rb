@@ -13,7 +13,7 @@ require "rpms_rpc/api/scheduling"
 # (ORWPS ACTIVE), Reminders.applicable (ORQQPXRM REMINDERS APPLICABLE) and
 # Scheduling.clinic_setup (BSDX CLINIC SETUP). Reads only.
 class WebTierReadsLiveTest < LiveSpec::Test
-  runs_as "PMD123"
+  runs_as :provider
   DFN = 4 # DEMO,PATIENT ONE on the pinned build
   CLINIC = 3 # DEMO IHS CLINIC, HOSPITAL LOCATION #44
   NO_SUCH_DUZ = 999_999_999
@@ -72,7 +72,7 @@ class WebTierReadsLiveTest < LiveSpec::Test
     rows = RpmsRpc::Medication.active_for_patient(DFN)
     assert_kind_of Array, rows
     rows.each { |row| refute_empty row[:name].to_s, "an active medication without a name: #{row.inspect}" }
-    puts "\n#{persona}: active_for_patient(#{DFN}) answered #{rows.size} row(s)"
+    puts "\n#{role}: active_for_patient(#{DFN}) answered #{rows.size} row(s)"
   end
 
   def test_applicable_reminders_carry_a_status_from_their_due_flag

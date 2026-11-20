@@ -15,7 +15,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class ClinicalReviewLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as :provider
   writes!
 
   DFN = 2
@@ -44,7 +44,7 @@ class ClinicalReviewLiveTest < LiveSpec::Test
     assert_equal client.duz.to_s, fields.dig("1.02", :internal), "V UPDATED/REVIEWED #{ien} entered by"
     assert_equal client.duz.to_s, fields.dig("1204", :internal), "V UPDATED/REVIEWED #{ien} encounter provider"
 
-    puts "\n#{persona}: ALLERGY LIST REVIEWED #{ien} on visit #{visit} reads back through BGOVUPD GET and #{REVIEW_FILE}"
+    puts "\n#{role}: ALLERGY LIST REVIEWED #{ien} on visit #{visit} reads back through BGOVUPD GET and #{REVIEW_FILE}"
   end
 
   def test_a_visit_of_another_patient_is_refused_unfiled
