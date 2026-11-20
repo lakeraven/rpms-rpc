@@ -1383,25 +1383,33 @@
         "RpmsRpc::Notifications.inbox": "non_idempotent_write",
         "RpmsRpc::Notifications.remove": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ ALRMSG": {
       "methods": {
         "RpmsRpc::Notifications.message": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ ALRPP": {
       "methods": {
         "RpmsRpc::Notifications.remove": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BEHOXQ FORWARD": {
       "methods": {
         "RpmsRpc::Notifications.forward": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/notifications.yml"
+      ]
     },
     "BGOCC GET": {
       "methods": {
@@ -2021,7 +2029,8 @@
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml"
       ]
     },
     "DDR GETS ENTRY DATA": {
@@ -2219,6 +2228,7 @@
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
+        "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
