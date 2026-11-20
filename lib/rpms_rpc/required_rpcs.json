@@ -515,6 +515,9 @@
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
+      "GMV ADD VM",
+      "GMV EXTRACT REC",
+      "GMV GET VITAL TYPE IEN",
       "ORQQVI VITALS",
       "ORWU DT"
     ],
@@ -1247,6 +1250,7 @@
         "RpmsRpc::Encounter.open": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/wire_captures/behoencx-chkvisit.yml"
       ]
     },
@@ -1258,6 +1262,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/behoencx-fetch.yml"
       ]
@@ -1278,6 +1283,7 @@
         "RpmsRpc::Measurement.newest_by_type": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/wire_captures/behoencx-getvisit.yml"
       ]
@@ -1286,7 +1292,9 @@
       "methods": {
         "RpmsRpc::Encounter.visits": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-visits.yml"
+      ]
     },
     "BEHOENPC SAVE": {
       "methods": {
@@ -2322,6 +2330,24 @@
         "test/fixtures/captured_replies/dg-sensitive.yml"
       ]
     },
+    "GMV ADD VM": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "GMV EXTRACT REC": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": []
+    },
+    "GMV GET VITAL TYPE IEN": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": []
+    },
     "OREVNTX PAT": {
       "methods": {
         "RpmsRpc::Order.delayed_events": "read"
@@ -2881,7 +2907,8 @@
         "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
-        "RpmsRpc::Vital.add": "non_idempotent_write"
+        "RpmsRpc::Vital.add": "non_idempotent_write",
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml",
