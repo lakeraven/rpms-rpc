@@ -22,10 +22,11 @@ require "rpms_rpc/api/e_signature"
 # write_evidence?, fixtures, and docs/pilot_rpc_readiness.md TIU rows.
 class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
-  LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
   CHECKLIST_PATH = File.join(ROOT, "docs/pilot_rpc_readiness.md")
 
-  PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
+  # The release the committed wire fixtures were captured on: their provenance, kept with them as
+  # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
+  PINNED_RELEASE = "bcer-9.0-20261119-f67498c-ydb"
   PILOT_PERSONA = "PROV123"
 
   CHECKLIST_LINE = /

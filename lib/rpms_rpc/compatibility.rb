@@ -42,22 +42,21 @@ module RpmsRpc
       end
     end
 
-    # build    the openrpms build the gem's RPC list was derived against
     # required { API module => [RPC names] } this release sends
     # missing  the subset of required the server does not serve, same shape; modules with none
     #          are left out
-    Report = Data.define(:build, :required, :missing) do
+    Report = Data.define(:required, :missing) do
       def ok? = missing.empty?
 
       # Every missing RPC name once, sorted.
       def missing_rpcs = missing.values.flatten.uniq.sort
 
       def to_s
-        return "the server serves every RPC this release of rpms-rpc sends (#{required_count} RPCs, derived on #{build})" if ok?
+        return "the server serves every RPC this release of rpms-rpc sends (#{required_count} RPCs)" if ok?
 
         lines = missing.map { |mod, names| "  #{mod}: #{names.join(', ')}" }
-        "the server does not serve #{missing_rpcs.size} of the #{required_count} RPCs this release of rpms-rpc sends " \
-          "(derived on #{build}):\n#{lines.join("\n")}"
+        "the server does not serve #{missing_rpcs.size} of the #{required_count} RPCs this release of rpms-rpc sends:\n" \
+          "#{lines.join("\n")}"
       end
 
       private
@@ -67,7 +66,7 @@ module RpmsRpc
 
     module_function
 
-    # The release's list: { "build" => tag, "modules" => { module => [RPC names] } }.
+    # The release's list: { "modules" => { module => [RPC names] } }.
     def required(path = REQUIRED_PATH)
       JSON.parse(File.read(path))
     end
@@ -83,7 +82,7 @@ module RpmsRpc
         absent = names.reject { |n| served.include?(n) }
         [ mod, absent ] unless absent.empty?
       end.to_h
-      report = Report.new(build: required.fetch("build"), required: modules, missing: missing)
+      report = Report.new(required: modules, missing: missing)
       raise MissingRpcsError, report if strict && !report.ok?
 
       report

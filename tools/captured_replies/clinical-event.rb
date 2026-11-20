@@ -2,8 +2,7 @@
 
 require "set"
 require "rpms_rpc/api/clinical_event"
-require "rpms_rpc/conformance/inventory_lock"
-require "rpms_rpc/conformance/build_surface"
+require "rpms_rpc/conformance/release_inventory"
 
 # ClinicalEvent's ORWPCE reads, each with the note-patient read
 # (TIU GET ALERT INFO) the gem makes first, recorded as PROVIDER,TEST on
@@ -12,13 +11,13 @@ require "rpms_rpc/conformance/build_surface"
 # Read only. rpms-rpc#619.
 # ClinicalEvent asks the client which RPCs the server serves before each
 # read; CiaClient answers that with six DDR LISTER pages of #8994. Here the
-# answer is the pinned build's own registry (data/inventories/<tag>), as
-# test/rpms_rpc/api/clinical_event_test.rb answers it, so the flows record
-# only the reads themselves.
+# answer is the registry of the release the container runs (LIVE_BUILD), fetched
+# and verified by ReleaseInventory.fetch, so the flows record only the reads
+# themselves. test/rpms_rpc/api/clinical_event_test.rb answers the same question
+# with the RPCs the capture recorded.
 CE = RpmsRpc::ClinicalEvent
-ROOT = File.expand_path("../..", __dir__)
-TAG = RpmsRpc::Conformance::InventoryLock.load(File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")).entries.keys.first
-SERVED = RpmsRpc::Conformance::BuildSurface.load(File.join(ROOT, "data/inventories", TAG), TAG).names.to_set
+TAG = ENV.fetch("LIVE_BUILD") { abort "LIVE_BUILD (the release tag of the container) is required" }
+SERVED = RpmsRpc::Conformance::ReleaseInventory.fetch(TAG).surface.names.to_set
 
 def on_the_build
   RpmsRpc.client.define_singleton_method(:served_rpcs) { |names| names.to_set & SERVED }

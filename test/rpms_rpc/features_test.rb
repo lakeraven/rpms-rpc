@@ -117,18 +117,18 @@ class FeaturesTest < Minitest::Test
     assert available?(:bmc_referral_workflow, build: PINNED_TAG)
   end
 
-  def test_available_without_build_uses_the_sole_pinned_tag
-    skip "need exactly one pinned tag to assert default build" unless LOCK.entries.size == 1
-
+  def test_available_without_build_uses_the_current_release
     assert available?(:patient_chart_banner, context: "CIAV VUECENTRIC")
     assert available?(:bmc_referral_workflow)
     assert available?(:orqqpl_problem_workflow, context: "OR CPRS GUI CHART")
   end
 
-  def test_available_without_build_raises_when_more_than_one_tag_is_pinned
-    feat = features!
-    feat.stub :pinned_build_tags, %w[one-ydb two-ydb] do
-      assert_raises(ArgumentError) { feat.available?(:patient_chart_banner, context: "CIAV VUECENTRIC") }
+  def test_available_without_build_raises_when_no_release_was_fetched
+    Dir.mktmpdir("features-cache-") do |empty|
+      with_cache_root(empty) do
+        err = assert_raises(ArgumentError) { features!.available?(:patient_chart_banner, context: "CIAV VUECENTRIC") }
+        assert_match(/no openrpms release fetched .* rake openrpms:fetch/, err.message)
+      end
     end
   end
 
@@ -152,19 +152,19 @@ class FeaturesTest < Minitest::Test
     end
   end
 
-  def test_missing_lock_file_raises_argument_error
-    # Round-1 #384: a missing lock path must say the lock file is missing, not "pins 0 builds".
-    missing = File.join(Dir.mktmpdir("features-lock-"), "no-rpms-ops.lock.yml")
-    refute File.file?(missing)
-    original = RpmsRpc::Features::LOCK_PATH
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, missing)
-    err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
-    assert_match(/lock file is missing/i, err.message)
-    refute_match(/pins 0 builds/i, err.message)
-  ensure
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, original)
+  def test_a_current_record_that_is_not_json_raises_argument_error
+    Dir.mktmpdir("features-cache-") do |root|
+      File.write(File.join(root, "current.json"), "{")
+      with_cache_root(root) do
+        err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+        assert_match(/current.json is not JSON/, err.message)
+      end
+    end
+  end
+
+  def test_a_build_not_in_the_cache_says_how_to_fetch_it
+    err = assert_raises(ArgumentError) { available?(:bmc_referral_workflow, build: "bcer-9.0-20990101-deadbee-ydb") }
+    assert_match(/OPENRPMS_RELEASE=bcer-9.0-20990101-deadbee-ydb bundle exec rake openrpms:fetch/, err.message)
   end
 
   def test_empty_inventories_dir_raises_argument_error

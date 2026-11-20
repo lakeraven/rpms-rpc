@@ -505,7 +505,7 @@ module RpmsRpc
     # (AGGLOCK.m:52-55). UPD^AGGPTUPD takes no lock of its own, so without
     # this two editors could interleave. UNLOCK^AGGLOCK releases both
     # (AGGLOCK.m:85,109-119). Both are registered under AGGRPC (the
-    # captured registry and reach files in data/inventories/).
+    # captured registry and reach files of the openrpms release, <tag>-rpcs.json).
     #
     # Reply: header "I00010RESULT^T00080MESSAGE" (AGGLOCK.m:27), then
     # RESULT^MESSAGE (AGGLOCK.m:91): 1 locked, 0 held by someone else (the

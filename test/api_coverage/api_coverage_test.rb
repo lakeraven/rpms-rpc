@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "tmpdir"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../rpms_rpc/release_under_test"
 
 # rake rpc:api_coverage (rpms-rpc#358): method discovery, RPC resolution and the JSON shape.
 # The fixture is the real lib/ tree; nothing reaches a broker.
@@ -163,7 +164,7 @@ class ApiCoverageTest < Minitest::Test
   # --- the JSON ------------------------------------------------------------------------------
 
   def test_json_has_one_entry_per_public_method_in_the_documented_shape
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.fixture.surface)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
 
     assert_equal %w[schema registry personas summary methods], doc.keys

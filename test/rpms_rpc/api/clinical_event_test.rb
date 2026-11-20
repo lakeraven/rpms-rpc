@@ -6,8 +6,6 @@ require "rpms_rpc"
 require "rpms_rpc/compatibility"
 require "rpms_rpc/retry_safety"
 require "set"
-require "rpms_rpc/conformance/inventory_lock"
-require "rpms_rpc/conformance/build_surface"
 require_relative "../orwpce_read_helpers"
 require_relative "../captured_replies"
 
@@ -61,18 +59,15 @@ class ClinicalEventTest < Minitest::Test
   end
 
   SLUG = "clinical-event"
-  LOCK_PATH = File.join(OrwpceReadHelpers::ROOT, "data/fingerprints/rpms-ops.lock.yml")
 
-  # The pinned build's registry: ClinicalEvent asks the client which RPCs
-  # the server serves before each read, and the build serves every one.
+  # The registry as the release had it when the flows were recorded: ClinicalEvent asks the client
+  # which RPCs the server serves before each read, and the release the capture names (release_tag)
+  # answered every RPC the capture recorded.
   def self.served
-    @served ||= begin
-      tag = RpmsRpc::Conformance::InventoryLock.load(LOCK_PATH).entries.keys.first
-      RpmsRpc::Conformance::BuildSurface.load(File.join(OrwpceReadHelpers::ROOT, "data/inventories", tag), tag).names.to_set
-    end
+    @served ||= CapturedReplies.file(SLUG).fetch("captures").to_set { |c| c.fetch("rpc") }
   end
 
-  # A CiaClient answering a flow recorded on the pinned build
+  # A CiaClient answering a flow recorded on a published release
   # (test/fixtures/captured_replies/clinical-event.yml, spec
   # tools/captured_replies/clinical-event.rb), and the registry as the build has it.
   class BuildReplay < CapturedReplies::ReplayCiaClient

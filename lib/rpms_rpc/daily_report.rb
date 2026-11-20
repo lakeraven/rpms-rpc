@@ -798,9 +798,8 @@ module RpmsRpc
 
     # `gh api repos/lakeraven/openrpms/releases`, then ReleaseChoice. When
     # that list cannot be read, NoRelease is raised with the gh error and a
-    # dry run fails closed. The image ref is the lock's `image:` for that
-    # tag when the lock pins it, otherwise the same repository the lock uses,
-    # tagged with the release.
+    # dry run fails closed. The image ref is IMAGE_REPOSITORY tagged with the
+    # release.
     class GhReleases
       def initialize(root:)
         @root = root
@@ -843,32 +842,7 @@ module RpmsRpc
       end
 
       def image_for(tag)
-        data = lock_data
-        pinned = data.is_a?(Hash) ? data.dig("releases", tag, "image") : nil
-        return pinned.strip if pinned.is_a?(String) && !pinned.strip.empty?
-
-        "#{image_repository(data)}:#{tag}"
-      end
-
-      def lock_data
-        path = File.join(@root, "data/fingerprints/rpms-ops.lock.yml")
-        return nil unless File.file?(path)
-
-        YAML.safe_load_file(path)
-      rescue StandardError
-        nil
-      end
-
-      def image_repository(data)
-        releases = data.is_a?(Hash) ? data["releases"] : nil
-        return IMAGE_REPOSITORY unless releases.is_a?(Hash)
-
-        ref = releases.each_value.filter_map { |entry| entry.is_a?(Hash) ? entry["image"] : nil }.last
-        return IMAGE_REPOSITORY unless ref.is_a?(String)
-
-        base = ref.strip.sub(/@.*\z/, "")
-        base = base.sub(/:[^\/:]+\z/, "") if base.include?(":")
-        base.empty? ? IMAGE_REPOSITORY : base
+        "#{IMAGE_REPOSITORY}:#{tag}"
       end
     end
 

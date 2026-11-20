@@ -5,6 +5,7 @@ require "json"
 require "rpms_rpc"
 require_relative "../../tools/openapi/client_api"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../rpms_rpc/release_under_test"
 
 # rpms-rpc#471: catalog HTTP verbs for save, send, and retry-safety alignment (SPEC only).
 class OpenApiCatalogWriteVerbsTest < Minitest::Test
@@ -104,7 +105,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
   READ_GET_ROUTES = File.join(__dir__, "../fixtures/openapi/read_get_catalog_routes.tsv").freeze
 
   def test_baseline_write_class_method_stays_get_in_the_catalog
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.surface(self))
     catalog = catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
     entry = catalog[[ "RpmsRpc::Referral", "find" ]]
     refute_nil entry, "expected Referral.find in OpenAPI catalog"
@@ -120,7 +121,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
       key, route = line.split("\t", 2)
       [ key, route ]
     end
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.surface(self))
     retry_table = RpmsRpc::RetrySafety.table
     catalog = catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
     actual = {}

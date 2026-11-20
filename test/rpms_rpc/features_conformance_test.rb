@@ -3,25 +3,16 @@
 require "minitest/autorun"
 require_relative "features_test_helper"
 
-# Every RPC named by committed feature metadata must appear on every pinned build signature (#384, ADR 0008).
+# Every RPC named by committed feature metadata must appear on the openrpms release under test
+# (#384, #724, ADR 0008): the latest published -ydb release, or OPENRPMS_RELEASE=<tag>.
 class FeaturesConformanceTest < Minitest::Test
   include FeaturesTestHelper
 
-  def pinned_surfaces
-    @pinned_surfaces ||= LOCK.surfaces(inventories_dir: PINNED_INVENTORIES)
-  end
-
-  def test_every_feature_rpc_is_registered_on_every_pinned_build
-    refute_empty pinned_surfaces, "no build pinned in #{LOCK.path}"
-    problems = []
-    pinned_surfaces.each do |tag, surface|
-      features!.all.each do |meta|
-        name = feature_name(meta)
-        feature_rpcs(meta).each do |rpc|
-          unless surface[rpc]
-            problems << "#{tag}: feature #{name} names #{rpc.inspect}, which is not in the reach face"
-          end
-        end
+  def test_every_feature_rpc_is_registered_on_the_release_under_test
+    inv = ReleaseUnderTest.inventory(self)
+    problems = features!.all.flat_map do |meta|
+      feature_rpcs(meta).reject { |rpc| inv.surface[rpc] }.map do |rpc|
+        "#{inv.tag}: feature #{feature_name(meta)} names #{rpc.inspect}, which is not in the reach face"
       end
     end
     assert_empty problems, problems.join("\n  ")
