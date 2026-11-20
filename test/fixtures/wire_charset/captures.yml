@@ -33,3 +33,22 @@ captures:
     framing: body
     bytes: 816
     sha256: e9ce86228e05ed4136a1049c7ca265cfddcd3e51d9fb5009b50459647799d449
+  # rpms-rpc#659: the same read over XWB on an IRIS release, which the YottaDB captures above could not
+  # show. Its own release and session, so it carries its own provenance.
+  xwb:
+    file: xwb-ddr-gets-8994-description.bin
+    release_tag: bcer-9.0-20261116-2a9b3fe-iris
+    engine: IRIS for UNIX 2022.1.7 (Build 1115U), Unicode, locale enuw
+    signed_on_as: PROV123
+    captured_at: '2026-11-20'
+    note: A running stack of that release. A second read in the same session was byte-identical.
+    context: CIAV VUECENTRIC
+    rpc: DDR GETS ENTRY DATA
+    params:
+      FILE: '8994'
+      IENS: '199,'
+      FIELDS: '1'
+    # XwbClient#call_rpc_raw: the body, after the SNDERR header. Lines end in CR LF.
+    framing: body
+    bytes: 879
+    sha256: 305ee4ebc0177cf3f3d17e68435ce0cf82f8638c24d9c035348edb7f44c5ca5f
