@@ -1117,7 +1117,9 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.save_pov": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-save-pov.yml"
+      ]
     },
     "AMHG SAVE PROGRESS NOTES": {
       "methods": {
@@ -2070,6 +2072,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/amhg-wellness.yml",
         "test/fixtures/captured_replies/bmc-get-referral.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
@@ -2180,6 +2183,7 @@
       "replies": [
         "test/fixtures/captured_replies/adt-movements.yml",
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
+        "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
