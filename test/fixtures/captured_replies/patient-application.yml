@@ -1,0 +1,520 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb patient-application.rb.
+---
+rpc: DDR FILER
+entry_point: FILEC^DDR3
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T07:09:40Z'
+note: Run on a fresh throwaway container, flows in order. DFN 990010 is a synthetic
+  seed patient with no PATIENT APPLICATIONS entry before the first flow; DFN 990011
+  has none throughout.
+captures:
+- name: types/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000048'
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'the application types on #9000048'
+  raw_return: "5\0[Data]\r1^MEDICAID FORM 100\r2^MEDICARE FORM 1034\r"
+  sha256: 5588b22113953fa4056f5b188c2c317b3247b7b9f8a509fcaf821eb36adeaf8f
+- name: none/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990010'
+    XREF: B
+  context: 'applications of a patient with no #9000045 entry'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: add_first/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "5\03261120.070932"
+  sha256: c3ef54ab68fb5cb3ac59144f3e459b43e35e289af049a9149c34d31683a6faf4
+- name: add_first/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: add_first/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000048'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "7\0[Data]\r9000048^1^.01^MEDICAID FORM 100^\r"
+  sha256: 546d41b66df6bf22fdc29deddc3a3aa94d85b488d14aef3827e7a87b50dbb9d5
+- name: add_first/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: add_first/5
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000045^.01^+1,^990010
+    2: 9000045.11^.01^+2,+1,^3261110
+    3: 9000045.11^.02^+2,+1,^1
+    4: 9000045.11^.03^+2,+1,^207
+    5: 9000045.11^.04^+2,+1,^P
+    6: 9000045.1101^.01^+3,+2,+1,^3261111
+    7: 9000045.1101^.02^+3,+2,+1,^O
+    8: 9000001^.03^990010,^3261120
+    9: 9000001^.12^990010,^207
+    10: 9000001^.16^990010,^3261120
+  - ''
+  - {}
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "9\0[Data]\r+1,^1\r+2,^1\r+3,^1\r"
+  sha256: 7faa2fcf76e6b39ba0122a9999d5de0f85ab18894deb6a3f12b71fa26a31fc3a
+- name: add_first/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'the first application: the patient entry, the application, its submission
+    and the stamp'
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: add_exists/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "5\03261120.070933"
+  sha256: 9c1005c7e1f2bcd3f8ed89432d47ffb5f6bff2979008c60c677c2b692e18da6c
+- name: add_exists/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: add_exists/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000048'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "7\0[Data]\r9000048^1^.01^MEDICAID FORM 100^\r"
+  sha256: 546d41b66df6bf22fdc29deddc3a3aa94d85b488d14aef3827e7a87b50dbb9d5
+- name: add_exists/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "8\0[Data]\r1^990010\r"
+  sha256: 184c4f617d98d9df0cfb7a5b6322dc7e6860c7104363145f2ee22d44d94f352f
+- name: add_exists/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "9\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^P^\r"
+  sha256: 5a058e4369808d9c4b4ffecc2fd15994610664d1c2df994adc22ce50a2e1aa24
+- name: add_exists/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'the same date again: AG would select it to edit'
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: add_type_missing/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: 'type 999, not on #9000048'
+  raw_return: "5\03261120.070934"
+  sha256: 8bdeb3566c95b58de98380523d415a3c7af5cee3b84a95f0e43288cfce260beb
+- name: add_type_missing/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'type 999, not on #9000048'
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: add_type_missing/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000048'
+    IENS: 999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'type 999, not on #9000048'
+  raw_return: "7\0[ERROR]\r"
+  sha256: 99bfcc86e844c1677120732d7693ad6bdda93da90ae267f5e9ec5cdcc0e3e087
+- name: add_type_missing/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: 'type 999, not on #9000048'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: add_later/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: a later application, under the patient's existing entry
+  raw_return: "5\03261120.070934"
+  sha256: 8bdeb3566c95b58de98380523d415a3c7af5cee3b84a95f0e43288cfce260beb
+- name: add_later/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: a later application, under the patient's existing entry
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: add_later/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000048'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: a later application, under the patient's existing entry
+  raw_return: "7\0[Data]\r9000048^1^.01^MEDICAID FORM 100^\r"
+  sha256: 546d41b66df6bf22fdc29deddc3a3aa94d85b488d14aef3827e7a87b50dbb9d5
+- name: add_later/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: a later application, under the patient's existing entry
+  raw_return: "8\0[Data]\r1^990010\r"
+  sha256: 184c4f617d98d9df0cfb7a5b6322dc7e6860c7104363145f2ee22d44d94f352f
+- name: add_later/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: a later application, under the patient's existing entry
+  raw_return: "9\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^P^\r"
+  sha256: 5a058e4369808d9c4b4ffecc2fd15994610664d1c2df994adc22ce50a2e1aa24
+- name: add_later/6
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000045.11^.01^+2,1,^3261112
+    2: 9000045.11^.02^+2,1,^1
+    3: 9000045.11^.04^+2,1,^P
+    4: 9000001^.03^990010,^3261120
+    5: 9000001^.12^990010,^207
+    6: 9000001^.16^990010,^3261120
+  - ''
+  - {}
+  context: a later application, under the patient's existing entry
+  raw_return: "1\0[Data]\r+2,^2\r"
+  sha256: 0a8fd28dd4a3c5e1939844842c3f25e1dd7a515d2056ad1709798a21303026c8
+- name: add_later/7
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: a later application, under the patient's existing entry
+  raw_return: "2\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: b1aa4723fe6bd5895803e2faadf7d455ea2b5e633b041b4376b631aa5d48f05c
+- name: add_invalid/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: 'what FileMan would refuse: a future date, a bad status, via or reason'
+  raw_return: "5\03261120.070935"
+  sha256: 5ee973605486b247532713b592e4617d80bd47d1aac6c3f326e0f7543a54b604
+- name: add_lock_held/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: another session holds AG's edit lock
+  raw_return: "5\03261120.070936"
+  sha256: db849649fbc278d65517c13739e3ee399a367897d4bd3cec74034b8bde755e5a
+- name: add_lock_held/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: another session holds AG's edit lock
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
+    by PROFILE,REG.\x1E"
+  sha256: 6b21cfaea536b7f2a3c9bd6ccd9eea5ebe1241e983f1d46cb30c36703815e828
+- name: status_approved/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: outcome A on the first application, dated under its submission
+  raw_return: "5\03261120.070938"
+  sha256: 1dceefa7984ba6839ba4d67ed1bf628c07e3b218b14f87bdbd53d1a33b046654
+- name: status_approved/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: outcome A on the first application, dated under its submission
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: status_approved/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: outcome A on the first application, dated under its submission
+  raw_return: "7\0[Data]\r1^990010\r"
+  sha256: 92a19e04b20be1a5a64958dcf8b0f71db8941c7359c968f8c1c5a00d07d49b7b
+- name: status_approved/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: outcome A on the first application, dated under its submission
+  raw_return: "8\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^P^\r2^3261112^1^MEDICAID
+    FORM 100^^P^\r"
+  sha256: 9c22e6db3849031e75280d873142c2999375a3b1c3f99a66f581de189dfc38d4
+- name: status_approved/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.1101'
+    IENS: ",1,1,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: outcome A on the first application, dated under its submission
+  raw_return: "9\0[Data]\r1^3261111\r"
+  sha256: fcc2b9a8e0fcd82f9d81733e1bf0edd894163eaeb9402b0a5ad6ac2a403cabd5
+- name: status_approved/6
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000045.11^.04^1,1,^A
+    2: 9000045.110101^.01^+1,1,1,1,^3261120
+    3: 9000045.110101^.02^+1,1,1,1,^A
+    4: 9000001^.03^990010,^3261120
+    5: 9000001^.12^990010,^207
+    6: 9000001^.16^990010,^3261120
+  - ''
+  - {}
+  context: outcome A on the first application, dated under its submission
+  raw_return: "1\0[Data]\r+1,^1\r"
+  sha256: 310f752ff06e5f028e154178c190083fcb7de04891c7feddb122e7e1bcfd76d1
+- name: status_approved/7
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: outcome A on the first application, dated under its submission
+  raw_return: "2\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: b1aa4723fe6bd5895803e2faadf7d455ea2b5e633b041b4376b631aa5d48f05c
+- name: status_not_found/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: outcome for application 999, which the patient does not have
+  raw_return: "5\03261120.070939"
+  sha256: 0d1641d48d9639a976dfc4b2c0e0cac4e44238d8a5e721e4dafafdb222256f7f
+- name: status_not_found/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: outcome for application 999, which the patient does not have
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: status_not_found/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: outcome for application 999, which the patient does not have
+  raw_return: "7\0[Data]\r1^990010\r"
+  sha256: 92a19e04b20be1a5a64958dcf8b0f71db8941c7359c968f8c1c5a00d07d49b7b
+- name: status_not_found/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: outcome for application 999, which the patient does not have
+  raw_return: "8\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^A^\r2^3261112^1^MEDICAID
+    FORM 100^^P^\r"
+  sha256: ffe9d5e21a36b9d3ee8e82884bc3654e87242f15233bd66742c6ac9026996afe
+- name: status_not_found/5
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: outcome for application 999, which the patient does not have
+  raw_return: "9\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: cd2ae1257b9d2ae8cb4c43bf31438571827f26914d8a880a8497a5ac68590957
+- name: applications/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: the patient's applications, read whole
+  raw_return: "5\0[Data]\r1^990010\r"
+  sha256: '08464f947fff12b111269f12d96988eb7dd8b477658168fdd4bf47e8345492dd'
+- name: applications/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: the patient's applications, read whole
+  raw_return: "6\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^A^\r2^3261112^1^MEDICAID
+    FORM 100^^P^\r"
+  sha256: 7e6abdf834bb0dbc5109c237b84d727d9c6c5ccc4a022d73d243c96185e458bc
+- name: applications/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.1101'
+    IENS: ",1,1,"
+    FIELDS: "@;.01I;.02I;.04I;.03"
+    FLAGS: IP
+  context: the patient's applications, read whole
+  raw_return: "7\0[Data]\r1^3261111^O^^\r"
+  sha256: 28a8d9084e1e9005f86fec6a73aec3db32b4e024deab6cb48bf364983e949370
+- name: applications/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.110101'
+    IENS: ",1,1,1,"
+    FIELDS: "@;.01I;.02I"
+    FLAGS: IP
+  context: the patient's applications, read whole
+  raw_return: "8\0[Data]\r1^3261120^A\r"
+  sha256: 8be027fe7f738dcfcfa89e4b3e3957d87413baf93e3840b3550e32e2182112a1
+- name: applications/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.1101'
+    IENS: ",2,1,"
+    FIELDS: "@;.01I;.02I;.04I;.03"
+    FLAGS: IP
+  context: the patient's applications, read whole
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: status_error/1
+  rpc: ORWU DT
+  inputs:
+  - NOW
+  - TS
+  context: the later application, which has no submission, entered in error
+  raw_return: "5\03261120.07094"
+  sha256: 76a0991deeac44a704b352257c4745423cde37219e3db0a8e5f7c3140689bdd6
+- name: status_error/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990010'
+  context: the later application, which has no submission, entered in error
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: status_error/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '20'
+    FROM: '990009'
+    XREF: B
+  context: the later application, which has no submission, entered in error
+  raw_return: "7\0[Data]\r1^990010\r"
+  sha256: 92a19e04b20be1a5a64958dcf8b0f71db8941c7359c968f8c1c5a00d07d49b7b
+- name: status_error/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.11'
+    IENS: ",1,"
+    FIELDS: "@;.01I;.02I;.02E;.03I;.04I;.05I"
+    FLAGS: IP
+  context: the later application, which has no submission, entered in error
+  raw_return: "8\0[Data]\r1^3261110^1^MEDICAID FORM 100^207^A^\r2^3261112^1^MEDICAID
+    FORM 100^^P^\r"
+  sha256: ffe9d5e21a36b9d3ee8e82884bc3654e87242f15233bd66742c6ac9026996afe
+- name: status_error/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000045.1101'
+    IENS: ",2,1,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: the later application, which has no submission, entered in error
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: status_error/6
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000045.11^.04^2,1,^E
+    2: 9000001^.03^990010,^3261120
+    3: 9000001^.12^990010,^207
+    4: 9000001^.16^990010,^3261120
+  - ''
+  - {}
+  context: the later application, which has no submission, entered in error
+  raw_return: "1\0[Data]\r"
+  sha256: 2faaeda7dae752865786c20db2d2cef20269d8b2e9e2d26caff499752c26a4b1
+- name: status_error/7
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990010'
+  context: the later application, which has no submission, entered in error
+  raw_return: "2\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: b1aa4723fe6bd5895803e2faadf7d455ea2b5e633b041b4376b631aa5d48f05c
