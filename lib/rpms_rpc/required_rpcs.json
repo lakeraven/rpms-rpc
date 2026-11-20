@@ -533,6 +533,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -611,6 +612,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
@@ -655,6 +657,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
@@ -778,6 +781,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -812,6 +816,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -2242,6 +2247,7 @@
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
@@ -3053,6 +3059,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -3074,6 +3081,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/user-management.yml"
@@ -3086,6 +3094,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]

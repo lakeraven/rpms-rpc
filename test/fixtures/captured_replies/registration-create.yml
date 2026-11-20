@@ -1,0 +1,630 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-create.rb.
+---
+rpc: AGG ADD NEW PATIENT
+entry_point: ADD^AGGPTADD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient
+  reply frame'
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:19:09Z'
+note: 'Run on a throwaway container, flows in order: each register flow files a new
+  synthetic patient, and the DFNs and derived HRNs are the ones that container assigned.
+  Tribe 204, classification 13 and community 7421 are entries of the build''s code
+  files. The BMX sign-on''s access/verify pair is withheld.'
+captures:
+- name: lookup_none/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for REGDEMO,UNA, before she is on file
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: lookup_none/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: the duplicate lookup for REGDEMO,UNA, before she is on file
+  raw_return: "\0\0207\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood morning PROFILE,REG\r\n\x04"
+  sha256: cbda765965e34ab1f2089a9f15290030aadcf9256be9df7f10961a55b7e634ef
+- name: lookup_none/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: the duplicate lookup for REGDEMO,UNA, before she is on file
+  raw_return: "\0\0207\r\nPROFILE,REG\r\nReg Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPAT
+    REG.\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 3338d24617ba63545a262e4fcd4c904d99caf6e1a83a32bbe44b7e95b15650fa
+- name: lookup_none/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "%_$$y#T("
+  context: the duplicate lookup for REGDEMO,UNA, before she is on file
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: lookup_none/5
+  rpc: AGG LOOKUP PATIENTS
+  broker: bmx
+  inputs:
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=UNA\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=01/02/1904"
+  - ''
+  - '1'
+  - '1'
+  context: the duplicate lookup for REGDEMO,UNA, before she is on file
+  raw_return: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: greenfield/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621001\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: greenfield/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621001\x1CDFN="
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: greenfield/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/02/1904\x1CDFN="
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: greenfield/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=UNA\x1CAGGPTDOB=01/02/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621001\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990057\x1E"
+  sha256: dad423ce7e2fdfeccb23bd3a982e2d36683ac2f673220b2dd0dff7c7c55c6af9
+- name: greenfield/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990057\x1CDFN=990057"
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: greenfield/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990057'
+  - AGGPTHRN=990057
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: greenfield/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990057,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,UNA (greenfield)
+  raw_return: "2\0[Data]\r7819^990057\r"
+  sha256: 04fe004c55e68353539f8b867f7f4eeebb96a21863ce39f183dd61e4612a212a
+- name: name_comma/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621002\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: name_comma/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621002\x1CDFN="
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: name_comma/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/03/1904\x1CDFN="
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: name_comma/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=COMMA MAE\x1CAGGPTDOB=01/03/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621002\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990058\x1E"
+  sha256: 2db84bb725f8f762e113d8302cab730e57f01bb7ae59d24aff3a490dd0809b46
+- name: name_comma/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990058\x1CDFN=990058"
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: name_comma/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990058'
+  - AGGPTHRN=990058
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: name_comma/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990058,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,COMMA MAE (name_comma)
+  raw_return: "2\0[Data]\r7819^990058\r"
+  sha256: 9019787e7385a914d6c3fc0642cf6331de475e3aa7840d9d7087ebe0a619d18c
+- name: name_pieces/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621003\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: name_pieces/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621003\x1CDFN="
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: name_pieces/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/04/1904\x1CDFN="
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: name_pieces/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=PIECES\x1CAGGPTMNM=MAE\x1CAGGPTSFX=JR\x1CAGGPTDOB=01/04/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621003\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990059\x1E"
+  sha256: f99a464f9976ebcabd6083ebae56d4936851d8e4cc60b660ebc9adf06ad62a4d
+- name: name_pieces/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990059\x1CDFN=990059"
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: name_pieces/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990059'
+  - AGGPTHRN=990059
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: name_pieces/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990059,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,PIECES MAE JR (name_pieces)
+  raw_return: "2\0[Data]\r7819^990059\r"
+  sha256: 6acbcc3ea150e68e051a9b16f7a9a48378c53caeb08b74961165b2defd40249b
+- name: ihs_values/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621004\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: ihs_values/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621004\x1CDFN="
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: ihs_values/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/05/1904\x1CDFN="
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: ihs_values/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=IHS\x1CAGGPTDOB=01/05/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621004\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204\x1CAGGPTCOM=7421\x1CAGGPTCDT=05/01/2020"
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990060\x1E"
+  sha256: b6c2c99c80232886fc1b34675de60cd7675073815b76f6d8bfb38cf72a77653e
+- name: ihs_values/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990060\x1CDFN=990060"
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: ihs_values/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990060'
+  - AGGPTHRN=990060
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: ihs_values/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990060,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,IHS (ihs_values)
+  raw_return: "2\0[Data]\r7819^990060\r"
+  sha256: 993128509503f3df8d39f413a5d3f517741b16ee2be57729e0be73eb186c181a
+- name: extra_fields/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621005\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: extra_fields/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621005\x1CDFN="
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: extra_fields/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/06/1904\x1CDFN="
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: extra_fields/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=EXTRA\x1CAGGPTDOB=01/06/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621005\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990061\x1E"
+  sha256: 05ed6a18437959d7fcdcc84e6c55833314ccd9903e436f3e2c81784fac95e7c3
+- name: extra_fields/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990061\x1CDFN=990061"
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: extra_fields/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990061'
+  - AGGPTHRN=990061
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: extra_fields/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990061,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,EXTRA (extra_fields)
+  raw_return: "2\0[Data]\r7819^990061\r"
+  sha256: 41aa193ba3081d18f9406b191d584dbf339621143f2498c35ac625ca9c456e0f
+- name: clerk/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621006\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: clerk/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621006\x1CDFN="
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: clerk/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/07/1904\x1CDFN="
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: clerk/4
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=100001\x1CDFN="
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "8\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: d3105ac2f58f82ac49a8337d636192a91c89b43364224023f6dc52e4977f2d06
+- name: clerk/5
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=CLERK\x1CAGGPTDOB=01/07/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621006\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204\x1CAGGPTHRN=100001"
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "9\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990062\x1E"
+  sha256: ccfd671f712c414a016a910079c0696724b640e3ff9d6bb5eb66b6e918dba236
+- name: clerk/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990062,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,CLERK (clerk)
+  raw_return: "1\0[Data]\r7819^100001\r"
+  sha256: 4b0d62ee3c1e5390375c2abd5094f821c2680b563127d70cbb62d66d226b4cad
+- name: temporary/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621007\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: temporary/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621007\x1CDFN="
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: temporary/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/08/1904\x1CDFN="
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: temporary/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=TEMP\x1CAGGPTDOB=01/08/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621007\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990063\x1E"
+  sha256: 19106e7aa8ae11c6bc3189c07d05573441fb8652da924e515ad7e95bd7fcfc16
+- name: temporary/5
+  rpc: AGG GET TEMP PAT HRN
+  inputs:
+  - '990063'
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "9\0T00010AGGPTHRN\x1ET00001\x1E"
+  sha256: c77857da3e86b5707f6e06814ff1c03c2543cb10f7069116b07ab7aeec2ff53d
+- name: temporary/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990063'
+  - AGGPTHRN=T00001
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: temporary/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990063,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,TEMP (temporary)
+  raw_return: "2\0[Data]\r7819^T00001\r"
+  sha256: 7f6971a0c4423dfb8ffc767e4f60c32d127d6865fad02340d8b0da8100ce32a1
+- name: given/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621008\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: given/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621008\x1CDFN="
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: given/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/09/1904\x1CDFN="
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: given/4
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=12345\x1CDFN="
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "8\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: d3105ac2f58f82ac49a8337d636192a91c89b43364224023f6dc52e4977f2d06
+- name: given/5
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=GIVEN\x1CAGGPTDOB=01/09/1904\x1CAGGPTSEX=FEMALE\x1CAGGPTSSN=900621008\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204\x1CAGGPTHRN=12345"
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "9\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990064\x1E"
+  sha256: e72525584a4f0c18311ec38fe1f0027f0881ad521c5c8737d2050003a80f7122
+- name: given/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990064,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,GIVEN (given)
+  raw_return: "1\0[Data]\r7819^12345\r"
+  sha256: 14b994991c63842f17f796b3534dfdefaaa9ee6f106430bb0b34da45510eac13
+- name: given_held/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621009\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,HELD (given_held)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: given_held/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN=900621009\x1CDFN="
+  context: register REGDEMO,HELD (given_held)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: given_held/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/10/1904\x1CDFN="
+  context: register REGDEMO,HELD (given_held)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: given_held/4
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=12345\x1CDFN="
+  context: register REGDEMO,HELD (given_held)
+  raw_return: "8\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^HRN
+    12345 is already assigned to patient REGDEMO,GIVEN^^^^\x1E"
+  sha256: cb9291fa25df40c566a698c06a793e0234013c6851b298de34e4081d08ad2d5f
+- name: ssn_held/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900621001\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,SSNHELD (ssn_held)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^SSN
+    already used by another patient.^^^^\x1E"
+  sha256: b411d8868e42a6f08d7ea54afd590119161b0e5b035d957e675e077b14ae30c7
+- name: reason_r/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=R\x1CDFN="
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: reason_r/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=R\x1CAGGPTSSN=\x1CDFN="
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E0^^^^^\x1E"
+  sha256: 13a7133e3f008daac3144fd7e403e48709910a344d488e343fd95a875adf82d1
+- name: reason_r/3
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTDOB=01/12/1904\x1CDFN="
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "7\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 178170fa4c676375c1c4893b9c9f913d2ecf0810a69c640f66e4873d5cb6ec8a
+- name: reason_r/4
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - New Patient
+  - ''
+  - "AGGPTLNM=REGDEMO\x1CAGGPTFNM=REASON\x1CAGGPTDOB=01/12/1904\x1CAGGPTSEX=FEMALE\x1CAGGNOSSN=R\x1CAGGPTCLB=13\x1CAGGPTELG=I\x1CAGGPTTRI=204"
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "8\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990065\x1E"
+  sha256: 434f50dc9118ba740e627cf62765de51c5794f41129b870b8b7ed5ba5e00b1ce
+- name: reason_r/5
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTHRN=990065\x1CDFN=990065"
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "9\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 683c333829131d6a8ce554d74ffb1e8cb789ce16bbed07300dcb915718c43f11
+- name: reason_r/6
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990065'
+  - AGGPTHRN=990065
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "1\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 0bbc907b19191be57bf874ed9eed0b8fa6ed72f4f69ea7fe27bc2b7f5b72d6c7
+- name: reason_r/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.41'
+    IENS: ",990065,"
+    FIELDS: "@;.02"
+    FLAGS: IP
+  context: register REGDEMO,REASON (reason_r)
+  raw_return: "2\0[Data]\r7819^990065\r"
+  sha256: 5179de90a351e3132b4df877f4f333845c96e6c61e4561301af9c671dd902515
+- name: neither/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=\x1CDFN="
+  context: register REGDEMO,NEITHER (neither)
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
