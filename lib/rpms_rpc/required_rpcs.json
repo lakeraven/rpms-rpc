@@ -550,7 +550,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
     "AGG BUILD WINDOW MANY": {
@@ -574,7 +575,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
     "AGG CHECK SENSITIVE PATIENT": {
@@ -639,6 +641,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml"
@@ -674,7 +677,9 @@
         "RpmsRpc::PatientProfile.languages": "read",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG QUANTUM VALIDATION": {
       "methods": {
@@ -716,6 +721,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml"
@@ -735,7 +741,9 @@
         "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
         "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG UPDATE LEGAL NAMES": {
       "methods": {
@@ -778,6 +786,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -797,7 +806,9 @@
         "RpmsRpc::Agg.update_special_multiple": "non_idempotent_write",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG WINDOW DATA VALIDATION": {
       "methods": {
@@ -812,6 +823,7 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -825,7 +837,9 @@
         "RpmsRpc::PatientProfile.relationships": "read",
         "RpmsRpc::PatientProfile.states": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AMHG CREATE/EDIT VISIT": {
       "methods": {
