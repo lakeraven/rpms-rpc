@@ -183,17 +183,19 @@ class CoverageTest < Minitest::Test
 
   # A raise from the eligibility step leaves the header and says so (#561).
   def test_add_medicare_eligibility_raise_is_outcome_unknown_with_header_left
-    replay_flow("add_medicare")
-    calls = 0
-    real = Cov.method(:medicare_update)
-    raising = lambda do |*args, **kw|
-      calls += 1
-      raise RpmsRpc::Client::ConnectionError, "lost" if calls == 2
+    client = replay_flow("add_medicare")
+    sent = 0
+    # The header files; the eligibility call loses its connection.
+    client.singleton_class.prepend(Module.new do
+      define_method(:call_rpc_global_array) do |rpc, *params|
+        sent += 1 if rpc == MEDICARE_RPC
+        raise RpmsRpc::Client::ConnectionError, "lost" if rpc == MEDICARE_RPC && sent == 2
 
-      real.call(*args, **kw)
-    end
+        super(rpc, *params)
+      end
+    end)
 
-    result = Cov.stub(:medicare_update, raising) { Cov.add_medicare(DFN, **MEDICARE_ARGS) }
+    result = Cov.add_medicare(DFN, **MEDICARE_ARGS)
 
     assert_equal :eligibility_outcome_unknown, result[:error]
     assert result[:header_left]
