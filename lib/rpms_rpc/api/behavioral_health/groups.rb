@@ -51,7 +51,7 @@ module RpmsRpc
       # arrival_time is permanently blank (AMHGDGP.m:43). EncounterDate is
       # $$VCDT, not the $$LVDT the list sends for the same field.
       def group_information(group_ien)
-        row = first_row(:amhg_group_information, group_ien)
+        row = on_file_row(:amhg_group_information, group_ien)
         return nil if row.nil?
 
         {
