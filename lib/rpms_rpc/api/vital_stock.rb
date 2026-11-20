@@ -84,7 +84,7 @@ module RpmsRpc
       end
       { success: errors.empty?, saved: saved, errors: errors }
     end
-    shape :add_stock, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals"
+    shape :add_stock, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals/stock"
 
     class << self
       private
