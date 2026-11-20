@@ -303,6 +303,51 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     end
   end
 
+  # rpms-rpc#848: a persona's signature code reaches only its own live child,
+  # as RPMS_ESIG, and is scrubbed from the report and every log like a verify code.
+  def test_a_personas_signature_code_reaches_only_its_own_live_child_and_is_scrubbed
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      esig = "SENTINEL-PMD123-ESIG-SECRET"
+      echoed = "#{failing_minitest}PMD123 signed with #{esig}\n"
+      responses = passing_runs.dup
+      responses[1 + PERSONAS.index("PMD123")] = { stdout: echoed, stderr: "stderr #{esig}" }
+      runner = FakeRunner.new(responses)
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: persona_sign_on_env("PMD123_ESIG" => esig))
+
+      assert_equal 1, orch.run
+
+      by_persona = runner.calls.drop(1).to_h { |call| [ call[:env]["PERSONA"], call[:env] ] }
+      assert_equal esig, by_persona.fetch("PMD123")["RPMS_ESIG"]
+      (PERSONAS - [ "PMD123" ]).each { |persona| refute by_persona.fetch(persona).key?("RPMS_ESIG"), persona }
+      unit = runner.calls[0][:env]
+      refute unit.key?("RPMS_ESIG")
+      refute unit.key?("PMD123_ESIG")
+      refute by_persona.fetch("PMD123").key?("PMD123_ESIG"), "only RPMS_ESIG is handed over"
+
+      written = writer.writes.map(&:last).join("\n")
+      assert_match(/PMD123 signed with \[redacted\]/, written, "the physician's log is kept, with the code scrubbed")
+      refute_includes written, esig
+      refute_includes runner.calls.inspect, esig
+      refute_includes by_persona.fetch("PMD123").values.join(" "), esig
+    end
+  end
+
+  def test_a_blank_signature_code_is_not_handed_over_and_the_persona_still_runs
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new(passing_runs)
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: persona_sign_on_env("PMD123_ESIG" => "  "))
+
+      assert_equal 0, orch.run
+
+      physician = runner.calls.drop(1).find { |call| call[:env]["PERSONA"] == "PMD123" }
+      refute_nil physician
+      refute physician[:env].key?("RPMS_ESIG")
+    end
+  end
+
   def test_missing_prov123_sign_on_env_does_not_run_live_reports_error_and_exit_nonzero
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))

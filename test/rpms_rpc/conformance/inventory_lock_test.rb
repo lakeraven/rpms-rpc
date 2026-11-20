@@ -55,7 +55,7 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
       assert_equal ENTRY["reach_classes"], inv.surface.reach_counts
       assert_equal ENTRY["rpcs"], inv.surface.rpcs.size
       src = inv.to_source
-      assert_equal [ TAG, ENTRY["assets"]["#{TAG}-rpcs.json"], "rpcs.v1" ], src.values_at("tag", "rpcs_json_sha256", "rpcs_json_schema")
+      assert_equal [ TAG, ENTRY["assets"]["#{TAG}-rpcs.json"], "rpcs.v2" ], src.values_at("tag", "rpcs_json_sha256", "rpcs_json_schema")
       # The raw files the document was projected from, as it names them: the sidecar's bytes.
       sidecar = File.readlines(asset(dir, Lock::SIDECAR_SUFFIX), chomp: true).to_h { |l| l.split(/\s+\*?/, 2).reverse }
       %w[broker_8994 rpc_reach rpc_signatures].each do |raw|
