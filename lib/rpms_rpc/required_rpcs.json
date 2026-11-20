@@ -533,7 +533,8 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG BUILD WINDOW DISPLAY": {
@@ -580,13 +581,17 @@
       "methods": {
         "RpmsRpc::Agg.check_sensitive_patient": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG ERROR SCREEN": {
       "methods": {
         "RpmsRpc::Agg.error_screen": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG GET INSURANCE DATA": {
       "methods": {
@@ -649,7 +654,9 @@
       },
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
       ]
     },
@@ -657,7 +664,9 @@
       "methods": {
         "RpmsRpc::Agg.edit_check": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG PATIENT LANGUAGES": {
       "methods": {
@@ -678,7 +687,9 @@
       "methods": {
         "RpmsRpc::Agg.send_sensitive_notify": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-stock.yml"
+      ]
     },
     "AGG UNLOCK PATIENT": {
       "methods": {
@@ -768,7 +779,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG UPDATE PRIVATE INSUR": {
@@ -801,7 +813,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
-        "test/fixtures/captured_replies/registration-refused-validation.yml"
+        "test/fixtures/captured_replies/registration-refused-validation.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "AGG WINDOW TABLE LOOKUP": {
@@ -2233,6 +2246,7 @@
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
@@ -3037,8 +3051,10 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     },
     "XUS CVC": {
@@ -3056,8 +3072,10 @@
         "RpmsRpc::UserManagement.find": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/user-management.yml"
       ]
     },
@@ -3066,8 +3084,10 @@
         "RpmsRpc::Authentication.authenticate": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
-        "test/fixtures/captured_replies/registration-hrn-readback.yml"
+        "test/fixtures/captured_replies/registration-hrn-readback.yml",
+        "test/fixtures/captured_replies/registration-safety.yml"
       ]
     }
   }
