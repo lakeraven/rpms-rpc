@@ -1345,7 +1345,9 @@
       "methods": {
         "RpmsRpc::Vital.add": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/behovm-save.yml"
+      ]
     },
     "BEHOVM TEMPLATE": {
       "methods": {
