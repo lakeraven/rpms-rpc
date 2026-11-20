@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "date"
 require "json"
 require "psych"
 require "tmpdir"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "captured_replies"
 
 # rpms-rpc#110: retry-safety classification table, lint surface, and acceptance gates.
 # Implementation lives in lib/rpms_rpc/retry_safety.rb and lib/rpms_rpc/retry_safety.yml.
@@ -62,45 +62,14 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     "XUS CVC"
   ].freeze
 
-  MOCK_READ_CALLS = [
-    {
-      mod: RpmsRpc::Patient,
-      method: :find,
-      args: [ 1 ],
-      seed: lambda do |m|
-        m.seed(:patient_select, "1", {
-          name: "DOE,SYNTH", sex: "M", dob: Date.new(1980, 1, 15),
-          ssn: "000000001", age: 45
-        })
-      end
-    },
-    {
-      mod: RpmsRpc::Allergy,
-      method: :for_patient,
-      args: [ 1 ],
-      seed: lambda do |m|
-        m.seed_collection(:allergy_list, [
-          { ien: 1, allergen: "SYNTH-ALLERGEN", severity: "MODERATE", signs: "SYNTH-SIGNS" }
-        ])
-      end
-    },
-    {
-      mod: RpmsRpc::Procedure,
-      method: :for_patient,
-      args: [ 1 ],
-      seed: lambda do |m|
-        m.seed_collection(:procedure_list, [
-          {
-            ien: 1, visit_ien: 10, date: "01/15/2026", cpt_code: "99213",
-            cpt_name: "OFFICE VISIT", name: "OFFICE VISIT", diagnosis: "",
-            modifier_1: "", modifier_2: "", quantity: 1, provider: "PROV,SYNTH",
-            facility: "SYNTH CLINIC"
-          }
-        ])
-      end
-    }
+  # Three :read methods, each replayed from the replies it got live
+  # (test/fixtures/captured_replies/retry-safety-reads.yml, as PROVIDER,TEST on
+  # the seed patient DFN 2).
+  CAPTURED_READ_CALLS = [
+    { mod: RpmsRpc::Patient, method: :find, args: [ 2 ], flow: "patient_find" },
+    { mod: RpmsRpc::Allergy, method: :for_patient, args: [ 2 ], flow: "allergy_for_patient" },
+    { mod: RpmsRpc::Procedure, method: :for_patient, args: [ 2 ], flow: "procedure_for_patient" }
   ].freeze
-
   def api_method_pairs
     @api_method_pairs ||= ApiCoverage.public_methods_of(RpmsRpc, API_DIR)
   end
@@ -487,30 +456,32 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
                  "methods whose RPCs match WRITE_RPC_PATTERN must not be :read:\n#{violations.sort.join("\n")}"
   end
 
-  # --- mock client wire evidence for :read methods ----------------------------
+  # --- captured wire evidence for :read methods -------------------------------
 
-  def test_classification_follows_the_mock_client
-    MOCK_READ_CALLS.each do |spec|
-      mod, name, args, seed = spec.values_at(:mod, :method, :args, :seed)
+  # Each method runs over the replies the build gave it; the replay refuses an
+  # RPC it has no reply for, so the method sends exactly what it sent live.
+  def test_classification_follows_the_captured_calls
+    CAPTURED_READ_CALLS.each do |spec|
+      mod, name, args, flow = spec.values_at(:mod, :method, :args, :flow)
       label = method_label(mod, name)
       assert_equal :read, RpmsRpc::RetrySafety.for(mod, name),
                    "#{label} must be classified :read for this test"
       expected_rpcs = resolver.resolve(mod, name)[:rpcs].map { |r| r[:name] }
 
-      RpmsRpc.mock! do |m|
-        seed.call(m)
-        mod.public_send(name, *args)
-        calls = RpmsRpc.client.received_calls
-        refute_empty calls, "#{label} must send at least one RPC on the mock client"
-        received_rpc_names = calls.map { |c| c[:rpc] }
-        expected_rpcs.each do |rpc|
-          assert_includes received_rpc_names, rpc,
-                          "#{label} must send #{rpc} (static ApiCoverage resolver)"
-        end
-        write_calls = calls.select { |c| write_rpc?(c[:rpc]) }
-        assert_empty write_calls,
-                     "#{label} issued write RPCs: #{write_calls.map { |c| c[:rpc] }.join(", ")}"
+      client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("retry-safety-reads", flow))
+      RpmsRpc.configure { |cfg| cfg.client = client }
+      mod.public_send(name, *args)
+      calls = client.calls.reject { |c| c[:rpc] == :create_context }
+      assert_equal CapturedReplies.flow_calls("retry-safety-reads", flow), calls.map { |c| [ c[:rpc], c[:params] ] },
+                   "#{label} must send the calls it sent live"
+      received_rpc_names = calls.map { |c| c[:rpc] }
+      expected_rpcs.each do |rpc|
+        assert_includes received_rpc_names, rpc,
+                        "#{label} must send #{rpc} (static ApiCoverage resolver)"
       end
+      write_calls = calls.select { |c| write_rpc?(c[:rpc]) }
+      assert_empty write_calls,
+                   "#{label} issued write RPCs: #{write_calls.map { |c| c[:rpc] }.join(", ")}"
     ensure
       RpmsRpc.reset!
     end
