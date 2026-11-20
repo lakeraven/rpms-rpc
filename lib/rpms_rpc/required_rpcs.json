@@ -2667,6 +2667,7 @@
         "RpmsRpc::ClinicalEvent.education_topics": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-education-topics.yml"
       ]
     },
@@ -2675,6 +2676,7 @@
         "RpmsRpc::ClinicalEvent.exam_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-exam-type.yml"
       ]
     },
@@ -2683,6 +2685,7 @@
         "RpmsRpc::ClinicalEvent.health_factor_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-health-factors-ty.yml"
       ]
     },
@@ -2691,6 +2694,7 @@
         "RpmsRpc::ClinicalEvent.immunization_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-immunization-type.yml"
       ]
     },
@@ -2699,6 +2703,7 @@
         "RpmsRpc::ClinicalEvent.skin_test_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-skin-test-type.yml"
       ]
     },
@@ -2707,6 +2712,7 @@
         "RpmsRpc::ClinicalEvent.visit_for_note": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-visit.yml"
       ]
     },
@@ -2716,6 +2722,7 @@
         "RpmsRpc::ClinicalEvent.visit_status": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-hasvisit.yml"
       ]
     },
@@ -2724,6 +2731,7 @@
         "RpmsRpc::ClinicalEvent.note_visit_string": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-notevstr.yml"
       ]
     },
@@ -2732,6 +2740,7 @@
         "RpmsRpc::ClinicalEvent.pce_for_note": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-pce4note.yml"
       ]
     },
@@ -2971,7 +2980,9 @@
         "RpmsRpc::ClinicalEvent.visit_for_note": "read",
         "RpmsRpc::ClinicalEvent.visit_status": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml"
+      ]
     },
     "TIU GET RECORD TEXT": {
       "methods": {
