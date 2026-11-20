@@ -24,12 +24,12 @@ require "rpms_rpc/api/ddr_fileman"
 # be exactly "0". CHECKIN also requires #44.003 clinic proof.
 class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
-  LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
   CHECKLIST_PATH = File.join(ROOT, "docs/pilot_rpc_readiness.md")
 
-  PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
   SCHEDULING_PERSONA = "PSCH123"
   SETUP_PERSONA = "SYS123"
+  # The release the committed wire fixtures were captured on: their provenance, kept with them as
+  # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
   CAPTURE_RELEASE = "bcer-9.0-20261116-2a9b3fe-ydb"
   SYNTHETIC_RESOURCE = "ZZ PILOT SCHED CAPTURE"
 
@@ -653,9 +653,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     [ yaml, fixture ]
   end
 
-  # The slice is proven on the latest published release, which is not the pin.
-  def test_the_capture_release_is_a_published_build_newer_than_the_pin
-    refute_equal PINNED_RELEASE, CAPTURE_RELEASE
+  # The slice is proven on a published release, named by its tag.
+  def test_the_capture_release_is_a_published_build
     assert_match(/\Abcer-9\.0-\d{8}-[0-9a-f]{7}-ydb\z/, CAPTURE_RELEASE)
   end
 

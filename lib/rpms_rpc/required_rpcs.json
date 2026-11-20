@@ -1,6 +1,5 @@
 {
   "contract": "rpms-rpc-contract.v1",
-  "build": "bcer-9.0-20261119-f67498c-ydb",
   "modules": {
     "RpmsRpc::Adt": [
       "DDR LISTER",

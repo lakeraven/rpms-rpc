@@ -12,11 +12,11 @@ class RequiredRpcsTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
 
   def report
-    @report ||= ApiCoverage.build(ROOT)
+    @report ||= ApiCoverage.build(ROOT, surface: nil)
   end
 
   def test_the_committed_list_is_what_the_api_sends_now
-    generated = ApiCoverage.required_rpcs_json(ApiCoverage.required_rpcs(report[:entries], build: report[:registry_tag], root: ROOT))
+    generated = ApiCoverage.required_rpcs_json(ApiCoverage.required_rpcs(report[:entries], root: ROOT))
     assert generated == File.read(RpmsRpc::Compatibility::REQUIRED_PATH),
            "lib/rpms_rpc/required_rpcs.json is stale: run `bundle exec rake rpc:required_rpcs` and commit it"
   end
@@ -36,7 +36,7 @@ class RequiredRpcsTest < Minitest::Test
       { module: "RpmsRpc::A", rpcs: [ { name: "Z" } ] },
       { module: "RpmsRpc::Session", rpcs: [] }
     ]
-    doc = ApiCoverage.required_rpcs(entries, build: "t")
+    doc = ApiCoverage.required_rpcs(entries)
     assert_equal({ "RpmsRpc::A" => [ "Z" ], "RpmsRpc::B" => %w[X Y] }, doc.fetch("modules"))
     assert_equal %w[X Y Z], doc.fetch("rpcs").keys
   end

@@ -14,7 +14,6 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
   Compatibility = RpmsRpc::Compatibility
 
   REQUIRED = {
-    "build" => "bcer-test",
     "modules" => {
       "RpmsRpc::Patient" => [ "ORWPT ID INFO", "ORWPT SELECT" ],
       "RpmsRpc::Referral" => [ "BMC ADD REFERRAL", "ORWPT SELECT" ],
@@ -73,9 +72,8 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
 
   # --- the release's list ----------------------------------------------------------------------
 
-  def test_the_shipped_list_names_a_build_and_rpcs_per_api_module
+  def test_the_shipped_list_names_rpcs_per_api_module
     required = Compatibility.required
-    refute_empty required.fetch("build")
     refute_empty required.fetch("modules")
     required["modules"].each do |mod, names|
       assert_match(/\ARpmsRpc::/, mod)
@@ -97,8 +95,7 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
 
     assert_predicate report, :ok?
     assert_empty report.missing
-    assert_equal "bcer-test", report.build
-    assert_match(/serves every RPC .* \(4 RPCs, derived on bcer-test\)/, report.to_s)
+    assert_match(/serves every RPC .* \(4 RPCs\)/, report.to_s)
   end
 
   def test_cia_groups_the_missing_rpcs_by_api_module
@@ -136,7 +133,7 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
   def test_cia_pages_resume_from_the_last_name_and_lose_no_entry
     filler = (1..999).map { |i| format("AAA FILLER %04d", i) }
     client = cia(filler + [ "BGOCPTPR CLONE", "BGOCPTPR CLONEOTH" ] + every_required)
-    required = { "build" => "t", "modules" => { "RpmsRpc::Probe" => [ "BGOCPTPR CLONEOTH" ] } }
+    required = { "modules" => { "RpmsRpc::Probe" => [ "BGOCPTPR CLONEOTH" ] } }
 
     assert_predicate Compatibility.check(client, required: required), :ok?
     assert_equal [ nil, "BGOCPTPR CLONE" ], client.calls.map { |_name, params| params["FROM"] }
@@ -237,7 +234,6 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
     report = cia(names).compatibility
 
     assert_predicate report, :ok?
-    assert_equal Compatibility.required["build"], report.build
   end
 
   def test_it_runs_only_after_sign_on

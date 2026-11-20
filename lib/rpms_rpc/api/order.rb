@@ -468,7 +468,7 @@ module RpmsRpc
     # File a new order and leave it unsigned. ORWDX SAVE (SAVE^ORWDX) takes
     # the eleven actuals after REC. Formals (FOIA ORWDX.m:80):
     # SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,ORIT,ORIFN,ORDIALOG,ORDEA,ORAPPT,ORSRC).
-    # The repo's BCER inventory (data/inventories/.../rpc_signatures.txt,
+    # The BCER release inventory (rpc_signatures.txt of
     # bcer-9.0-20261012-e7923a4-ydb) lists OREVTDF as a 13th formal on RPMS
     # too, as WorldVistA ORWDX.m:52 does. Sending eleven actuals leaves that
     # formal undefined. SAVE does not handle it with $G: WorldVistA declares

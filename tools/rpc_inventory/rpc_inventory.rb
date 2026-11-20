@@ -159,9 +159,11 @@ module RpcInventory
 
   # --- rpms-rpc and the clients ---------------------------------------------------------------
 
-  # What rpms-rpc covers, from a source checkout at root with lib/rpms_rpc loaded.
-  def coverage(root)
-    report = ApiCoverage.build(root)
+  # What rpms-rpc covers, from a source checkout at root with lib/rpms_rpc loaded. SURFACE is the build each
+  # wrapper's RPCs are looked up on (ApiCoverage.build): render passes the YottaDB release it lists; the default is
+  # the release this checkout tests against (`rake openrpms:fetch`, rpms-rpc#724).
+  def coverage(root, surface: :current)
+    report = ApiCoverage.build(root, surface: surface)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
     { methods: doc["methods"], paths: wrapper_addresses(doc), replies: ApiCoverage.captured_replies(root),
       retry: RpmsRpc::RetrySafety.table.transform_values(&:to_s) }
@@ -533,8 +535,8 @@ module RpcInventory
   end
 
   # Both files for releases (each a Release) and a source checkout at root: { "rpc-inventory.csv" =>, ".md" => }.
-  # cov: coverage(root), when the caller already has it (the analysis of lib/ takes seconds).
-  def render(releases, root, cov: coverage(root))
+  # cov: coverage(root, surface: the YottaDB release), when the caller already has it (the analysis of lib/ takes seconds).
+  def render(releases, root, cov: coverage(root, surface: releases.find { |r| r.engine == "ydb" }.surface))
     rs = rows(releases, cov, clients(root), reviewed_exclusions(root))
     { "rpc-inventory.csv" => csv(rs), "rpc-inventory.md" => markdown(rs, releases) }
   end

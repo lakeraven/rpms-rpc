@@ -2,25 +2,25 @@
 
 require "date"
 require "digest"
+require "fileutils"
 require "json"
-require "yaml"
+require "open3"
+require "time"
 require "rpms_rpc/conformance/build_surface"
-require "rpms_rpc/conformance/ingest"
 
 module RpmsRpc
   module Conformance
-    # The RPC signature of an openrpms build, consumed as a PINNED DEPENDENCY (rpms-rpc#160, #222, #406).
+    # The RPC signature of an openrpms release, fetched at test time from the release itself
+    # (rpms-rpc#724 step 1; before it, one release was pinned in a lock file and committed here).
     #
     # openrpms attaches to every gated release tag the RPC surface that build serves, captured from the
     # gate's own container and bound to the artifact digest (openrpms bin/release_inventory.sh,
-    # bin/release_rpcs_json.rb), plus the build record naming the commit it was cut from. This pin
-    # takes the one document of that surface and the faces it does not carry:
+    # bin/release_rpcs_json.rb), plus the build record naming the commit it was cut from:
     #
     #   <tag>-rpcs.json                  the RPC surface: one record per registered RPC (entry point,
     #                                    #8994 codes, parameters, package, reach), and the sha256 of
     #                                    each raw file it was projected from (openrpms#732)
-    #   <tag>-packages_9_4.txt           PREFIX^NAME^VERSION per installed package (the fingerprint's
-    #                                    packages face: rpcs.json names only packages that own an RPC)
+    #   <tag>-packages_9_4.txt           PREFIX^NAME^VERSION per installed package
     #   <tag>-contexts_19_05.txt         one row per #19.05 entry, tab-separated under its header:
     #                                    OPTION TYPE LOCK RPC RPC_KEY RPC_RULES (openrpms#626, #416)
     #   <tag>-INVENTORY-PROVENANCE.json  engine, artifact binding, per-dump sha256 + counts, tool sha,
@@ -29,22 +29,24 @@ module RpmsRpc
     #   <tag>-PROVENANCE.json            the build record: release, rpms_ops_commit (not in the sidecar)
     #
     # The sidecar does not cover rpcs.json, so rpcs.json is bound to it through its own `inputs`: each
-    # raw file it names must be the sidecar's bytes, so the document is the projection of the gated
-    # inventory. At pin time every byte is also checked against the release's asset digest.
+    # raw file it names must be the sidecar's bytes. Every downloaded byte is also checked against the
+    # digest GitHub records for the release asset.
     #
-    # This class is the Gemfile.lock side of that contract:
-    #
-    #   data/fingerprints/rpms-ops.lock.yml    what is pinned: tag, RPMS version, engine, build
-    #                                          commit, artifact sha, per-asset sha256, counts
-    #   data/inventories/<tag>/                the assets, byte for byte (the signature)
-    #   data/fingerprints/references/<tag>.yml what was derived from exactly those bytes (Ingest)
-    #
-    # `rake conformance:pin RELEASE=<tag>` downloads, verifies, ingests and writes the lock;
-    # `check` proves OFFLINE that the committed signature and fingerprint still match the lock.
-    # The committed files are READ through BuildSurface, the one reader of them (#394, #395, #406).
-    class InventoryLock
-      DEFAULT_PATH = "rpms-ops.lock.yml"
-      DEFAULT_REPO = "lakeraven/openrpms"
+    # Which release: OPENRPMS_RELEASE=<tag> when set, otherwise the newest published bcer-*-ydb release
+    # that carries the inventory (`latest_tag`). `resolve!` downloads it into the cache
+    # (OPENRPMS_INVENTORIES, default tmp/openrpms/ in the checkout), verifies it, and records it in
+    # <cache>/current.json: the release this checkout tests against, which `current` reads back offline
+    # and CI publishes as its "tested against" record. Nothing here is committed.
+    class ReleaseInventory
+      REPO = "lakeraven/openrpms"
+      # Names the release to test against instead of the latest.
+      TAG_ENV = "OPENRPMS_RELEASE"
+      # The cache root (default: tmp/openrpms/ in the checkout).
+      CACHE_ENV = "OPENRPMS_INVENTORIES"
+      DEFAULT_CACHE = File.expand_path("../../../tmp/openrpms", __dir__)
+      CURRENT_FILE = "current.json"
+      # The engine the gem's tests run against: the YottaDB image anyone with access can run.
+      LATEST_ENGINE = "ydb"
       # The surface document, the packages and contexts faces, and the provenance. A release published
       # before openrpms#732 has no rpcs.json, and one before openrpms#626 no contexts face: neither can be
       # pinned until re-gated.
@@ -71,7 +73,7 @@ module RpmsRpc
         def rpcs_json = asset(RPCS_SUFFIX)
         def packages_dump = asset("packages_9_4.txt")
         def engine = provenance["engine"]
-        def rpms_version = InventoryLock.parse_tag(tag)[:rpms_version]
+        def rpms_version = ReleaseInventory.parse_tag(tag)[:rpms_version]
         def build_commit = build_record["rpms_ops_commit"]
         def image_ref = provenance.dig("image", "ref")
 
@@ -239,120 +241,124 @@ module RpmsRpc
         problems
       end
 
-      def self.load(path)
-        new(path)
+      # --- which release, fetched and verified ------------------------------------------------------
+
+      # The cache root: OPENRPMS_INVENTORIES when set and not blank, else tmp/openrpms/ in the checkout.
+      def self.cache_root(env = ENV)
+        chosen = env[CACHE_ENV].to_s.strip
+        chosen.empty? ? DEFAULT_CACHE : File.expand_path(chosen)
       end
 
-      attr_reader :path, :data
-
-      def initialize(path)
-        @path = path
-        @data = File.file?(path) ? (YAML.safe_load_file(path, permitted_classes: [ Date ]) || {}) : {}
-        @data["repo"] ||= DEFAULT_REPO
-        @data["releases"] ||= {}
+      # Every asset a release must carry for the gem to test against it.
+      def self.asset_names(tag)
+        (ASSET_SUFFIXES + [ SIDECAR_SUFFIX, BUILD_RECORD_SUFFIX ]).map { |s| "#{tag}-#{s}" }
       end
 
-      def repo = data["repo"]
-      def entries = data["releases"]
-      def [](tag) = entries[tag]
+      # The newest published (not draft, not prerelease) bcer-*-<engine> release whose assets include the
+      # whole inventory, from a GitHub releases list. A release published without its inventory (a
+      # re-tag, a gate that died before attaching it) is passed over, not tested against.
+      # { tag:, published_at: }; Error when none qualifies.
+      def self.pick_latest(releases, engine: LATEST_ENGINE)
+        chosen = Array(releases).select { |r| testable?(r, engine) }.max_by { |r| r["published_at"].to_s }
+        raise Error, "no published bcer-*-#{engine} release on #{REPO} carries the inventory (#{ASSET_SUFFIXES.join(', ')})" unless chosen
 
-      # Record (or replace) the pin for a verified inventory. FINGERPRINT is the env name the
-      # ingested fingerprint was written under (e.g. "references/<tag>").
-      def pin!(inventory, fingerprint:, rpcs:, packages:)
-        prov = inventory.provenance
-        entries[inventory.tag] = {
-          "rpms_version" => inventory.rpms_version,
-          "engine" => inventory.engine,
-          "build_commit" => inventory.build_commit,
-          "artifact_sha256" => prov["artifact_sha256"],
-          "captured_at" => prov["captured_at"],
-          "inventory_tool_commit" => prov["tool_git_sha"],
-          "provenance_schema" => prov["schema_version"],
+        { tag: chosen["tag_name"], published_at: chosen["published_at"] }
+      end
+
+      def self.testable?(release, engine)
+        return false unless release.is_a?(Hash)
+        return false if release["draft"] || release["prerelease"]
+
+        parts = parse_tag(release["tag_name"])
+        return false unless parts && parts[:engine] == (engine == "ydb" ? "yottadb" : "iris")
+
+        names = Array(release["assets"]).map { |a| a.is_a?(Hash) ? a["name"] : nil }
+        (asset_names(release["tag_name"]) - names).empty?
+      end
+
+      # The latest testable release tag on REPO, read with `gh api` (GH_TOKEN or `gh auth login`).
+      def self.latest_tag(repo: REPO)
+        out, err, status = Open3.capture3("gh", "api", "--paginate", "--slurp", "repos/#{repo}/releases")
+        raise Error, "cannot list #{repo} releases (gh api: #{err.to_s.lines.first.to_s.strip}); a token that can read #{repo} is needed" unless status.success?
+
+        pick_latest(JSON.parse(out).flatten(1))[:tag]
+      rescue JSON::ParserError
+        raise Error, "cannot list #{repo} releases: gh api returned no JSON list"
+      end
+
+      # Download TAG's inventory into ROOT/<tag>/ (kept when it is already there and verifies), check each
+      # byte against the release's asset digest, verify it, and return the Inventory.
+      def self.fetch(tag, root: cache_root, repo: REPO)
+        parse_tag(tag) or raise Error, "#{tag.inspect} names no build (want bcer-<version>-<yyyymmdd>-<commit>-<ydb|iris>)"
+        dir = File.join(root, tag)
+        begin
+          return verify_dir(tag, dir) if File.directory?(dir)
+        rescue Error
+          FileUtils.rm_rf(dir) # a partial or stale download: fetch it again
+        end
+
+        FileUtils.mkdir_p(dir)
+        names = asset_names(tag)
+        patterns = names.flat_map { |name| [ "--pattern", name ] }
+        _, err, status = Open3.capture3("gh", "release", "download", tag, "--repo", repo, *patterns, "--dir", dir, "--clobber")
+        raise Error, "gh release download #{tag} from #{repo} failed: #{err.to_s.lines.first.to_s.strip}" unless status.success?
+
+        out, err, status = Open3.capture3("gh", "release", "view", tag, "--repo", repo, "--json", "assets")
+        raise Error, "gh release view #{tag} failed: #{err.to_s.lines.first.to_s.strip}" unless status.success?
+
+        digests = JSON.parse(out)["assets"].to_h { |a| [ a["name"], a["digest"].to_s.delete_prefix("sha256:") ] }
+        names.each do |name|
+          have = sha256(File.join(dir, name))
+          raise Error, "#{name}: sha256 #{have} is not the release asset digest #{digests[name].inspect}" unless digests[name] == have
+        end
+        verify_dir(tag, dir)
+      end
+
+      # Fetch and verify the release to test against (OPENRPMS_RELEASE, or the latest), and record it as
+      # this checkout's current release. Returns the Inventory.
+      def self.resolve!(env: ENV, root: cache_root(env), repo: REPO)
+        override = env[TAG_ENV].to_s.strip
+        tag = override.empty? ? latest_tag(repo: repo) : override
+        inventory = fetch(tag, root: root, repo: repo)
+        record_current!(inventory, root: root, chosen_by: override.empty? ? "latest" : TAG_ENV)
+        inventory
+      end
+
+      # Write ROOT/current.json: which release this checkout tests against, and how it was chosen.
+      def self.record_current!(inventory, root:, chosen_by:)
+        doc = {
+          "repo" => REPO,
+          "tag" => inventory.tag,
+          "chosen_by" => chosen_by,
           "image" => inventory.image_ref,
-          "reach_classes" => prov.dig("rpc_reach", "classes").to_h.sort.to_h,
-          "assets" => inventory.shas.sort.to_h,
-          "fingerprint" => fingerprint,
-          "rpcs" => rpcs,
-          "packages" => packages
+          "build_commit" => inventory.build_commit,
+          "rpcs_json_sha256" => inventory.shas["#{inventory.tag}-#{RPCS_SUFFIX}"],
+          "rpcs" => inventory.surface.rpcs.size,
+          "resolved_at" => Time.now.utc.iso8601
         }.compact
-        entries[inventory.tag]
+        FileUtils.mkdir_p(root)
+        File.write(File.join(root, CURRENT_FILE), "#{JSON.pretty_generate(doc)}\n")
+        doc
       end
 
-      def save
-        header = "# openrpms builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.\n" \
-                 "# Each entry pins the RPC-surface document (rpcs.json), #9.4 and #19.05 faces and build record lakeraven/openrpms attaches to that release\n" \
-                 "# (sha256 per asset; the bytes are committed under data/inventories/<tag>/), and names the fingerprint\n" \
-                 "# ingested from exactly those bytes. test/rpms_rpc/pinned_build_signature_test.rb checks all three agree.\n"
-        sorted = { "repo" => repo, "releases" => entries.sort.to_h }
-        File.write(path, header + YAML.dump(sorted))
-        path
+      # The release `resolve!` last recorded in ROOT, as a verified Inventory, without the network.
+      # Error when none was recorded or its files no longer verify.
+      def self.current(root: cache_root)
+        doc = current_record(root: root)
+        verify_dir(doc.fetch("tag"), File.join(root, doc.fetch("tag")))
       end
 
-      # { tag => BuildSurface } for every pinned build, read from its committed files.
-      def surfaces(inventories_dir:)
-        entries.keys.to_h { |tag| [ tag, BuildSurface.load(File.join(inventories_dir, tag), tag) ] }
-      end
+      # ROOT/current.json, parsed. Error when there is none.
+      def self.current_record(root: cache_root)
+        path = File.join(root, CURRENT_FILE)
+        raise Error, "no openrpms release fetched into #{root}: run `bundle exec rake openrpms:fetch` (OPENRPMS_RELEASE=<tag> for a specific one)" unless File.file?(path)
 
-      # Offline consistency: every pinned tag has its fingerprint, and the fingerprint's
-      # source.inventory face carries the pinned sha256s + count. If the inventory assets are
-      # present locally (INVENTORIES_DIR/<tag>/), they must verify and their bytes must match the
-      # lock; with require_inventories they must be present.
-      # Returns a list of problem strings (empty = OK).
-      def check(fingerprints_dir:, inventories_dir: nil, require_inventories: false)
-        problems = []
-        entries.each do |tag, entry|
-          fp_path = File.join(fingerprints_dir, "#{entry['fingerprint']}.yml")
-          if File.file?(fp_path)
-            problems.concat(fingerprint_problems(tag, entry, fp_path))
-          else
-            problems << "#{tag}: pinned fingerprint #{entry['fingerprint']}.yml is missing"
-          end
+        doc = JSON.parse(File.read(path))
+        raise Error, "#{path} names no release" unless doc.is_a?(Hash) && doc["tag"].is_a?(String)
 
-          dir = inventories_dir && File.join(inventories_dir, tag)
-          unless dir && File.directory?(dir)
-            problems << "#{tag}: the pinned signature is not committed under #{dir || 'data/inventories'}" if require_inventories
-            next
-          end
-
-          begin
-            local = self.class.verify_dir(tag, dir)
-            (local.shas.keys | entry["assets"].to_h.keys).each do |name|
-              have = local.shas[name]
-              want = entry.dig("assets", name)
-              problems << "#{tag}: local asset #{name} sha256 #{have} != lock #{want}" if have != want
-            end
-            problems << "#{tag}: build_commit #{entry['build_commit']} != build record #{local.build_commit}" if entry["build_commit"] != local.build_commit
-            if File.file?(fp_path)
-              derived = Ingest.registry(local.surface).sort.to_h
-              committed = (YAML.safe_load_file(fp_path, permitted_classes: [ Date ]) || {})["rpcs"] || {}
-              drift = (derived.keys | committed.keys).reject { |name| derived[name] == committed[name] }
-              problems << "#{tag}: fingerprint rpcs differ from the pinned rpcs.json (#{drift.first(3).join(', ')}#{', ...' if drift.size > 3})" unless drift.empty?
-            end
-          rescue Error => e
-            problems << "#{tag}: local inventory dir fails verification: #{e.message}"
-          end
-        end
-        problems
-      end
-
-      private
-
-      def fingerprint_problems(tag, entry, fp_path)
-        problems = []
-        fp = YAML.safe_load_file(fp_path, permitted_classes: [ Date ]) || {}
-        inv = fp.dig("source", "inventory") || {}
-        problems << "#{tag}: fingerprint has no source.inventory face (ingested from an unpinned dump?)" if inv.empty?
-        problems << "#{tag}: fingerprint source.inventory.tag is #{inv['tag'].inspect}" if !inv.empty? && inv["tag"] != tag
-        { "rpcs.json" => "rpcs_json_sha256", "packages_9_4.txt" => "packages_9_4_sha256" }.each do |suffix, key|
-          want = entry.dig("assets", "#{tag}-#{suffix}")
-          have = inv[key]
-          problems << "#{tag}: #{suffix} sha256 lock=#{want} fingerprint=#{have}" if want != have
-        end
-        problems << "#{tag}: fingerprint build_commit #{inv['build_commit']} != lock #{entry['build_commit']}" if !inv.empty? && inv["build_commit"] != entry["build_commit"]
-        n = (fp["rpcs"] || {}).size
-        problems << "#{tag}: fingerprint has #{n} RPCs, lock says #{entry['rpcs']}" if entry["rpcs"] && n != entry["rpcs"]
-        problems << "#{tag}: fingerprint release #{fp['release'].inspect} != tag" if fp["release"] != tag
-        problems
+        doc
+      rescue JSON::ParserError => e
+        raise Error, "#{path} is not JSON (#{e.message})"
       end
     end
   end

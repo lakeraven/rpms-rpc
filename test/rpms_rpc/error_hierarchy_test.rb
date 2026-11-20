@@ -8,7 +8,7 @@ require "rpms_rpc/bmx_client"
 require "rpms_rpc/session_pool"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/conformance"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
 
 # Every exception the gem raises descends from RpmsRpc::Error (ADR 0010,
 # assertion 4; rpms-rpc#357), so a host rescues RPMS failures in one place

@@ -76,7 +76,7 @@ namespace :rpc do
     c = RpcInventory::Clients
     # Every file is built before any is written, so a missing or unreadable source leaves all four as they were.
     begin
-      sending = RpcInventory.coverage(root)[:methods].reject { |m| m["rpcs"].empty? }
+      sending = RpcInventory.coverage(root, surface: nil)[:methods].reject { |m| m["rpcs"].empty? }
                             .map { |m| "#{m['module'].delete_prefix('RpmsRpc::')}.#{m['method']}" }
       files = {
         "vuecentric-observed.tsv" => c.observed(dir.("CLOUD_RPMS"), dir.("OPENRPMS")),

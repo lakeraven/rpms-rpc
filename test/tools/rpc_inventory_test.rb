@@ -20,7 +20,7 @@ class RpcInventoryTest < Minitest::Test
   def self.cached = @cached ||= {}
   def cached(key) = self.class.cached.key?(key) ? self.class.cached[key] : (self.class.cached[key] = yield)
   def releases = cached(:releases) { [ I.load_release(DIR, IRIS), I.load_release(DIR, YDB) ] }
-  def coverage = cached(:coverage) { I.coverage(ROOT) }
+  def coverage = cached(:coverage) { I.coverage(ROOT, surface: releases.last.surface) }
   def files = cached(:files) { I.render(releases, ROOT, cov: coverage) }
   def rows = cached(:rows) { I.rows(releases, coverage, I.clients(ROOT), I.reviewed_exclusions(ROOT)) }
   def row(name) = rows.find { |r| r["rpc"] == name } || flunk("no row for #{name}")

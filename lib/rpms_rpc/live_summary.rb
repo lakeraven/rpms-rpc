@@ -11,7 +11,8 @@ require "yaml"
 # protocol. CIA keeps <persona>.json, every other protocol is
 # <persona>.<protocol>.json — so a green run of one line cannot replace a
 # red run of another. The release guard reads them back and refuses to tag
-# unless every file is a green run of the single pinned build. A pending
+# unless every file is a green run of the openrpms release under test (the one
+# `rake openrpms:fetch` recorded, rpms-rpc#724). A pending
 # marker, carrying this run's id, is written before specs load, so a run
 # that dies before the summary is recorded cannot leave the previous green
 # file in place, and only that run may replace the marker. Each summary
@@ -26,8 +27,8 @@ module RpmsRpc
     SCHEMA = 3
     REQUIRED_FIELDS = %w[schema build build_source source suite protocol persona passed runs assertions failures errors skips written_at].freeze
     COUNT_FIELDS = %w[runs skips failures errors].freeze
-    # A release is for the build the repo pins; LIVE_BUILD is the runner's word.
-    RELEASE_BUILD_SOURCE = "pinned"
+    # A release is for the openrpms release under test; LIVE_BUILD is the runner's word.
+    RELEASE_BUILD_SOURCE = "release"
     # Tracked skips are allowed, up to this share of a file's runs.
     MAX_SKIP_PERCENT = 10
     DEFAULT_DIR = "coverage/live"
@@ -220,27 +221,27 @@ module RpmsRpc
       summary_paths(dir).filter_map { |path| outcome_of(path) }
     end
 
-    # The one release in the openrpms lock. Zero or several is an error:
-    # the guard refuses rather than guess which build the live run was for.
-    # ArgumentError, not an RpmsRpc::Error: a lock that does not name exactly
-    # one build is a bad pin in the repo, not a failure a host rescues from RPMS.
-    def pinned_build(lock_path)
-      keys = release_keys(lock_path)
-      return keys.first if keys.one?
-
-      detail = keys.empty? ? "none" : keys.join(", ")
-      raise ArgumentError, "#{lock_path} pins #{keys.size} releases (#{detail}); refusing to pick one"
+    # The openrpms release under test: the tag `rake openrpms:fetch` recorded in the release cache
+    # (OPENRPMS_INVENTORIES in ENV, default tmp/openrpms/). ArgumentError when none is recorded: the
+    # guard refuses rather than guess which build the live run was for.
+    def release_build(env = ENV)
+      require_relative "conformance/release_inventory"
+      release = RpmsRpc::Conformance::ReleaseInventory
+      release.current_record(root: release.cache_root(env)).fetch("tag")
+    rescue release::Error => e
+      raise ArgumentError, e.message
     end
 
     # Who this live run is, for the summary file and the pending marker.
     # Shared by the rake task and Summary#report so the two cannot drift.
     # LIVE_BUILD, when set, is the runner's word ("declared"); otherwise the
-    # release key in data/rpc_coverage/config.yml ("pinned"). The protocol
+    # release under test (release_build, "release"; blank when none is recorded, which
+    # the guard refuses). The protocol
     # defaults to cia. Persona and protocol are stripped; path_for still
     # refuses an unsafe token.
     def run_identity(env, root:)
       declared = env["LIVE_BUILD"].to_s.strip
-      build, build_source = declared.empty? ? [ coverage_release(root), "pinned" ] : [ declared, "declared" ]
+      build, build_source = declared.empty? ? [ recorded_release(env), RELEASE_BUILD_SOURCE ] : [ declared, "declared" ]
       {
         persona: env["PERSONA"].to_s.strip,
         protocol: broker_protocol(env),
@@ -278,7 +279,7 @@ module RpmsRpc
     end
 
     def missing_summary(dir)
-      "no live summary in #{dir} (missing or empty): run `rake test:live` against the pinned build"
+      "no live summary in #{dir} (missing or empty): run `rake test:live` against the release under test"
     end
 
     def reasons_for(path, build, source, suite)
@@ -303,7 +304,7 @@ module RpmsRpc
         reasons << "#{name}: build #{data['build'].inspect} is not #{build}; re-run `rake test:live` for it, or delete the file"
       end
       if data.key?("build_source") && !data["build_source"].nil? && data["build_source"] != RELEASE_BUILD_SOURCE
-        reasons << "#{name}: build_source #{data['build_source'].inspect} is not #{RELEASE_BUILD_SOURCE.inspect}; re-run `rake test:live` without LIVE_BUILD against the pinned build"
+        reasons << "#{name}: build_source #{data['build_source'].inspect} is not #{RELEASE_BUILD_SOURCE.inspect}; re-run `rake test:live` without LIVE_BUILD against the release under test"
       end
       if data.key?("passed") && !data["passed"].nil? && data["passed"] != true
         reasons << "#{name}: passed is not true"
@@ -340,14 +341,6 @@ module RpmsRpc
       end
     end
 
-    def release_keys(lock_path)
-      data = YAML.safe_load_file(lock_path)
-      releases = data.is_a?(Hash) ? data["releases"] : nil
-      return [] unless releases.is_a?(Hash)
-
-      releases.keys.map(&:to_s)
-    end
-
     def summary_token(value, label, pattern)
       token = value.to_s.strip
       return token if token.match?(pattern)
@@ -360,12 +353,10 @@ module RpmsRpc
       value.empty? ? "cia" : value
     end
 
-    # The release key the live specs are pinned to. Blank when the file
-    # cannot be read: check then refuses, rather than the marker guessing.
-    def coverage_release(root)
-      data = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
-      data.is_a?(Hash) ? data["release"].to_s.strip : ""
-    rescue StandardError
+    # release_build, or blank when none is recorded: check then refuses, rather than the marker guessing.
+    def recorded_release(env)
+      release_build(env)
+    rescue ArgumentError
       ""
     end
 
@@ -448,8 +439,8 @@ module RpmsRpc
     end
 
     private_class_method :stringify_keys, :refusal_reasons, :missing_summary, :reasons_for,
-                         :count_reasons, :release_keys, :summary_token, :broker_protocol,
-                         :coverage_release, :outcome_of, :cia_file?, :write_pending, :digest_named_files,
+                         :count_reasons, :summary_token, :broker_protocol,
+                         :recorded_release, :outcome_of, :cia_file?, :write_pending, :digest_named_files,
                          :relative_name, :marker_value, :marker_suite_matches?, :filename_identity,
                          :identity_reasons, :editor_junk?, :summary_paths
   end

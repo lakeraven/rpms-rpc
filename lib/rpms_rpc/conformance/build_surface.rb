@@ -5,10 +5,10 @@ require "rpms_rpc/core"
 
 module RpmsRpc
   module Conformance
-    # The RPC surface of ONE pinned openrpms build, read from the one document openrpms publishes
+    # The RPC surface of ONE openrpms build, read from the one document openrpms publishes
     # of it, <tag>-rpcs.json (openrpms#732; rpms-rpc#394, #395, #406). This is the only reader of
     # that document in this repo: the registered-names gate, the callable gate, Features,
-    # `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`, `conformance:pin`/`check` and
+    # `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`, `openrpms:fetch` and
     # `openapi:surface` all go through it.
     #
     # The document, as openrpms writes it (bin/release_rpcs_json.rb, the format's authority; schema
@@ -32,7 +32,7 @@ module RpmsRpc
     # byte-sorted, under a header row OPTION TYPE LOCK RPC RPC_KEY RPC_RULES; openrpms#626,
     # rpms-rpc#416) answers which option serves which RPC; it is read when present.
     #
-    # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
+    # Checksums are not this class's job: ReleaseInventory verifies the bytes before anything reads them.
     class BuildSurface
       # openrpms bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
@@ -77,7 +77,7 @@ module RpmsRpc
 
       def self.blank(value) = value.to_s.empty? ? nil : value
 
-      # The pinned files for TAG in DIR (data/inventories/<tag>/), by their published names:
+      # The release's files for TAG in DIR (tmp/openrpms/<tag>/ once fetched), by their published names:
       # <tag>-rpcs.json, and <tag>-contexts_19_05.txt when it is there.
       def self.load(dir, tag)
         contexts = File.join(dir, "#{tag}-#{CONTEXTS_SUFFIX}")
