@@ -725,7 +725,7 @@ module RpmsRpc
         pairs["PERSONA"] = persona
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
-        # Optional: a persona without one runs, and its signing specs skip (#848).
+        # Only a signing persona needs one (PROV123, PMD123); its signing spec fails without it (#848, #851).
         esig = @env["#{persona}_ESIG"].to_s
         pairs["RPMS_ESIG"] = esig unless esig.strip.empty?
         pairs["VISTA_RPC_ENV"] = "development" if DEVELOPMENT_PERSONAS.include?(persona)
