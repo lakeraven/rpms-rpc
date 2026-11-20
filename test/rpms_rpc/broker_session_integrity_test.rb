@@ -4,7 +4,8 @@ require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/api/authentication"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
+require_relative "captured_replies"
 
 # A wire lock makes a request and its reply atomic. It does NOT by itself make
 # the SESSION safe: state read before the lock is acquired, state written after
@@ -427,25 +428,23 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
 
   # XUS SIGNON SETUP establishes the partition each AV CODE is validated in.
   # A module-level cache meant the SECOND sign-on skipped it entirely — on a
-  # different client, or on the same client after a reconnect.
+  # different client, or on the same client after a reconnect. Each client
+  # replays the BMX frames the build sent for PROFILE,MD (authentication.yml,
+  # flow signon).
   def test_every_sign_on_runs_xus_signon_setup
     RpmsRpc::Authentication.clear_cache!
-    seed = lambda do
-      RpmsRpc.mock! do |m|
-        m.seed_scalar(:signon_setup, "", "OK")
-        m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA", role: :provider)
-      end
+    clients = Array.new(2) do
+      client = CapturedReplies::ReplayBmxClient.new(CapturedReplies.flow_script("authentication", "signon"))
+      RpmsRpc.configure { |c| c.client = client }
+      # A replaced client is a new broker session and must set up its own.
+      assert RpmsRpc::Authentication.authenticate(access_code: "PMD123", verify_code: "PMD123!!")[:success]
+      client
     end
 
-    seed.call
-    RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "AAA1")
-
-    # A replaced client is a new broker session and must set up its own.
-    seed.call
-    RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "AAA1")
-
-    setups = RpmsRpc.client.received_calls.count { |c| c[:rpc] == "XUS SIGNON SETUP" }
-    assert_equal 1, setups, "the replacement client's sign-on skipped XUS SIGNON SETUP"
+    clients.each_with_index do |client, i|
+      assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ], client.rpcs_called,
+        "sign-on #{i + 1} skipped XUS SIGNON SETUP"
+    end
   ensure
     RpmsRpc::Authentication.clear_cache!
     RpmsRpc.reset!
@@ -456,27 +455,30 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
   # with_context binds an option, runs the block, and restores. Another thread
   # binding in between means the block — or a capability probe inside it — runs
   # under the wrong option, and the broker answers a truthful "not runnable
-  # here" that is indistinguishable from "not installed".
+  # here" that is indistinguishable from "not installed". Patient.lookup scopes
+  # AGG LOOKUP PATIENTS to AGGRPC; the reply is the build's own "no match"
+  # (agg-lookup-patients.yml), held back long enough for another binder to try.
   def test_a_context_scope_is_not_interleaved_by_another_binder
-    mock = RpmsRpc.mock!
-    mock.create_context("BASE")
-    mock.seed_scalar(:signon_setup, "", "OK")
-
-    scoped = Thread.new do
-      mock.with_context("AGGRPC") do
-        sleep 0.1 # the window another binder can land in
-        mock.call_rpc("XUS SIGNON SETUP")
-      end
+    client = CapturedReplies::ReplayCiaClient.new(
+      "AGG LOOKUP PATIENTS" => [ CapturedReplies.raw("agg-lookup-patients", "no_match") ]
+    )
+    RpmsRpc.configure { |c| c.client = client }
+    client.define_singleton_method(:call_rpc_global_array) do |*args|
+      sleep 0.1 # the window another binder can land in
+      super(*args)
     end
-    sleep 0.02
-    intruder = Thread.new { mock.with_context("SOMETHING ELSE") { sleep 0.15 } }
-    [ scoped, intruder ].each(&:join)
 
-    # MockClient records the context bound at the moment of each call.
-    call = mock.received_calls.find { |c| c[:rpc] == "XUS SIGNON SETUP" }
-    assert_equal "AGGRPC", call[:context],
+    scoped = Thread.new { RpmsRpc::Patient.lookup("ZZNOSUCHQX") }
+    sleep 0.02
+    intruder = Thread.new { client.with_context("SOMETHING ELSE") { sleep 0.15 } }
+    assert_equal [], scoped.value
+    intruder.join
+
+    before_call = client.calls.take_while { |c| c[:rpc] != "AGG LOOKUP PATIENTS" }
+    bound = before_call.reverse.find { |c| c[:rpc] == :create_context }&.dig(:params, 0)
+    assert_equal "AGGRPC", bound,
       "the scoped call ran under another thread's context, so the broker gates it " \
-      "against the wrong option"
+      "against the wrong option: #{client.calls.inspect}"
   ensure
     RpmsRpc.reset!
   end

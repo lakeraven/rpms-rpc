@@ -13,8 +13,8 @@ require_relative "../captured_replies"
 # flows are what find sent for each case, and m_error / no_such_referral are
 # what the routine answers when it is called for them anyway.
 #
-# This file used to seed three referral hashes into MockClient and read them
-# back, which asserted the fake and nothing RPMS sent (rpms-rpc#622).
+# It replaced hand-seeded referral rows, which proved nothing RPMS sent
+# (rpms-rpc#622).
 class ReferralLifecycleTest < Minitest::Test
   SLUG = "bmc-get-referral"
   RPC = "BMC GET REFERRAL"
