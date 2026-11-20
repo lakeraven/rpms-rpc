@@ -1,0 +1,190 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-save-progress-notes.rb.
+---
+rpc: AMHG SAVE PROGRESS NOTES
+entry_point: PN^AMHGSVF
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair), the clinician that holds
+  AMHGRPC
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:43:16Z'
+note: Run on a throwaway container. Setup files one BH visit for DFN 990034 (BehavioralHealth.save_visit,
+  as the live spec does) and lists the placement dispositions (9002013.6) for an active
+  entry and an inactive one (.02 = 1); the flows run in this order on that visit.
+  Synthetic patient and text only.
+captures:
+- name: save_record_not_on_file
+  inputs:
+  - E|999999|SYNTH CC|SYNTH note.||||990034
+  context: AMHG SAVE PROGRESS NOTES sent a record IEN no BH visit has (the gem refuses
+    it first)
+  raw_return: "3\0T00030Result\x1E0~Update Chief Complaint\x1E\x1F"
+  sha256: 0af08e563fbd8ef85be75e76d8b4ccafa6a0385cce8cf628ad5a775eb1a75628
+- name: save/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: ".08;1110;1112"
+    FLAGS: I
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "5\0[Data]\r9002011^5^.08^990034^\r9002011^5^1110^^\r9002011^5^1112^^\r"
+  sha256: 787c0c9ef98cd05df5694e099baff34d83681a71e6a2023b7b23d90c845cd149
+- name: save/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002013.6'
+    IENS: 18,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "6\0[Data]\r9002013.6^18^.01^ALCOHOL/DRUG DETOX^\r9002013.6^18^.02^^\r"
+  sha256: 10f65f3c4d9403e4802d837c8f1676082440159ddf2d78fc9ad38f28c31fef21
+- name: save/3
+  rpc: AMHG SAVE PROGRESS NOTES
+  inputs:
+  - |-
+    E|5|SYNTH CC|Line one.
+    Second.
+
+    SYNTH padding padding padding padding padding padding padding padding end
+    |SYNTH comment line A
+    SYNTH comment line B|18|SYN REF|990034
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "7\0T00030Result\x1E5\x1E"
+  sha256: 9aadf746d9bae6d085b9448278dc7f1cb3e847c49f30e4bb8b767d5e23933295
+- name: save/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: 2101;.17;.18
+    FLAGS: I
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "8\0[Data]\r9002011^5^.17^18^\r9002011^5^.18^SYN REF^\r9002011^5^2101^SYNTH
+    CC^\r"
+  sha256: 0afd4787bc67586c6254a08b40521009374158adc8cf23d33cd0a0eef9ca0f13
+- name: save/5
+  rpc: AMHG GET VISIT SOAP
+  inputs:
+  - '5'
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "9\0T00250Soap\x1ELine one.\n\x1ESecond.\n\x1E\n\x1ESYNTH padding padding
+    padding padding padding padding padding padding \x1Eend\n\x1E"
+  sha256: 7ff102eb0d0825d48d4b0a46755b62c20362d409d3239d58ad9f2783ca251991
+- name: save/6
+  rpc: AMHG GET VISIT COMM APP
+  inputs:
+  - '5'
+  context: 'save_progress_note: chief complaint, a multi-line note, a two-line comment,
+    a placement, referred to'
+  raw_return: "1\0T00250CommentAppointment\x1ESYNTH comment line A\n\x1ESYNTH comment
+    line B\x1E"
+  sha256: 19961e90a90f625c4cb458e974e43890ec94fffcf3bc04577ebc87fb900655b9
+- name: save_empty_comment/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: ".08;1110;1112"
+    FLAGS: I
+  context: 'save_progress_note with an empty comment: the comment is not read back'
+  raw_return: "5\0[Data]\r9002011^5^.08^990034^\r9002011^5^1110^^\r9002011^5^1112^^\r"
+  sha256: 787c0c9ef98cd05df5694e099baff34d83681a71e6a2023b7b23d90c845cd149
+- name: save_empty_comment/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002013.6'
+    IENS: 18,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: 'save_progress_note with an empty comment: the comment is not read back'
+  raw_return: "6\0[Data]\r9002013.6^18^.01^ALCOHOL/DRUG DETOX^\r9002013.6^18^.02^^\r"
+  sha256: 10f65f3c4d9403e4802d837c8f1676082440159ddf2d78fc9ad38f28c31fef21
+- name: save_empty_comment/3
+  rpc: AMHG SAVE PROGRESS NOTES
+  inputs:
+  - E|5|SYNTH CC|SYNTH note after blank comment.||18|SYN REF|990034
+  context: 'save_progress_note with an empty comment: the comment is not read back'
+  raw_return: "7\0T00030Result\x1E5\x1E"
+  sha256: 9aadf746d9bae6d085b9448278dc7f1cb3e847c49f30e4bb8b767d5e23933295
+- name: save_empty_comment/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: 2101;.17;.18
+    FLAGS: I
+  context: 'save_progress_note with an empty comment: the comment is not read back'
+  raw_return: "8\0[Data]\r9002011^5^.17^18^\r9002011^5^.18^SYN REF^\r9002011^5^2101^SYNTH
+    CC^\r"
+  sha256: 0afd4787bc67586c6254a08b40521009374158adc8cf23d33cd0a0eef9ca0f13
+- name: save_empty_comment/5
+  rpc: AMHG GET VISIT SOAP
+  inputs:
+  - '5'
+  context: 'save_progress_note with an empty comment: the comment is not read back'
+  raw_return: "9\0T00250Soap\x1ESYNTH note after blank comment.\x1E"
+  sha256: eeed95e70706b798c3762ea46deb22a4a5950eb51608edaaa50f7fea6d0814aa
+- name: other_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: ".08;1110;1112"
+    FLAGS: I
+  context: 'save_progress_note naming DFN 990035 on DFN 990034''s visit: refused after
+    the pre-read'
+  raw_return: "5\0[Data]\r9002011^5^.08^990034^\r9002011^5^1110^^\r9002011^5^1112^^\r"
+  sha256: 787c0c9ef98cd05df5694e099baff34d83681a71e6a2023b7b23d90c845cd149
+- name: placement_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: ".08;1110;1112"
+    FLAGS: I
+  context: 'save_progress_note with a placement IEN no entry has: refused after its
+    read'
+  raw_return: "5\0[Data]\r9002011^5^.08^990034^\r9002011^5^1110^^\r9002011^5^1112^^\r"
+  sha256: 787c0c9ef98cd05df5694e099baff34d83681a71e6a2023b7b23d90c845cd149
+- name: placement_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002013.6'
+    IENS: 999999,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: 'save_progress_note with a placement IEN no entry has: refused after its
+    read'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: placement_inactive/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 5,
+    FIELDS: ".08;1110;1112"
+    FLAGS: I
+  context: 'save_progress_note with an inactive placement disposition: refused after
+    its read'
+  raw_return: "5\0[Data]\r9002011^5^.08^990034^\r9002011^5^1110^^\r9002011^5^1112^^\r"
+  sha256: 787c0c9ef98cd05df5694e099baff34d83681a71e6a2023b7b23d90c845cd149
+- name: placement_inactive/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002013.6'
+    IENS: 2,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: 'save_progress_note with an inactive placement disposition: refused after
+    its read'
+  raw_return: "6\0[Data]\r9002013.6^2^.01^IHS HOSPITAL^\r9002013.6^2^.02^1^\r"
+  sha256: 8ad2a6826c89b43c7f82804b718e8a2eae401d93897c32089c20a39ac0ac6d83
