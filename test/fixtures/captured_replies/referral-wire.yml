@@ -1,0 +1,102 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb referral-wire.rb.
+---
+rpc: BMC SEARCH REFERRAL
+entry_point: SRCHREF^BMCRPC1
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:33:34Z'
+note: Run on a fresh throwaway container. Setup files referral 1 (CHS, vendor 1 UNSPECIFIED,
+  priority 20) for demo patient 990001 on 11/01/2026, and referrals 2 and 3 for demo
+  patient 990002 on 11/01/2026 and 11/02/2026.
+captures:
+- name: search_full/1
+  rpc: BMC SEARCH REFERRAL
+  inputs:
+  - '990001'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'for_patient 990001: referral 1'
+  raw_return: "5\0~`1^NOV 01, 2026^9000000000101^990001^ALPHA,CASEY^^PROFILE,MD^UNSPECIFIED^^ACTIVE^CARDIOLOGY
+    CONSULT^^DIRECT ONLY^^CALL PATIENT^^^^^^^^05/26/1952^^"
+  sha256: b2445e3b73807137b3e80ebd373deb33d5a4398b9d80927cb29b44fa1eac3e9d
+- name: search_two/1
+  rpc: BMC SEARCH REFERRAL
+  inputs:
+  - '990002'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'for_patient 990002: referrals 2 and 3'
+  raw_return: "5\0~`2^NOV 01, 2026^9000000000102^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^~`3^NOV 02, 2026^9000000000103^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^"
+  sha256: 75b8120b90bfb22b2e8f30d1fa083e66f5d8020531af39337bddc7f65698ffb1
+- name: pending/1
+  rpc: BMC SEARCH REFERRAL
+  inputs:
+  - ''
+  - ''
+  - NOV 01, 2026
+  - NOV 30, 2026
+  - ''
+  - Active/Approved
+  context: 'pending from 11/01/2026 to 11/30/2026: all three, open'
+  raw_return: "5\0~`1^NOV 01, 2026^9000000000101^990001^ALPHA,CASEY^^PROFILE,MD^UNSPECIFIED^^ACTIVE^CARDIOLOGY
+    CONSULT^^DIRECT ONLY^^CALL PATIENT^^^^^^^^05/26/1952^^~`2^NOV 01, 2026^9000000000102^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^~`3^NOV 02, 2026^9000000000103^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^"
+  sha256: 5642841e8f96f6036dc72ed8be9d5f4011063f5a71517c279152c1488c65903f
+- name: find_full/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: find referral 1
+  raw_return: "5\0[Data]\r90001^1^.01^3261101^\r90001^1^.02^9000000000101^\r"
+  sha256: 2c43769df2e936bf352a8bffd0099c0712829547b8d3c1715d5c58b01c7a1cf2
+- name: find_full/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '1'
+  context: find referral 1
+  raw_return: "6\0~`1^NOV 01, 2026^9000000000101^990001^ALPHA,CASEY^^206^UNSPECIFIED^^PENDING^CARDIOLOGY
+    CONSULT^^DIRECT ONLY^^CALL PATIENT^C^O^^^^1^^14^^^YES^^^^YES^^^^^^20~3 ^^^<UNKNOWN>^^^^^^ACTIVE^^^~`D'~D~`M'~M~`B'~B~`C'~C"
+  sha256: 5ee2cbcfee25593798769dade77e3fc82cfc6c4b76071614eec0979de211c99a
+- name: print_plain/1
+  rpc: BMC PRINT REFERRAL
+  inputs:
+  - '2'
+  context: 'print referral 2: the referral letter'
+  raw_return: "5\0                  Referral for Contract Professional Services     NOV
+    01, 2026\r\n********************************************************************************\r\n
+    \                    Patient Identification, Address, Phone\r\nPatient Name:  BRAVO,ALEX
+    \                        ID Number:  DIC 990002\r\n                                                        Sex:
+    \ MALE\r\n     Address:  114 CEDARGATE ST                         DOB:  05/08/1965\r\n
+    \              ANYWHERE, MONTANA   59000           Hm Phone: 406-555-1002\r\n
+    \                                                Cell Phone: \r\n________________________________________________________________________________\r\nIN
+    HOUSE REFERRAL\r\nReferred to:   clinic\r\n                                        Referral:
+    9000000000102\r\nOUTPATIENT Services                     Appointment Date:  \r\n#
+    of Outpatient Visits: \r\n________________________________________________________________________________\r\nPurpose/Services
+    Requested: \r\n\r\nAdditional Medical Information Attached:   Not Documented by
+    Provider\r\n________________________________________________________________________________\r\nReferring
+    Provider (ELECTRONIC SIGNATURE): XXXXX\r\nOur records indicate that the patient
+    has no third party coverage as of today.\r\n\r\n********************************************************************************\r\n"
+  sha256: d97e630894dc388d049018255fa103c4158a12d64f1fbd521a7507c1ada8214e
+- name: print_not_found/1
+  rpc: BMC PRINT REFERRAL
+  inputs:
+  - '999'
+  context: print of an IEN no referral has
+  raw_return: "5\0No referral information was found.\r\n"
+  sha256: bfdb85c982ccdbf1f588730d8ad9b4702241f8786a924a99c39de9a0bc155c49
