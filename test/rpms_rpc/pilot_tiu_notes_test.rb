@@ -61,7 +61,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     { rpc: "TIU UNLOCK RECORD", mapping: :tiu_unlock_record, kind: "scalar",
       inputs: :note_ien, evidence: :live_capture },
     { rpc: "TIU SIGN RECORD", mapping: :tiu_sign_record, kind: "scalar",
-      inputs: :note_ien, evidence: :routine_cite }
+      inputs: :note_ien, evidence: :live_capture }
   ].freeze
 
   TIU_CHECKLIST_RPCS = TIU_WRITE_SLICE.map { |s| s[:rpc] }.freeze
@@ -396,7 +396,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   end
 
   def test_pinned_release_is_the_issue_224_build
-    assert_equal "bcer-9.0-20261012-e7923a4-ydb", PINNED_RELEASE
+    assert_equal "bcer-9.0-20261119-f67498c-ydb", PINNED_RELEASE
   end
 
   def test_catalog_has_write_entries_for_every_tiu_rpc_with_non_blank_cite
@@ -804,9 +804,6 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
           failures << "#{slice[:rpc]}: #{violation}"
         end
         create_fixture = fixture if slice[:mapping] == :tiu_create_record
-      when :routine_cite
-        failures << "#{slice[:rpc]}: must be routine-cite (seed gap on signature), got #{fixture.source.inspect}" unless fixture.source == "routine-cite"
-        failures << "#{slice[:rpc]}: routine-cite must not carry raw_return" unless fixture.raw_return.nil?
       end
 
       fixture_cite = self.class.normalize_cite(fixture.cite)
@@ -859,12 +856,15 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_tiu_sign_fixture_is_routine_cite_without_live_signature_proof
+  # PROVIDER,TEST holds the demo signature code since openrpms#1247 (rpms-rpc#720):
+  # the sign is a live capture as PROV123, and the code it sent is withheld.
+  def test_tiu_sign_fixture_is_a_live_sign_as_the_pilot_persona_with_the_code_withheld
     slice = TIU_WRITE_SLICE.find { |s| s[:rpc] == "TIU SIGN RECORD" }
     fixture = load_slice_fixture(slice)
-    assert_equal "routine-cite", fixture.source
-    data = YAML.safe_load_file(fixture.path)
-    refute data.key?("raw_return"), "sign fixture must not claim a live raw (PROV123 has no field 20.4 code)"
+    assert_equal "live-capture", fixture.source
+    assert_equal PILOT_PERSONA, self.class.fixture_signed_on_as(fixture)
+    assert_equal self.class.withheld_placeholder!, fixture.inputs[1]
+    assert_equal "0", fixture.raw_return.to_s.sub(/\A\d+[\x00\x01]/, ""), "SIGN^TIUSRVP answers 0 on a signed note"
   end
 
   def test_no_wire_fixture_stores_a_literal_signature_code_for_tiu_sign_record
@@ -954,10 +954,6 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       reason = row[:reason]
       failures << "#{slice[:rpc]}: reason must mention seed gap" unless reason.match?(/seed gap/i)
       failures << "#{slice[:rpc]}: reason must name #{PILOT_PERSONA}" unless reason.include?(PILOT_PERSONA)
-      next unless slice[:rpc] == "TIU SIGN RECORD"
-
-      failures << "TIU SIGN RECORD reason must name field 20.4" unless reason.match?(/20\.4/)
-      failures << "TIU SIGN RECORD reason must name PROVIDER,TEST" unless reason.include?("PROVIDER,TEST")
     end
     assert_empty failures, failures.join("\n  ")
   end
@@ -998,6 +994,10 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
         note_ien = fixture.inputs[0]
         update = RpmsRpc::ProgressNote.update_text(note_ien, note_text)
         failures << "#{slice[:rpc]}: update_text replay must succeed" unless update[:success]
+      when :tiu_sign_record
+        note_ien = fixture.inputs[0]
+        signed = RpmsRpc::ESignature.add(note_ien, "200", "synthetic-esig")
+        failures << "#{slice[:rpc]}: sign replay must succeed, got #{signed.inspect}" unless signed[:success]
       end
     ensure
       RpmsRpc.reset!

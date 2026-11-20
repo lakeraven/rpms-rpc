@@ -91,7 +91,7 @@ what it claims is proven by a live call (ADR 0008 rule 4), not by the signature.
 ## Pin a build
 
 ```sh
-bundle exec rake conformance:pin RELEASE=bcer-9.0-20261012-e7923a4-ydb
+bundle exec rake conformance:pin RELEASE=bcer-9.0-20261119-f67498c-ydb
 # 1. gh release download the six assets above (REPO= overrides lakeraven/openrpms)
 # 2. each file's sha256 must equal the release's asset digest
 # 3. verify: sidecar matches the bytes it covers; provenance artifact_bound, release_tag == tag,

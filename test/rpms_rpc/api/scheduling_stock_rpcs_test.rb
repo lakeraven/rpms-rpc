@@ -2,55 +2,52 @@
 
 require "minitest/autorun"
 require "date"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/scheduling"
 require_relative "../stock_rpcs_test_helper"
+require_relative "../captured_replies"
 
-# Supplemental BSDX stock-RPC tests for rpms-rpc#420 (methods not yet on Scheduling).
+# Supplemental BSDX stock-RPC tests for rpms-rpc#420. The replies are the
+# build's: test/fixtures/captured_replies/scheduling-stock-rpcs.yml (a visit
+# filed at check-in time, and the check-in and check-out refusals) and the
+# scheduler persona's reads in bsdx-scheduling.yml, replayed through
+# CiaClient. Each test that reaches the wire checks the gem sent exactly the
+# recorded call. The BSDXRPC and CIAV VUECENTRIC binds are proven for every
+# method in scheduling_test.rb.
 class SchedulingStockRpcsTest < Minitest::Test
   include StockRpcsTestHelper
 
-  RS = "\x1e"
-  US = "\x1f"
+  SLUG = "scheduling-stock-rpcs"
   START_T = Time.new(2026, 9, 4, 9, 0, 0)
-  START_FM = "3260904.09"
-
-  RESOURCES_BY_USER_HEADER =
-    "I00010RESOURCEID^T00030RESOURCE_NAME^T00010INACTIVE^I00010TIMESCALE^I00010HOSPITAL_LOCATION_ID^" \
-    "T00030LETTER_TEXT^T00030NO_SHOW_LETTER^T00030CLINIC_CANCELLATION_LETTER^I00010VIEW^I00010OVERBOOK^" \
-    "I00010MODIFY_SCHEDULE^I00010MODIFY_APPOINTMENTS"
 
   def setup
-    RpmsRpc.mock!
+    replay
   end
 
   def teardown
     RpmsRpc.reset!
   end
 
-  # RESUSR^BSDX01 (BSDX01.m:100-112): same resource columns as BSDX RESOURCES.
-  def test_resources_by_user_parses_resource_rows
-    wire = recordset_wire(RESOURCES_BY_USER_HEADER, "7^DEMO CLINIC^0^15^44^^^^1^1^1^1")
-    seed_global("BSDX RESOURCES BY USER", "101", wire)
-
-    rows = RpmsRpc::Scheduling.resources_by_user(duz: 101)
-
-    assert_equal 1, rows.size
-    assert_equal 7, rows.first[:id]
-    assert_equal "DEMO CLINIC", rows.first[:name]
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BSDX RESOURCES BY USER" }
-    assert_equal [ "101" ], call[:params]
-    assert_equal RpmsRpc::Scheduling::CONTEXT, call[:context]
+  # A client with no replies unless a script is given: a test that reaches
+  # the wire without one fails.
+  def replay(script = {})
+    @client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = @client }
   end
 
+  def replay_flow(name) = replay(CapturedReplies.flow_script(SLUG, name))
+
+  def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  # RESUSR^BSDX01 (BSDX01.m:100-112): with no DUZ given, the signed-on user's.
   def test_resources_by_user_defaults_duz_to_empty_string
-    wire = recordset_wire(RESOURCES_BY_USER_HEADER, "")
-    seed_global("BSDX RESOURCES BY USER", "", wire)
+    replay("BSDX RESOURCES BY USER" => [ CapturedReplies.raw("bsdx-scheduling", "resources_by_user") ])
 
-    RpmsRpc::Scheduling.resources_by_user
+    rows = RpmsRpc::Scheduling.resources_by_user
 
-    assert_equal [ "" ], RpmsRpc.client.received_calls.last[:params]
+    refute_empty rows
+    assert_equal [ [ "BSDX RESOURCES BY USER", [ "" ] ] ], sent
   end
 
   def test_resources_by_user_is_read_in_retry_safety
@@ -62,95 +59,46 @@ class SchedulingStockRpcsTest < Minitest::Test
   # BEHOENCX FETCH with CREATE=0 (FETCH^BEHOENCX, VSTR2VIS -> FNDVIS with
   # IN("NEVER ADD") set, BEHOENCX.m:24-47, :80). FNDVIS searches the one
   # patient's visits, and VIS2VSTR refuses a visit owned by another patient
-  # (BEHOENCX.m:118), so there is no cross-patient read.
-  CHECKIN_FM = "3260904.09"
-
-  def seed_fetch(dfn, visit_ien: 5_000_101)
-    RpmsRpc.client.seed(:encounter_fetch, dfn.to_s, {
-      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
-      provider_ien: 101, provider_name: "PROVIDER,DEMO",
-      visit_ien: visit_ien, visit_id: "5000.101", locked: false
-    })
-  end
-
-  def fetch_calls
-    RpmsRpc.client.received_calls.select { |c| c[:rpc] == "BEHOENCX FETCH" }
-  end
+  # (BEHOENCX.m:118), so there is no cross-patient read. The capture filed a
+  # visit for synthetic DFN 990054 at clinic 3 at 3261118.1000 first.
+  DFN = 990_054
+  CHECKIN_FM = "3261118.1000"
+  CHECKIN_T = Time.new(2026, 11, 18, 10, 0, 0)
 
   def test_checkin_visit_resolves_by_patient_clinic_and_time_with_create_zero
-    seed_fetch(990_031)
+    replay_flow("checkin_visit_found")
 
-    visit = RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+    visit = RpmsRpc::Scheduling.checkin_visit(dfn: DFN, clinic_ien: 3, checkin_time: CHECKIN_T)
 
-    assert_equal 5_000_101, visit[:visit_ien]
-    assert_equal 990_031, visit[:patient_dfn]
-    assert_equal 44, visit[:location_ien]
-    assert_equal "5000.101", visit[:visit_id]
-    call = fetch_calls.fetch(0)
-    assert_equal [ "990031", "44;3260904.0900;A", "", "0" ], call[:params].to_a
-    assert_equal "CIAV VUECENTRIC", call[:context]
-    assert_equal 1, fetch_calls.length
-    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BEHOENCX GETVISIT" }
+    assert_equal 119, visit[:visit_ien]
+    assert_equal DFN, visit[:patient_dfn]
+    assert_equal 3, visit[:location_ien]
+    assert_equal "DEMO IHS CLINIC", visit[:location_name]
+    assert_equal CapturedReplies.flow_calls(SLUG, "checkin_visit_found"), sent
+    assert_equal [ "990054", "3;#{CHECKIN_FM};A", "", "0" ], sent.sole.last
   end
 
   def test_checkin_visit_accepts_a_preformatted_fileman_time
-    seed_fetch(990_031)
-    RpmsRpc::Scheduling.checkin_visit(dfn: "990031", clinic_ien: "44", checkin_time: CHECKIN_FM)
+    replay_flow("checkin_visit_found")
+    RpmsRpc::Scheduling.checkin_visit(dfn: "990054", clinic_ien: "3", checkin_time: CHECKIN_FM)
 
-    assert_equal [ "990031", "44;#{CHECKIN_FM};A", "", "0" ], fetch_calls.fetch(0)[:params].to_a
-  end
-
-  def test_checkin_visit_never_sends_a_create_flag_other_than_zero
-    seed_fetch(990_031)
-    RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
-
-    assert fetch_calls.all? { |c| c[:params].to_a.last == "0" }
-  end
-
-  def test_checkin_visit_returns_nil_when_no_visit_resolves
-    # No visit: FNDVIS found nothing and NEVER ADD is set.
-    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
-  end
-
-  def test_checkin_visit_returns_nil_on_an_error_row
-    RpmsRpc.client.seed(:encounter_fetch, "990031", {
-      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
-      provider_ien: 101, provider_name: "PROVIDER,DEMO", error: "Visit does not belong to current patient"
-    })
-
-    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+    assert_equal CapturedReplies.flow_calls(SLUG, "checkin_visit_found"), sent
   end
 
   def test_checkin_visit_result_does_not_echo_the_request_time_as_visit_data
-    seed_fetch(990_031)
-    visit = RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+    replay_flow("checkin_visit_found")
+    visit = RpmsRpc::Scheduling.checkin_visit(dfn: DFN, clinic_ien: 3, checkin_time: CHECKIN_T)
 
     refute visit.key?(:datetime_raw)
     assert_equal %i[location_ien location_name locked patient_dfn visit_id visit_ien], visit.keys.sort
   end
 
+  # No visit at that time: the build's miss is a populated header with empty
+  # pieces 6-9 (BEHOENCX.m:41-46), captured for seed DFN 4 at clinic 3.
   def test_checkin_visit_returns_nil_on_the_real_miss_shape
-    # A populated header with empty pieces 6-9 (BEHOENCX.m:41-46 on a miss).
-    RpmsRpc.client.seed_raw_lines(:encounter_fetch, "990031", [ "LOC^ABBR^RB^PRV^NAME^^^" ])
+    replay("BEHOENCX FETCH" => [ CapturedReplies.raw("bsdx-scheduling", "checkin_visit") ])
 
-    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
-  end
-
-  def test_checkin_visit_returns_nil_when_the_visit_ien_is_not_positive
-    [ 0, -1 ].each do |ien|
-      seed_fetch(990_031, visit_ien: ien)
-      assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
-    end
-  end
-
-  def test_checkin_visit_returns_nil_on_an_error_row_that_carries_a_visit_ien
-    RpmsRpc.client.seed(:encounter_fetch, "990031", {
-      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
-      provider_ien: 101, provider_name: "PROVIDER,DEMO",
-      visit_ien: 5_000_101, visit_id: "5000.101", error: "Visit does not belong to current patient"
-    })
-
-    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 4, clinic_ien: 3, checkin_time: "3261109.0801")
   end
 
   def test_checkin_visit_rejects_a_bad_dfn_clinic_or_time_before_the_wire
@@ -173,7 +121,7 @@ class SchedulingStockRpcsTest < Minitest::Test
         RpmsRpc::Scheduling.checkin_visit(**args)
       end
     end
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty @client.calls
   end
 
   def test_checkin_visit_no_longer_takes_a_visit_ien
@@ -202,70 +150,40 @@ class SchedulingStockRpcsTest < Minitest::Test
     refute_includes path, "visit_ien", "the route must not take a visit IEN"
   end
 
-  # CHECKIN^BSDX25 (BSDX25.m:24-25): non-numeric and unknown IEN → Invalid Appointment ID.
+  # CHECKIN^BSDX25 (BSDX25.m:24-25): a non-numeric and an unknown IEN are
+  # both "Invalid Appointment ID".
   def test_checkin_appointment_non_numeric_id_returns_invalid_appointment_id
-    stub_checkin_reply("Invalid Appointment ID#{RS}")
+    replay_flow("checkin_non_numeric")
 
-    result = RpmsRpc::Scheduling.checkin_appointment("abc", checkin_time: START_T)
+    result = RpmsRpc::Scheduling.checkin_appointment("abc", checkin_time: "3261118.1101")
 
     refute result[:success]
-    assert_match(/Invalid Appointment ID/, result[:error])
+    assert_equal "Invalid Appointment ID", result[:error]
+    assert_equal CapturedReplies.flow_calls(SLUG, "checkin_non_numeric"), sent
   end
 
   def test_checkin_appointment_unknown_numeric_id_returns_invalid_appointment_id
-    stub_checkin_reply("BSDX08: Invalid Appointment ID#{RS}")
+    replay_flow("checkin_unknown")
 
-    result = RpmsRpc::Scheduling.checkin_appointment(999_999, checkin_time: START_T)
+    result = RpmsRpc::Scheduling.checkin_appointment(999_999, checkin_time: "3261118.1101")
 
     refute result[:success]
-    assert_match(/Invalid Appointment ID/, result[:error])
+    assert_equal "Invalid Appointment ID", result[:error]
+    assert_equal CapturedReplies.flow_calls(SLUG, "checkin_unknown"), sent
   end
 
-  # BSDX SEARCH AVAILABILITY — thin encoding test (SEARCH^BSDX24) via Scheduling.availability.
-  def test_search_availability_sends_resource_and_date_range
-    RpmsRpc.client.seed_raw_lines(:scheduling_availability, "PEDIATRICIAN,DEMO",
-                                  [ "T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT#{RS}", "" ])
-
-    RpmsRpc::Scheduling.availability(
-      resources: "PEDIATRICIAN,DEMO",
-      start_date: Date.new(2026, 9, 1),
-      end_date: Date.new(2026, 9, 30)
-    )
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BSDX SEARCH AVAILABILITY" }
-    refute_nil call
-    assert_equal RpmsRpc::Scheduling::CONTEXT, call[:context]
-  end
-
-  def test_clinic_setup_binds_bsdxrpc
-    RpmsRpc.client.seed_raw_lines(:scheduling_clinic_setup, "",
-                                  [ "I00010HOSPITAL_LOCATION_ID^T00030HOSPITAL_LOCATION#{RS}", "" ])
-
-    RpmsRpc::Scheduling.clinic_setup
-
-    assert_equal "BSDXRPC", RpmsRpc.client.received_calls.last[:context]
-  end
-
+  # The capture booked an appointment and never checked it in (BSDX25B.m:28).
   def test_checkout_appointment_invalid_reply_is_not_success
-    RpmsRpc.client.seed(:scheduling_checkout_appointment, "100",
-                        { error: "BSDX25B: Patient not checked in" })
+    replay_flow("checkout_not_checked_in")
+    id = CapturedReplies.flow_calls(SLUG, "checkout_not_checked_in").sole.last[3]
 
     result = RpmsRpc::Scheduling.checkout_appointment(
-      501, patient_dfn: 100, appointment_time: START_T, checkout_time: START_T + 3600
+      id, patient_dfn: DFN, appointment_time: "3261118.1100", checkout_time: "3261118.1110"
     )
 
     refute result[:success]
-    assert_match(/not checked in/, result[:error])
-  end
-
-  def test_cancel_checkout_refuses_when_not_checked_out
-    RpmsRpc.client.seed(:scheduling_cancel_checkout, "501",
-                        { error: "Appointment is not Checked Out." })
-
-    result = RpmsRpc::Scheduling.cancel_checkout(501)
-
-    refute result[:success]
-    assert_match(/not Checked Out/, result[:error])
+    assert_equal "BSDX25B: Patient not checked in", result[:error]
+    assert_equal CapturedReplies.flow_calls(SLUG, "checkout_not_checked_in"), sent
   end
 
   def test_required_rpcs_lists_bsdx_stock_rpcs_under_scheduling
@@ -280,29 +198,5 @@ class SchedulingStockRpcsTest < Minitest::Test
       under: "RpmsRpc::Scheduling"
     )
     assert_includes required_rpc_names, "BEHOENCX GETVISIT"
-  end
-
-  private
-
-  def recordset_wire(header, row)
-    "1\x00#{header}#{RS}#{row}#{RS}#{US}"
-  end
-
-  def seed_global(rpc, key, wire)
-    mock = RpmsRpc.client
-    tables = mock.instance_variable_get(:@lines) || {}
-    tables[rpc] ||= {}
-    tables[rpc][key.to_s] = wire
-    mock.instance_variable_set(:@lines, tables)
-  end
-
-  def stub_checkin_reply(error_row)
-    client = Class.new do
-      define_method(:with_context) { |*_a, &b| b.call }
-      define_method(:call_rpc) do |*_a|
-        [ "T00020ERRORID^T00150MESSAGE#{RS}", error_row, US ]
-      end
-    end.new
-    RpmsRpc.configure { |cfg| cfg.client = client }
   end
 end

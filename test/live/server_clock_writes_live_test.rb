@@ -8,6 +8,8 @@ require "rpms_rpc/api/vital"
 require "rpms_rpc/api/encounter"
 require "rpms_rpc/api/measurement"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/api/agg"
+require "securerandom"
 
 # rpms-rpc#741: the write paths judge "today" and "the future" by the RPMS
 # server's clock (ORWU DT "NOW"), not by this process's.
@@ -22,9 +24,9 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # WRITES against a disposable local container only.
 class ServerClockWritesLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
-  APP_DFN = 990_010   # a synthetic seed patient (PatientApplicationLiveTest's)
   REG_DFN = 990_021   # a synthetic seed patient no other live spec writes to
   VITAL_DFN = 2
   LOCATION_IEN = 6
@@ -38,17 +40,20 @@ class ServerClockWritesLiveTest < LiveSpec::Test
     type = PA.types.find { |t| t[:name] == "MEDICAID FORM 100" }
     refute_nil type, "PATIENT APPLICATION TYPES has no MEDICAID FORM 100 (run openrpms SEEDAPPT)"
 
+    dfn = register_applicant!
+    assert_equal({ ".16" => "" }, fields("9000001", "#{dfn},", ".16"), "a patient registered just now has no .16 stamp yet")
+
     on_a_host_a_day_off do |today|
-      assert_equal :invalid, PA.add(APP_DFN, obtained: today + 1, type: type[:ien])[:error],
+      assert_equal :invalid, PA.add(dfn, obtained: today + 1, type: type[:ien])[:error],
                    "the server's tomorrow is in the future"
 
-      added = PA.add(APP_DFN, obtained: today, type: type[:ien], submitted: today, received_by: client.duz.to_i)
+      added = PA.add(dfn, obtained: today, type: type[:ien], submitted: today, received_by: client.duz.to_i)
       assert added[:success], "the server's today is not in the future: #{added.inspect}"
-      assert_equal({ ".03" => fm(today), ".16" => fm(today) }, fields("9000001", "#{APP_DFN},", ".03;.16"),
+      assert_equal({ ".03" => fm(today), ".16" => fm(today) }, fields("9000001", "#{dfn},", ".03;.16"),
                    "UPDATE1^AGED's stamp is the server's day")
 
-      assert_equal({ success: true, dated: true }, PA.update_status(APP_DFN, application: added[:application], status: "A"))
-      status = PA.for_patient(APP_DFN).find { |a| a[:ien] == added[:application] }[:submissions].first[:statuses].last
+      assert_equal({ success: true, dated: true }, PA.update_status(dfn, application: added[:application], status: "A"))
+      status = PA.for_patient(dfn).find { |a| a[:ien] == added[:application] }[:submissions].first[:statuses].last
       assert_equal({ date: today, status: "A" }, status.slice(:date, :status), "an omitted status date is the server's today")
     end
   end
@@ -99,6 +104,37 @@ class ServerClockWritesLiveTest < LiveSpec::Test
   end
 
   private
+
+  # A synthetic patient registered for this run, with no application yet.
+  # A patient holds one application per date obtained, and this spec must
+  # file on the server's today, so a fixed patient refused every later run on
+  # that container that day (#865). There is no supported patient-delete RPC:
+  # discard the container.
+  def register_applicant!
+    suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
+    attrs = { name_last: "ZZCLOCK#{suffix}", name_first: "DEMO", dob: free_birth_date(suffix), sex: "F", no_ssn_reason: "N" }
+    result = Reg.with_lookup_client(lookup_client) { Reg.register(attrs) }
+    assert result && result[:success], "could not register a synthetic applicant: #{result.inspect}"
+    assert_empty PA.for_patient(result[:dfn]), "a patient registered just now already has an application"
+    result[:dfn]
+  end
+
+  # A 1904 birth date no DEMO patient holds: AG's duplicate lookup matches a
+  # candidate on the date and first name.
+  def free_birth_date(suffix)
+    dob = Date.new(1904, 1 + rand(12), 1 + rand(28))
+    365.times do
+      found = RpmsRpc.with_client(lookup_client) do
+        RpmsRpc::Agg.registration_candidates("AGGPTLNM" => "ZZCLOCK#{suffix}", "AGGPTFNM" => "DEMO",
+                                             "AGGPTDOB" => dob.strftime("%m/%d/%Y"))
+      end
+      flunk "AG gave no answer looking up candidates for ZZCLOCK#{suffix}" if found.nil?
+      return dob if found.empty?
+
+      dob = dob.next_day
+    end
+    flunk "no free synthetic 1904 birth date for ZZCLOCK#{suffix}"
+  end
 
   def fm(date) = FM.to_fileman(date)
 

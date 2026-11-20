@@ -34,9 +34,20 @@ namespace :test do
     abort "rake test:live: #{error}" if error
     missing = LiveSpec.missing_env
     abort "rake test:live: #{LiveSpec.missing_env_message(missing)}" unless missing.empty?
+    error = LiveSpec.persona_error
+    abort "rake test:live: #{error}" if error
     ENV["LIVE_RUN"] = "1" # the summary fails a run in which no live spec ran
   end
   task live: :live_settings
+
+  # Which persona runs which live spec (#452), read from each spec's runs_as.
+  desc "List the live specs each persona runs (BROKER_PROTOCOL picks cia, xwb or bmx)"
+  task :live_personas do
+    LiveSpec.persona_plan(LiveSpec.protocol).each do |persona, files|
+      puts "#{persona} (#{files.size}): #{LiveSpec::PERSONAS.fetch(persona)}"
+      files.each { |f| puts "  #{f}" }
+    end
+  end
 end
 
 Dir.glob(File.expand_path("lib/tasks/*.rake", __dir__)).each { |r| load r }

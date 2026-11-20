@@ -14,6 +14,7 @@ require "rpms_rpc/api/ddr_fileman"
 # is on .01, the USER, and listed the highest DUZ first, missing a low DUZ
 # such as the operator's once other users had signed on.
 class SignonWorkstationLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   def test_the_sign_on_log_records_the_address_the_session_was_signed_on_from
     address = "198.51.100.#{rand(1..254)}"
     signed = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)

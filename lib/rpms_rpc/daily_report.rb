@@ -13,22 +13,37 @@ require_relative "core"
 # Orchestrator runs the suites through injected collaborators. The real
 # defaults — GitHub releases, a child process, the docker CLI, a CIA connect,
 # a loopback port, a file — are what Orchestrator.from_env wires in. Sign-on
-# codes are copied into one persona's `rake test:live` child and nowhere else.
+# codes, and the persona's optional signature code, are copied into that
+# persona's `rake test:live` child and nowhere else.
 # That child gets LIVE_DISPOSABLE=1 under FRESH=1, and otherwise only when the
 # operator set LIVE_DISPOSABLE=1. BROKER_PROTOCOL is copied there when set.
 # `rake test` receives none of those.
 module RpmsRpc
   module DailyReport
-    # Names whose values are sign-on codes. They are omitted from every string
-    # form of a child environment and scrubbed from reports, plans, and errors.
-    SIGN_ON_KEYS = %w[RPMS_ACCESS RPMS_VERIFY PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].freeze
-    LIVE_PERSONAS = %w[PROV123 SYS123].freeze
+    # Every persona a live spec runs as, in the order of LiveSpec::PERSONAS
+    # (test/live/live_env.rb, which the gem does not load). Each spec runs as
+    # the persona whose role it proves (#452), so the report runs the live
+    # suite once per persona (#815); a hermetic test fails when the two lists
+    # disagree.
+    LIVE_PERSONAS = %w[PROV123 PMD123 PREG123 PSCH123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
+    # Names whose values are sign-on codes, or electronic signature codes
+    # (#848). They are omitted from every string form of a child environment
+    # and scrubbed from reports, plans, and errors.
+    SIGN_ON_KEYS = (%w[RPMS_ACCESS RPMS_VERIFY RPMS_ESIG] +
+                    LIVE_PERSONAS.flat_map do |persona|
+                      [ "#{persona}_ACCESS", "#{persona}_VERIFY", "#{persona}_ESIG" ]
+                    end).freeze
     # The id each suite's log is filed and linked under (#757). Not the
-    # persona name: the demo access codes equal the persona names, so
-    # redaction would rewrite a name-keyed link and leave the file behind.
+    # persona name, so a link never depends on what redaction leaves of it.
     UNIT_SUITE_ID = "rake-test"
-    LIVE_SUITE_IDS = { "PROV123" => "rake-test-live-provider", "SYS123" => "rake-test-live-operator" }.freeze
+    LIVE_SUITE_IDS = {
+      "PROV123" => "rake-test-live-provider",
+      "PMD123" => "rake-test-live-physician",
+      "PREG123" => "rake-test-live-registration",
+      "PSCH123" => "rake-test-live-scheduling",
+      "SYS123" => "rake-test-live-operator"
+    }.freeze
     IMAGE_REPOSITORY = "ghcr.io/lakeraven/openrpms"
     OPS_RELEASES = "repos/lakeraven/openrpms/releases"
     CONTAINER_PORT = 9100
@@ -209,7 +224,13 @@ module RpmsRpc
         string = value.to_s
         # A blank code is "missing", not a secret to scrub. Scrubbing it would
         # eat the spaces that markdown uses between empty table cells.
-        string.strip.empty? ? nil : string
+        next if string.strip.empty?
+        # A demo access code is its persona's name (PMD123), which the report
+        # prints in every row and the plan; scrubbing it would leave five rows
+        # reading "[redacted]" and hide nothing. Verify codes are still scrubbed.
+        next if LIVE_PERSONAS.include?(string)
+
+        string
       end
       secrets.uniq.sort_by { |secret| -secret.length }.each do |secret|
         body = body.gsub(secret, "[redacted]")
@@ -393,13 +414,13 @@ module RpmsRpc
         )
       end
 
-      # Both live personas are always part of the run. An unset sign-on
+      # Every live persona is always part of the run. An unset sign-on
       # variable is nil, which is a missing pair, not a persona to skip.
       def self.persona_slots(env)
         filled = {}
         env.each { |key, value| filled[key.to_s] = value }
-        %w[PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].each do |key|
-          filled[key] = filled.fetch(key, nil)
+        LIVE_PERSONAS.each do |persona|
+          [ "#{persona}_ACCESS", "#{persona}_VERIFY" ].each { |key| filled[key] = filled.fetch(key, nil) }
         end
         filled
       end
@@ -547,7 +568,7 @@ module RpmsRpc
           release: #{latest[:tag]}
           bind: 127.0.0.1:#{port}:#{CONTAINER_PORT} 127.0.0.1:#{bmx_port}:#{BMX_CONTAINER_PORT}
           broker: 127.0.0.1:#{port} (BMX 127.0.0.1:#{bmx_port})
-          suites: rake test; rake test:live PERSONA=PROV123; rake test:live PERSONA=SYS123
+          suites: rake test; #{LIVE_PERSONAS.map { |persona| "rake test:live PERSONA=#{persona}" }.join('; ')}
         PLAN
       end
 
@@ -704,6 +725,9 @@ module RpmsRpc
         pairs["PERSONA"] = persona
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
+        # Only a signing persona needs one (PROV123, PMD123); its signing spec fails without it (#848, #851).
+        esig = @env["#{persona}_ESIG"].to_s
+        pairs["RPMS_ESIG"] = esig unless esig.strip.empty?
         pairs["VISTA_RPC_ENV"] = "development" if DEVELOPMENT_PERSONAS.include?(persona)
         pairs["LIVE_DISPOSABLE"] = "1" if enabled?("FRESH") || @env["LIVE_DISPOSABLE"].to_s.strip == "1"
         protocol = @env["BROKER_PROTOCOL"].to_s.strip

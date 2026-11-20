@@ -46,8 +46,11 @@ Coverage is reported per layer: accounted for, contract known, typed in the gem.
   runs them; `rake test` does not.
 - It asserts shape and invariants, not demo-data values. Data it needs, it
   makes through a registered RPC and removes afterwards.
-- It runs once per persona: the least-privilege PROV123 (the headline) and the
-  programmer SYS123. A spec binds the context the RPC's package serves it under.
+- It runs as the persona whose role it proves, with the least privilege that
+  role needs (`runs_as`, rpms-rpc#452, amended 2026-11-18); a run signs on as
+  one persona and runs that persona's specs, and what a persona is refused
+  outside its role is proven by `least_privilege_live_test.rb`. A spec binds
+  the context the RPC's package serves it under.
 - A spec that writes declares so, and fails closed unless the target is
   declared disposable and on this machine.
 - A run speaks one broker line, `BROKER_PROTOCOL=cia` (the default) or `xwb`.

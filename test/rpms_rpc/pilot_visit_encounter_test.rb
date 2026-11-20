@@ -18,7 +18,7 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
   VISIT_ENCOUNTER_SLICE = [
     { rpc: "BEHOENCX GETVISIT", mapping: :encounter_visit, kind: "fields", inputs: [ "1" ] },
     { rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields",
-      inputs: [ "2", "6;3260825.09;A;1", "", "0" ] },
+      inputs: [ "2", "10;3260825.09;A;1", "", "0" ] },
     { rpc: "BEHOENCX CHKVISIT", mapping: :encounter_chkvisit, kind: "fields", inputs: [ "1" ] }
   ].freeze
 
@@ -333,19 +333,25 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     assert self.class.locked_observed_both_ways?(mapping, both, :locked)
   end
 
-  # Intent: write paths stay not-proven with named seed gaps (PROV123 division / AMHG activity type).
-  def test_pilot_checklist_write_rows_document_seed_gaps
+  # Intent: the visit create is graded on the pilot persona's live create (#798), and the
+  # AMHG write stays not-proven with its named API gap (activity type).
+  def test_pilot_checklist_write_rows_grade_the_pilot_persona
     rows = parse_checklist
     WRITE_CHECKLIST_RPCS.each do |rpc|
       refute_nil rows[rpc], "checklist must list #{rpc}"
     end
 
+    # PROV123's create files a visit on bcer-9.0-20261116-2a9b3fe-ydb
+    # (test/live/encounter_visit_live_test.rb, run as PROV123): the visit IEN is
+    # proven; locked and visit_id are not asserted by that spec.
     fetch_row = rows["BEHOENCX FETCH CREATE=1"]
-    assert_equal "not-proven", fetch_row[:status]
+    assert_equal "partial", fetch_row[:status]
     assert_match(/PROV123/, fetch_row[:reason])
-    assert_match(/TYPE OF VISIT MISSING/i, fetch_row[:reason])
-    assert_match(/SYS123/, fetch_row[:reason])
-    assert_includes fetch_row[:unproven], "visit_ien"
+    assert_match(/bcer-9\.0-20261116-2a9b3fe-ydb/, fetch_row[:reason])
+    refute_match(/replies "Error Creating Visit"/, fetch_row[:reason],
+                 "the PROV123 refusal is history on the graded build, not its current reply")
+    refute_includes fetch_row[:unproven], "visit_ien"
+    assert_includes fetch_row[:unproven], "locked"
 
     amhg_row = rows["AMHG CREATE/EDIT VISIT"]
     assert_equal "not-proven", amhg_row[:status]

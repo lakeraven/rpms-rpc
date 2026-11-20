@@ -4,7 +4,7 @@ require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc"
 require "rpms_rpc/api/authentication"
-require "rpms_rpc/mock_client"
+require_relative "captured_replies"
 
 # The broker protocol is a bare request/response stream with no per-message
 # correlation id: whoever reads next gets whatever the socket has. `RpmsRpc.client`
@@ -88,16 +88,16 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   # The multi-RPC sign-on sequence (XUS SIGNON SETUP -> XUS AV CODE ->
   # XUS GET USER INFO) must not interleave with another sign-on either: a
   # per-call lock alone still lets B's AV CODE land between A's AV CODE and
-  # A's user lookup, so A gets B's name.
+  # A's user lookup, so A gets B's name. Both sign-ons replay the BMX frames
+  # the build sent for PROFILE,MD (authentication.yml, flow signon).
   def test_signon_sequence_is_serialized_against_a_concurrent_signon
     RpmsRpc::Authentication.clear_cache!
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:signon_setup, "", "OK")
-      m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA", role: :provider)
-    end
+    script = CapturedReplies.flow_script("authentication", "signon").transform_values { |frames| frames * 2 }
+    client = CapturedReplies::ReplayBmxClient.new(script)
+    RpmsRpc.configure { |c| c.client = client }
 
     order = Queue.new
-    RpmsRpc.client.define_singleton_method(:call_rpc) do |rpc_name, *params|
+    client.define_singleton_method(:call_rpc) do |rpc_name, *params|
       order << [ Thread.current[:lane], rpc_name ]
       sleep 0.02
       super(rpc_name, *params)
@@ -106,10 +106,10 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     threads = %i[a b].map do |lane|
       Thread.new do
         Thread.current[:lane] = lane
-        RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "AAA1")
+        RpmsRpc::Authentication.authenticate(access_code: "PMD123", verify_code: "PMD123!!")
       end
     end
-    threads.each(&:join)
+    results = threads.map(&:value)
 
     lanes = []
     lanes << order.pop until order.empty?
@@ -117,6 +117,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
 
     assert_equal 2, runs.length,
       "a second sign-on interleaved into the first — each lane must be one unbroken run: #{lanes.inspect}"
+    assert_equal [ "PROFILE,MD", "PROFILE,MD" ], results.map { |r| r[:name] }
   ensure
     RpmsRpc::Authentication.clear_cache!
     RpmsRpc.reset!
@@ -222,7 +223,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     # inside exchange's per-frame lock, so it can never widen that gap: without
     # this hook the outer `synchronize_wire` can be deleted outright and these
     # assertions still pass, which makes them evidence for nothing.
-    client.define_singleton_method(:signon_duz) do
+    client.define_singleton_method(:signon_identity) do
       sleep 0.05 # let the other lane's AUTH land here, if anything lets it
       super()
     end

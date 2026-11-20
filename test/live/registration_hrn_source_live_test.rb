@@ -11,6 +11,7 @@ require "securerandom"
 # patients on a disposable container; there is no supported patient-delete
 # RPC, so discard the container afterwards.
 class RegistrationHrnSourceLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   # A synthetic name on a 1903 birth date no patient has: AG's duplicate

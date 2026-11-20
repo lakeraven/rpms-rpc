@@ -10,6 +10,7 @@ require "rpms_rpc/api/ddr_fileman"
 # #44.003 field 3) and a cancellation's remarks (#2.98 field 17) through DDR
 # FILER, read back from FileMan.
 class SchedulingEditAppointmentLiveTest < LiveSpec::Test
+  runs_as "PSCH123"
   writes!
 
   PATIENT = 3

@@ -1,0 +1,62 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb e-signature-clinician.rb.
+---
+rpc: TIU SIGN RECORD
+entry_point: SIGN^TIUSRVP
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, the staging demo pair; DUZ 200), the note's
+  author
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:00:59Z'
+note: Setup files one unsigned note with text; each capture's inputs name the IEN
+  TIU CREATE RECORD returned. The signature code crosses the wire XWB-encrypted with
+  a random row pair, so it is withheld. Synthetic text only.
+captures:
+- name: fields_unsigned
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '8925'
+    IENS: 13,
+    FIELDS: ".05;1501;1502"
+    FLAGS: IE
+  context: the filed note's status, signature date/time and signer before any sign
+  raw_return: "7\0[Data]\r8925^13^.05^5^UNSIGNED\r8925^13^1501^^\r8925^13^1502^^\r"
+  sha256: 96282d6bdb65b52ed3f826cf786658a2be0771fa7f804c5352f2e886dc624c17
+- name: sign_wrong_code
+  inputs:
+  - '13'
+  - "<a code the author does not hold, encrypted; withheld>"
+  context: the author signs with a code that is not theirs
+  raw_return: "8\089250005^You have entered an incorrect Electronic Signature Code...Try
+    again!"
+  sha256: fd222bfec363964f7780d94796be8e33d10f4140f878a4f943e1ede384417049
+- name: fields_after_wrong_code
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '8925'
+    IENS: 13,
+    FIELDS: ".05;1501;1502"
+    FLAGS: IE
+  context: the same fields once the wrong code was refused
+  raw_return: "9\0[Data]\r8925^13^.05^5^UNSIGNED\r8925^13^1501^^\r8925^13^1502^^\r"
+  sha256: 5a5030798b9fdbe563fc82e3f048c0cb981be8b64b39168fadc3e35e320c773c
+- name: sign
+  inputs:
+  - '13'
+  - "<the author's demo signature code, encrypted; withheld>"
+  context: the author signs with the code SEEDPERS files for PROVIDER,TEST
+  raw_return: "1\00"
+  sha256: ee3d96c33ea92b08916ea5544f876b971831bf03f0a280f8e781e5c0fd444382
+- name: fields_signed
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '8925'
+    IENS: 13,
+    FIELDS: ".05;1501;1502"
+    FLAGS: IE
+  context: the same fields once the note is signed
+  raw_return: "2\0[Data]\r8925^13^.05^7^COMPLETED\r8925^13^1501^3261120.030059^NOV
+    20, 2026@03:00:59\r8925^13^1502^200^PROVIDER,TEST\r"
+  sha256: a1657f846759b3d3c956134390b760f67a088c7d1932a3e5ddb3691d6ab92ccc

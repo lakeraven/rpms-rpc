@@ -1,0 +1,81 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb agg-stock.rb.
+---
+rpc: AGG CHECK SENSITIVE PATIENT
+entry_point: CHK^AGGPTSEN
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:32:21Z'
+note: Run on a throwaway container. Before the run, DFN 990028 was made a sensitive
+  record (#38.1 SECURITY LEVEL 1) through stock UPDATE^DIE; the build ships none.
+captures:
+- name: sensitive/1
+  rpc: AGG CHECK SENSITIVE PATIENT
+  inputs:
+  - '990028'
+  context: check_sensitive_patient for DFN 990028, a sensitive record
+  raw_return: "5\0T00001SENSITIVE_INDICATOR\x1E2\x1E"
+  sha256: a7bca8ffaf0506e089f32ec3e6d18b4ebf9c3b3d3b60cadb096e870d4a64eea5
+- name: not_sensitive/1
+  rpc: AGG CHECK SENSITIVE PATIENT
+  inputs:
+  - '990031'
+  context: check_sensitive_patient for DFN 990031
+  raw_return: "5\0T00001SENSITIVE_INDICATOR\x1E0\x1E"
+  sha256: ec9c4bdcd53a5b714ffe57ef328bf629c23e310eff332d1f74f7311bdbf4b216
+- name: not_on_file/1
+  rpc: AGG CHECK SENSITIVE PATIENT
+  inputs:
+  - '999999999'
+  context: check_sensitive_patient for DFN 999999999, which no patient has
+  raw_return: "5\0T00001SENSITIVE_INDICATOR\x1E0\x1E"
+  sha256: ec9c4bdcd53a5b714ffe57ef328bf629c23e310eff332d1f74f7311bdbf4b216
+- name: notify/1
+  rpc: AGG SEND SENSITIVE NOTIFY
+  inputs:
+  - '990028'
+  context: send_sensitive_notify for DFN 990028
+  raw_return: "5\0I00010RESULT\x1E1\x1E"
+  sha256: cfac0040b789497be237f455a4a6d74c439a520c5c1b636ee9bef97573ec4812
+- name: notify_not_on_file/1
+  rpc: AGG SEND SENSITIVE NOTIFY
+  inputs:
+  - '999999999'
+  context: send_sensitive_notify for DFN 999999999, which no patient has
+  raw_return: "5\0I00010RESULT\x1E1\x1E"
+  sha256: cfac0040b789497be237f455a4a6d74c439a520c5c1b636ee9bef97573ec4812
+- name: error_screen_one/1
+  rpc: AGG ERROR SCREEN
+  inputs:
+  - '37'
+  context: error_screen for error 37
+  raw_return: "5\0I00010ERROR_NUM^T00030WINDOW^T00008FIELD\x1E"
+  sha256: cd38e7e8dbfddf20a56405d01019196ed25c9688801e4a3c3c89e1c0332801eb
+- name: error_screen_all/1
+  rpc: AGG ERROR SCREEN
+  inputs:
+  - ''
+  context: error_screen with no error number
+  raw_return: "5\0I00010ERROR_NUM^T00030WINDOW^T00008FIELD\x1E"
+  sha256: cd38e7e8dbfddf20a56405d01019196ed25c9688801e4a3c3c89e1c0332801eb
+- name: edit_check/1
+  rpc: AGG PATIENT EDIT CHECK
+  inputs:
+  - '990031'
+  context: edit_check for DFN 990031
+  raw_return: "5\0I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE^T00030HIDE_WINDOW^T00008HIDE_FIELD^T00050HIDE_TAB^T00001HIDE_KEY\x1E37^INTERNET
+    ACCESS INFORMATION PAST ONE YEAR^WARNING^Other Patient^AGGINTNT^OtherPatientData^O\x1E39^Patient's
+    Migrant Worker information incomplete^WARNING^Other Patient^AGGMGSTS^OtherPatientData^O\x1E40^Patient's
+    Homeless information incomplete^WARNING^Other Patient^AGGHMSTS^OtherPatientData^O\x1E41^Patient's
+    Primary Language, Proficiency or Interpreter Required incomplete^WARNING^Other
+    Patient^AGGLGPRI^OtherPatientData^O\x1E49^Patient's Preferred Language incomplete
+    or not in patient's list of languages^ERROR^Other Patient^AGGLGPRF^OtherPatientData^O\x1E51^Patient's
+    Ethnicity/Method of Collection incomplete^ERROR^Other Patient^AGETH^OtherPatientData^O\x1E52^Patient's
+    RACE incomplete^ERROR^Other Patient^AGRACE^OtherPatientData^O\x1E55^Advance Directives
+    missing^WARNING^^^^\x1E56^NPP received by patient information is missing^WARNING^^^^\x1E804^missing
+    or unspecified TRIBE^MANDATORY^Eligibility^AGGPTTRI^FamilyDetail^B\x1E806^missing
+    CURRENT COMMUNITY^MANDATORY^Address^AGGPTCOM^Demographics^A\x1E"
+  sha256: 3e7b4170f3ff057e1609b1cc3ecdfec49cfaa3365f71f6e47fb2798c801ea4c8

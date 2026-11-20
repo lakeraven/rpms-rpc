@@ -20,6 +20,7 @@ require "rpms_rpc/api/ddr_fileman"
 # date in a window no other spec files in (2001 and 2002), and a rerun files
 # only the ones not already on file, so the answer for the window is known.
 class ReferralPendingLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   REFERRAL_FILE = "90001"

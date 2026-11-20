@@ -9,6 +9,7 @@ require "rpms_rpc/api/health_summary"
 # #662 the gem sent report 1 with an invented type IEN, which the build ran
 # as a VA type and faulted on. The spec reads only.
 class HealthSummaryLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DFN = 4 # DEMO,PATIENT ONE
 
   def test_the_site_lists_ihs_summary_types_with_their_iens

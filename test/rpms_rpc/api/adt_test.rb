@@ -2,151 +2,140 @@
 
 require "minitest/autorun"
 require "date"
-require "rpms_rpc/mappings"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/adt"
+require_relative "../captured_replies"
 
-# Tests for RpmsRpc::Adt — the ADT/patient-movement read surface (ORWPT over
-# ^DGPM). The broker is mocked. There is no stock movement-WRITE RPC; ADT writes
-# for the reg/sched twin (lakeraven-ehr#412 scenario #15) await a new FileMan-
-# safe server RPC (openrpms#371), so only reads are wrapped here.
+# Tests for RpmsRpc::Adt's ORWPT reads over ^DGPM: admissions, current_location
+# and discharge_datetime. Each replays a reply the build sent as PROVIDER,TEST
+# on a throwaway container where DFN 4 was admitted (3261110.083022) and
+# discharged (3261112.1, 10:00), and DFN 990013 admitted and still in, through
+# stock $$ADD^BDGAPI (test/fixtures/captured_replies/adt-reads.yml). There is no
+# stock movement-WRITE RPC; ADT writes for the reg/sched twin (lakeraven-ehr#412
+# scenario #15) await a new FileMan-safe server RPC (openrpms#371), so only reads
+# are wrapped here.
 class AdtTest < Minitest::Test
-  ADMIT_T = Time.new(2026, 7, 1, 14, 30, 0)
-  ADMIT_FM = RpmsRpc::FilemanDateParser.format_datetime(ADMIT_T)
-
-  def setup
-    RpmsRpc.mock!
-  end
+  SLUG = "adt-reads"
+  ADMITTED = Time.new(2026, 11, 10, 8, 30, 22)
 
   def teardown
     RpmsRpc.reset!
   end
 
-  # ---- admissions ----------------------------------------------------------
-
-  def test_admissions_returns_movements
-    RpmsRpc.client.seed_collection(:patient_admissions, [
-      { movement_datetime: ADMIT_T, location_ien: 44, location: "3 WEST",
-        movement_type: "ADMISSION", movement_ien: 900, tiu_document_ien: 0 }
-    ])
-
-    moves = RpmsRpc::Adt.admissions(100)
-
-    assert_equal 1, moves.size
-    assert_equal 44, moves.first[:location_ien]
-    assert_equal "ADMISSION", moves.first[:movement_type]
-    assert_equal "ORWPT ADMITLST", RpmsRpc.client.received_calls.last[:rpc]
-    assert_equal [ "100" ], RpmsRpc.client.received_calls.last[:params]
+  # A client that answers rpc with the named capture(s) of slug, and nothing else.
+  def replay(rpc, *names, slug: SLUG)
+    @client = CapturedReplies::ReplayCiaClient.new(rpc => names.map { |n| CapturedReplies.raw(slug, n) })
+    RpmsRpc.configure { |cfg| cfg.client = @client }
   end
 
-  def test_admissions_returns_empty_for_invalid_dfn
+  def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  # ---- admissions ----------------------------------------------------------
+
+  def test_admissions_returns_each_admission_movement
+    replay("ORWPT ADMITLST", "admitlst_one_stay")
+
+    assert_equal [
+      { movement_datetime: ADMITTED, location_ien: 16, location: "DEMO WARD", movement_type: "DIRECT",
+        movement_ien: 1, tiu_document_ien: 0 }
+    ], RpmsRpc::Adt.admissions(4)
+    assert_equal [ [ "ORWPT ADMITLST", [ "4" ] ] ], sent
+  end
+
+  def test_admissions_is_empty_for_a_patient_never_admitted
+    replay("ORWPT ADMITLST", "admitlst_no_stay")
+
+    assert_equal [], RpmsRpc::Adt.admissions(990_012)
+  end
+
+  def test_admissions_returns_empty_for_invalid_dfn_and_sends_nothing
+    replay("ORWPT ADMITLST")
+
     assert_equal [], RpmsRpc::Adt.admissions(nil)
     assert_equal [], RpmsRpc::Adt.admissions(0)
+    assert_empty sent
   end
 
   # ---- current_location ----------------------------------------------------
 
   def test_current_location_returns_ward_when_admitted
-    RpmsRpc.client.seed(:patient_current_location, "100",
-                        { location_ien: 44, ward: "3 WEST", ward_synonym: "3W" })
+    replay("ORWPT INPLOC", "inploc_admitted")
 
-    loc = RpmsRpc::Adt.current_location(100)
-
-    refute_nil loc
-    assert_equal 44, loc[:location_ien]
-    assert_equal "3 WEST", loc[:ward]
+    assert_equal({ location_ien: 16, ward: "DEMO WARD", ward_synonym: "M" }, RpmsRpc::Adt.current_location(990_013))
+    assert_equal [ [ "ORWPT INPLOC", [ "990013" ] ] ], sent
   end
 
+  # INPLOC^ORWPT answers "0^^" for a patient who is not an inpatient, whether
+  # discharged or never admitted.
   def test_current_location_nil_when_not_inpatient
-    # ORWPT INPLOC returns a leading 0 when the patient is not admitted.
-    RpmsRpc.client.seed(:patient_current_location, "100",
-                        { location_ien: 0, ward: "", ward_synonym: "" })
+    replay("ORWPT INPLOC", "inploc_discharged", "inploc_never_admitted")
 
-    assert_nil RpmsRpc::Adt.current_location(100)
+    assert_nil RpmsRpc::Adt.current_location(4)
+    assert_nil RpmsRpc::Adt.current_location(990_012)
   end
 
   def test_current_location_nil_for_invalid_dfn
+    replay("ORWPT INPLOC")
+
     assert_nil RpmsRpc::Adt.current_location(nil)
+    assert_empty sent
   end
 
-  # Regression: INPLOC^ORWPT emits "0^MED WARD^MW" for an ADMITTED patient
-  # whose ward has no 44-node HOSPITAL LOCATION link (ORWPT.m:222-227 — REC
-  # starts at 0 and only the linked-location piece stays 0; pieces 2-3 still
-  # carry the ward). Testing only the leading piece read those inpatients as
-  # "not admitted". Not-admitted is "0^^" (pieces 2-3 empty).
+  # Regression: INPLOC^ORWPT starts REC at 0 and only the HOSPITAL LOCATION
+  # piece stays 0 when the ward has no 44-node link, so an ADMITTED patient on
+  # an unlinked ward reads "0^DEMO WARD^M" (captured after that link was
+  # cleared, adt-reads-unlinked-ward.yml). Testing only the leading piece read
+  # those inpatients as "not admitted".
   def test_current_location_admitted_on_unlinked_ward_regression
-    RpmsRpc.client.seed(:patient_current_location, "100",
-                        { location_ien: 0, ward: "MED WARD", ward_synonym: "MW" })
+    replay("ORWPT INPLOC", "inploc_admitted_unlinked_ward", slug: "adt-reads-unlinked-ward")
 
-    loc = RpmsRpc::Adt.current_location(100)
+    loc = RpmsRpc::Adt.current_location(990_013)
 
     refute_nil loc, "0^name^synonym is an admitted patient on an unlinked ward"
-    assert_nil loc[:location_ien], "no 44-node link -> no hospital-location IEN"
-    assert_equal "MED WARD", loc[:ward]
-    assert_equal "MW", loc[:ward_synonym]
+    assert_equal({ location_ien: nil, ward: "DEMO WARD", ward_synonym: "M" }, loc)
   end
 
   # ---- discharge_datetime --------------------------------------------------
 
-  def test_discharge_datetime_parses_fileman
-    discharge = Time.new(2026, 7, 5, 11, 0, 0)
-    RpmsRpc.client.seed_scalar(:patient_discharge, "100",
-                               RpmsRpc::FilemanDateParser.format_datetime(discharge))
+  # Regression: the routine returns +VAIP(17,1), and unary + drops trailing
+  # zeros, so a 10:00 discharge arrives as "3261112.1". The odd-length time
+  # part once parsed nil, reading a REAL discharge as no-data.
+  def test_discharge_datetime_parses_the_plus_truncated_discharge
+    replay("ORWPT DISCHARGE", "discharge_on_file")
 
-    result = RpmsRpc::Adt.discharge_datetime(100, ADMIT_T)
-
-    assert_equal 2026, result.year
-    assert_equal 7, result.month
-    assert_equal 5, result.day
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "ORWPT DISCHARGE", call[:rpc]
-    assert_equal [ "100", ADMIT_FM ], call[:params]
+    assert_equal Time.new(2026, 11, 12, 10, 0, 0), RpmsRpc::Adt.discharge_datetime(4, ADMITTED)
+    assert_equal [ [ "ORWPT DISCHARGE", [ "4", "3261110.083022" ] ] ], sent
   end
 
   def test_discharge_datetime_nil_for_invalid_dfn
-    assert_nil RpmsRpc::Adt.discharge_datetime(0, ADMIT_T)
+    replay("ORWPT DISCHARGE")
+
+    assert_nil RpmsRpc::Adt.discharge_datetime(0, ADMITTED)
+    assert_empty sent
   end
 
-  # Regression pin: DISCHRG^ORWPT returns bare DT — TODAY, date-only — on
-  # every miss (unknown admission: ORWPT.m:205; admission without a
-  # discharge: ORWPT.m:207). It cannot say "not found", so a date-only reply
-  # is the routine's no-data sentinel and must read as nil, never as a
-  # discharge at midnight today.
+  # DISCHRG^ORWPT returns bare DT, today date-only, on every miss: an admission
+  # not yet discharged, and a datetime that is no admission. It cannot say "not
+  # found", so a date-only reply is the no-data sentinel and reads as nil, never
+  # as a discharge at midnight today.
   def test_discharge_datetime_nil_on_date_only_dt_sentinel
-    RpmsRpc.client.seed_scalar(:patient_discharge, "100", "3260906")
+    replay("ORWPT DISCHARGE", "discharge_still_in", "discharge_unknown_admission")
 
-    assert_nil RpmsRpc::Adt.discharge_datetime(100, ADMIT_T)
-  end
-
-  # Regression: the routine returns +VAIP(17,1), and unary + drops trailing
-  # zeros — 10:00 arrives as "3260705.1" (ORWPT.m:208-209). The odd-length
-  # time part parsed nil, reading a REAL discharge as no-data.
-  def test_discharge_datetime_parses_plus_truncated_time_regression
-    RpmsRpc.client.seed_scalar(:patient_discharge, "100", "3260705.1")
-
-    result = RpmsRpc::Adt.discharge_datetime(100, ADMIT_T)
-
-    refute_nil result, "\"3260705.1\" is 2026-07-05 10:00, not a miss"
-    assert_equal Time.new(2026, 7, 5, 10, 0, 0), result
+    assert_nil RpmsRpc::Adt.discharge_datetime(990_013, Time.new(2026, 11, 15, 9, 0, 0))
+    assert_nil RpmsRpc::Adt.discharge_datetime(4, Time.new(2026, 11, 10, 8, 30, 0))
+    assert_equal [ [ "ORWPT DISCHARGE", [ "990013", "3261115.0900" ] ],
+                   [ "ORWPT DISCHARGE", [ "4", "3261110.0830" ] ] ], sent
   end
 
   # Regression: DateTime < Date in Ruby, so a `when Date` branch listed before
-  # `when Time` formatted DateTime admit datetimes date-only — DISCHRG^ORWPT
-  # then can't find the admission (it keys on the exact movement datetime).
-  def test_discharge_datetime_formats_datetime_admit_with_time_regression
-    RpmsRpc::Adt.discharge_datetime(100, DateTime.new(2026, 7, 1, 14, 30, 0))
+  # `when Time` formatted DateTime admit datetimes date-only, and DISCHRG^ORWPT
+  # then cannot find the admission (it keys on the exact movement datetime,
+  # stored to the second).
+  def test_discharge_datetime_formats_a_datetime_admit_to_the_second_regression
+    replay("ORWPT DISCHARGE", "discharge_on_file")
 
-    call = RpmsRpc.client.received_calls.last
-    assert_equal [ "100", ADMIT_FM ], call[:params],
-                 "DateTime admit must format as FileMan date.time, not date-only"
-  end
-
-  # A movement datetime stored to the second (^DGPM stores HHMMSS) must
-  # round-trip through Time without truncating the seconds.
-  def test_discharge_datetime_preserves_seconds_in_admit_param
-    RpmsRpc::Adt.discharge_datetime(100, Time.new(2026, 7, 1, 14, 30, 22))
-
-    assert_equal [ "100", "3260701.143022" ],
-                 RpmsRpc.client.received_calls.last[:params]
+    assert_equal Time.new(2026, 11, 12, 10, 0, 0),
+                 RpmsRpc::Adt.discharge_datetime(4, DateTime.new(2026, 11, 10, 8, 30, 22))
+    assert_equal [ [ "ORWPT DISCHARGE", [ "4", "3261110.083022" ] ] ], sent
   end
 end

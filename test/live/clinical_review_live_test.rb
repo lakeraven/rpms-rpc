@@ -15,6 +15,7 @@ require "rpms_rpc/fileman_date_parser"
 #
 # WRITES against a disposable local container only.
 class ClinicalReviewLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 2

@@ -11,6 +11,7 @@ require "rpms_rpc/api/coverage"
 #
 # Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
 class CoveragePrivateUnknownInsurerLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   DFN = 990_051 # unused by other live specs

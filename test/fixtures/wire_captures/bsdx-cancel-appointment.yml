@@ -5,14 +5,14 @@
 rpc: BSDX CANCEL APPOINTMENT
 mapping: scheduling_cancel_appointment
 kind: fields
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T08:06:41Z'
-signed_on_as: PROV123
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+captured_at: '2026-11-18T18:01:00Z'
+signed_on_as: PSCH123
 cite: 'APPDEL^BSDX08 (BSDX08.m:109) → $$CANCEL^BSDAPI (BSDAPI.m:199-204): the data
   row is the ERRORID column, and empty means the call was accepted. A blank reason
   files 14. The ^DPT update is skipped when the node is missing, so an empty ERRORID
   is not proof.'
-note: 'Cancelled as PROV123 with type PC and a coded #409.2 reason. The reply is an
+note: 'Cancelled as PSCH123 with type PC and a coded #409.2 reason. The reply is an
   empty ERRORID row (no-data) and proves nothing; #2.98 field 16 is the proof, and
   it is unproven when the sent reason is blank or 14.'
 pieces:
@@ -37,18 +37,18 @@ api_call:
     type: PC
     note: pilot live capture
 setup:
-  resource_ien: 1
+  resource_ien: 7
   hospital_location_id: 3
   duz:
     SYS123: 4
-    PROV123: 200
+    PSCH123: 208
   division:
     SYS123: 7819
-    PROV123: 1
+    PSCH123: 7819
   medical_center_division_institutions:
   - 7819
   notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
-    1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
+    7); file room printer already set on every BSD PARAMETERS entry
 read_back:
 - rpc: DDR GETS ENTRY DATA
   inputs:
@@ -56,16 +56,16 @@ read_back:
     IENS: 2,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "1\0[Data]\r9002018.4^2^.01^3261126.0945^\r9002018.4^2^.03^^\r9002018.4^2^.05^3^\r9002018.4^2^.07^1^\r9002018.4^2^.1^^\r9002018.4^2^.12^3261105.0806^\r"
-  sha256: 18245e45093029bb4b35358a18d839a553da0b557311426d01bbf30487ab4889
+  raw_return: "1\0[Data]\r9002018.4^2^.01^3261209.0945^\r9002018.4^2^.03^^\r9002018.4^2^.05^3^\r9002018.4^2^.07^7^\r9002018.4^2^.1^^\r9002018.4^2^.12^3261118.1801^\r"
+  sha256: 7fb95dfc529ae5d241e28c79f04f48fc0cd6b374f051e89ff03671922fd7e4d3
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
-    IENS: 3261126.0945,3,
+    IENS: 3261209.0945,3,
     FIELDS: ".01;3;14;16"
     FLAGS: I
-  raw_return: "2\0[Data]\r2.98^3261126.0945,3^.01^3^\r2.98^3261126.0945,3^3^PC^\r2.98^3261126.0945,3^14^200^\r2.98^3261126.0945,3^16^5^\r"
-  sha256: 4c7068a0bd21188003b5f82bff296991609203707ab8e082c9ca6bc067e03947
+  raw_return: "2\0[Data]\r2.98^3261209.0945,3^.01^3^\r2.98^3261209.0945,3^3^PC^\r2.98^3261209.0945,3^14^208^\r2.98^3261209.0945,3^16^5^\r"
+  sha256: 1c111bff7df8d9b8a60a86ed9a768faef1ca147c6a33e94ce95f6fe1c12a3385
 read_before:
 - rpc: DDR GETS ENTRY DATA
   inputs:
@@ -73,13 +73,13 @@ read_before:
     IENS: 2,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "7\0[Data]\r9002018.4^2^.01^3261126.0945^\r9002018.4^2^.03^^\r9002018.4^2^.05^3^\r9002018.4^2^.07^1^\r9002018.4^2^.1^^\r9002018.4^2^.12^^\r"
-  sha256: 22d4675d2df1ea6a03c168668aaae23276769a80aabf5e5afafb949710c2ce9d
+  raw_return: "7\0[Data]\r9002018.4^2^.01^3261209.0945^\r9002018.4^2^.03^^\r9002018.4^2^.05^3^\r9002018.4^2^.07^7^\r9002018.4^2^.1^^\r9002018.4^2^.12^^\r"
+  sha256: cd59221c0123ff9b3f784fdd5bf5ff5d47c451861a5103dacdd7378c4fab8025
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
-    IENS: 3261126.0945,3,
+    IENS: 3261209.0945,3,
     FIELDS: ".01;3;14;16"
     FLAGS: I
-  raw_return: "8\0[Data]\r2.98^3261126.0945,3^.01^3^\r2.98^3261126.0945,3^3^^\r2.98^3261126.0945,3^14^^\r2.98^3261126.0945,3^16^^\r"
-  sha256: dd01f805faa59b6c7334450a47f5c040f7c3741f34f63c8fe62c2e25b9f79492
+  raw_return: "8\0[Data]\r2.98^3261209.0945,3^.01^3^\r2.98^3261209.0945,3^3^^\r2.98^3261209.0945,3^14^^\r2.98^3261209.0945,3^16^^\r"
+  sha256: bff45bab3f7098669bf6b48483667e80f64a5deec468fdb42895b09b3aed3f00

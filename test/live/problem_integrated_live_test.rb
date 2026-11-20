@@ -20,6 +20,7 @@ require "rpms_rpc/api/problem"
 #
 # WRITES against a disposable local container only.
 class ProblemIntegratedLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 990_046 # VANTAGE,TAYLOR, a synthetic seed patient; unused by other live specs

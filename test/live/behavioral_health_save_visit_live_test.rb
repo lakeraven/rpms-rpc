@@ -10,6 +10,8 @@ require "rpms_rpc/fileman_date_parser"
 # rpms-rpc#536). Files BH VISIT (#9002011) only — not a PCC visit. WRITES
 # against a disposable local container only.
 class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
+  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   writes!
 
   # Synthetic seed patient; not used by other live write specs (see test/live/*write*).

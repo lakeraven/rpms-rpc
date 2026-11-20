@@ -20,6 +20,7 @@ require "rpms_rpc/data_mapper"
 # Needs the BMXRPC context (BMX SQL is registered there). Reads only.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxReplyParsingLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   broker :bmx
 
   CONTEXT = "BMXRPC"

@@ -15,6 +15,8 @@ end
 # RpmsRpc::BehavioralHealth::Wellness — AMHG SAVE SCREENING and AMHG SAVE
 # MEASUREMENTS (rpms-rpc#540). WRITES on a disposable local container only.
 class BehavioralHealthWellnessLiveTest < LiveSpec::Test
+  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   writes!
 
   DFN = 990_045

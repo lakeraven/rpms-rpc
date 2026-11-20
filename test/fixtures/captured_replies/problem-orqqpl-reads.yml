@@ -1,0 +1,135 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb problem-orqqpl-reads.rb.
+---
+rpc: ORQQPL PROBLEM LEX SEARCH
+entry_point: LEXSRCH^ORQQPL1
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:18:56Z'
+note: 'Setup files one problem for synthetic DFN 990055 (Problem.add: ICD F32.9, location
+  7819), removes it (ORQQPL DELETE, reason ''Entered in error'') and puts it back
+  (ORQQPL REPLACE). Problem 1 is seed patient DFN 2''s, with no history or notes.'
+captures:
+- name: lex_search/1
+  rpc: ORQQPL PROBLEM LEX SEARCH
+  inputs:
+  - diabetes
+  context: 'lex_search for ''diabetes'': 100 Lexicon rows and the match count'
+  raw_return: "5\033570^Diabetes^^^\r33572^Diabetes Insipidus^^^\r273288^Neonatal
+    diabetes mellitus^^^\r5015616^Nephrogenic Diabetes Insipidus^^^\r5063379^Family
+    History of Diabetes Mellitus^^^\r5002616^Type 1 Diabetes Mellitus with Foot Ulcer^^^\r5002656^Type
+    2 Diabetes Mellitus with Foot Ulcer^^^\r5063468^Personal History of Gestational
+    Diabetes^^^\r5002623^Type 1 Diabetes Mellitus with Hyperglycemia^^^\r5002663^Type
+    2 Diabetes Mellitus with Hyperglycemia^^^\r5016289^Unspecified Diabetes Mellitus
+    in Childbirth^^^\r5062700^Encounter for Screening for Diabetes Mellitus^^^\r5002617^Type
+    1 Diabetes Mellitus with other Skin Ulcer^^^\r5002626^Type 1 Diabetes Mellitus
+    without Complications^^^\r5002657^Type 2 Diabetes Mellitus with other Skin Ulcer^^^\r5002666^Type
+    2 Diabetes Mellitus without Complications^^^\r5002602^Type 1 Diabetes Mellitus
+    with Diabetic Cataract^^^\r5002642^Type 2 Diabetes Mellitus with Diabetic Cataract^^^\r5016290^Unspecified
+    Diabetes Mellitus in the Puerperium^^^\r5002608^Type 1 Diabetes Mellitus with
+    Diabetic Amyotrophy^^^\r5002615^Type 1 Diabetes Mellitus with Diabetic Dermatitis^^^\r5002619^Type
+    1 Diabetes Mellitus with Periodontal Disease^^^\r5002648^Type 2 Diabetes Mellitus
+    with Diabetic Amyotrophy^^^\r5002655^Type 2 Diabetes Mellitus with Diabetic Dermatitis^^^\r5002659^Type
+    2 Diabetes Mellitus with Periodontal Disease^^^\r5002694^Other specified Diabetes
+    Mellitus with Foot Ulcer^^^\r5002589^Type 1 Diabetes Mellitus with Diabetic Nephropathy^^^\r5002629^Type
+    2 Diabetes Mellitus with Diabetic Nephropathy^^^\r5016284^Other pre-Existing Diabetes
+    Mellitus in Childbirth^^^\r5002588^Type 1 Diabetes Mellitus with Ketoacidosis
+    with Coma^^^\r5002621^Type 1 Diabetes Mellitus with Hypoglycemia with Coma^^^\r5002661^Type
+    2 Diabetes Mellitus with Hypoglycemia with Coma^^^\r5002701^Other specified Diabetes
+    Mellitus with Hyperglycemia^^^\r5139033^Pre-existing type 1 diabetes mellitus,
+    in childbirth^^^\r5139039^Pre-existing type 2 diabetes mellitus, in childbirth^^^\r5151301^Type
+    2 diabetes mellitus with ketoacidosis with coma^^^\r5002605^Type 1 Diabetes Mellitus
+    with Diabetic Mononeuropathy^^^\r5002606^Type 1 Diabetes Mellitus with Diabetic
+    Polyneuropathy^^^\r5002645^Type 2 Diabetes Mellitus with Diabetic Mononeuropathy^^^\r5002646^Type
+    2 Diabetes Mellitus with Diabetic Polyneuropathy^^^\r5002618^Type 1 Diabetes Mellitus
+    with other Skin Complications^^^\r5002620^Type 1 Diabetes Mellitus with other
+    Oral Complications^^^\r5002658^Type 2 Diabetes Mellitus with other Skin Complications^^^\r5002660^Type
+    2 Diabetes Mellitus with other Oral Complications^^^\r5016285^Other pre-Existing
+    Diabetes Mellitus in the Puerperium^^^\r5018330^Syndrome of Infant of Mother with
+    Gestational Diabetes^^^\r5002587^Type 1 Diabetes Mellitus with Ketoacidosis without
+    Coma^^^\r5002622^Type 1 Diabetes Mellitus with Hypoglycemia without Coma^^^\r5002625^Type
+    1 Diabetes Mellitus with unspecified Complications^^^\r5002628^Type 2 Diabetes
+    Mellitus with Hyperosmolarity with Coma^^^\r5002662^Type 2 Diabetes Mellitus with
+    Hypoglycemia without Coma^^^\r5002665^Type 2 Diabetes Mellitus with unspecified
+    Complications^^^\r5002695^Other specified Diabetes Mellitus with other Skin Ulcer^^^\r5002704^Other
+    specified Diabetes Mellitus without Complications^^^\r5151300^Type 2 diabetes
+    mellitus with ketoacidosis without coma^^^\r5002614^Type 1 Diabetes Mellitus with
+    other Diabetic Arthropathy^^^\r5002654^Type 2 Diabetes Mellitus with other Diabetic
+    Arthropathy^^^\r5002682^Other specified Diabetes Mellitus with Diabetic Cataract^^^\r5016270^Unspecified
+    pre-Existing Diabetes Mellitus in Childbirth^^^\r5139034^Pre-existing type 1 diabetes
+    mellitus, in the puerperium^^^\r5139040^Pre-existing type 2 diabetes mellitus,
+    in the puerperium^^^\r5002576^Drug or Chemical Induced Diabetes Mellitus with
+    Foot Ulcer^^^\r5002624^Type 1 Diabetes Mellitus with other specified Complication^^^\r5002664^Type
+    2 Diabetes Mellitus with other specified Complication^^^\r5002688^Other specified
+    Diabetes Mellitus with Diabetic Amyotrophy^^^\r5002693^Other specified Diabetes
+    Mellitus with Diabetic Dermatitis^^^\r5002697^Other specified Diabetes Mellitus
+    with Periodontal Disease^^^\r5002670^Other specified Diabetes Mellitus with Diabetic
+    Nephropathy^^^\r5016272^Gestational Diabetes Mellitus in Pregnancy, Diet Controlled^^^\r5016286^Unspecified
+    Diabetes Mellitus in Pregnancy, first Trimester^^^\r5016288^Unspecified Diabetes
+    Mellitus in Pregnancy, third Trimester^^^\r5016271^Unspecified pre-Existing Diabetes
+    Mellitus in the Puerperium^^^\r5016275^Gestational Diabetes Mellitus in Childbirth,
+    Diet Controlled^^^\r5016287^Unspecified Diabetes Mellitus in Pregnancy, second
+    Trimester^^^\r5002534^Diabetes Mellitus due to Underlying Condition with Foot
+    Ulcer^^^\r5002583^Drug or Chemical Induced Diabetes Mellitus with Hyperglycemia^^^\r5002590^Type
+    1 Diabetes Mellitus with Diabetic Chronic Kidney Disease^^^\r5002612^Type 1 Diabetes
+    Mellitus with other Circulatory Complications^^^\r5002630^Type 2 Diabetes Mellitus
+    with Diabetic Chronic Kidney Disease^^^\r5002652^Type 2 Diabetes Mellitus with
+    other Circulatory Complications^^^\r5002699^Other specified Diabetes Mellitus
+    with Hypoglycemia with Coma^^^\r5133346^Other specified Diabetes Mellitus with
+    Ketoacidosis with Coma^^^\r5002604^Type 1 Diabetes Mellitus with Diabetic Neuropathy,
+    unspecified^^^\r5002613^Type 1 Diabetes Mellitus with Diabetic Neuropathic Arthropathy^^^\r5002644^Type
+    2 Diabetes Mellitus with Diabetic Neuropathy, unspecified^^^\r5002653^Type 2 Diabetes
+    Mellitus with Diabetic Neuropathic Arthropathy^^^\r5002685^Other specified Diabetes
+    Mellitus with Diabetic Mononeuropathy^^^\r5002686^Other specified Diabetes Mellitus
+    with Diabetic Polyneuropathy^^^\r5016273^Gestational Diabetes Mellitus in Pregnancy,
+    Insulin Controlled^^^\r5002696^Other specified Diabetes Mellitus with other Skin
+    Complications^^^\r5002698^Other specified Diabetes Mellitus with other Oral Complications^^^\r5016274^Gestational
+    Diabetes Mellitus in Pregnancy, unspecified Control^^^\r5016276^Gestational Diabetes
+    Mellitus in Childbirth, Insulin Controlled^^^\r5002541^Diabetes Mellitus due to
+    Underlying Condition with Hyperglycemia^^^\r5002577^Drug or Chemical Induced Diabetes
+    Mellitus with other Skin Ulcer^^^\r5002586^Drug or Chemical Induced Diabetes Mellitus
+    without Complications^^^\r5002591^Type 1 Diabetes Mellitus with other Diabetic
+    Kidney Complication^^^\r5002631^Type 2 Diabetes Mellitus with other Diabetic Kidney
+    Complication^^^\r5002668^Other specified Diabetes Mellitus with Hyperosmolarity
+    with Coma^^^\r5002669^Other specified Diabetes Mellitus with Ketoacidosis without
+    Coma^^^\r669 matches found\r"
+  sha256: 9e867ef3c9a9558092d92b022272cc4dc54b7f40214e41c763876b712258bda4
+- name: lex_search_none/1
+  rpc: ORQQPL PROBLEM LEX SEARCH
+  inputs:
+  - zzqqxx
+  context: 'lex_search for ''zzqqxx'': no match'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: audit_history/1
+  rpc: ORQQPL AUDIT HIST
+  inputs:
+  - '149'
+  context: 'audit_history of the problem setup filed: removed, then placed back'
+  raw_return: "5\02\r11/20/26^PROBLEM removed by PROFILE,MD\r11/20/26^PROBLEM placed
+    back on list by PROFILE,MD\r"
+  sha256: 14be42d839479d4323553a48097e9c6dfc16eb03f28dfec89c6b896492c617e0
+- name: audit_history_none/1
+  rpc: ORQQPL AUDIT HIST
+  inputs:
+  - '1'
+  context: 'audit_history of problem 1: NONE'
+  raw_return: "5\0NONE\r"
+  sha256: 6fbbadb534c41f12ad9f579660d641b01f6e60ea980768b1a17abb1ffc0dfabd
+- name: comments/1
+  rpc: ORQQPL PROB COMMENTS
+  inputs:
+  - '149'
+  context: 'comments of the problem setup filed: the removal reason'
+  raw_return: "5\0Entered in error\r"
+  sha256: a0baee6b878c3af259592ea56f81013f4de05a53785eff7eb658375ca9f58d7d
+- name: comments_none/1
+  rpc: ORQQPL PROB COMMENTS
+  inputs:
+  - '1'
+  context: 'comments of problem 1: no notes'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

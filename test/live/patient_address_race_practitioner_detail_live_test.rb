@@ -9,6 +9,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Read-only live specs for Patient.address, Patient.race and Practitioner.detail.
 # Shape and key sets only — no demo-value assertions.
 class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   PATIENT_FILE = "2"
   ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip_plus4].freeze

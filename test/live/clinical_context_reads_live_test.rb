@@ -13,6 +13,7 @@ require "rpms_rpc/api/order"
 # (#9000010.06), DISPLAY GROUP (#100.98) and the ORK SYSTEM ENABLE/DISABLE
 # parameter. Read only.
 class ClinicalContextReadsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   ALLERGY_DFN = 2 # the demo patient whose PENICILLIN entry awaits verification on the pinned build
 
   def test_the_sign_list_names_entries_of_the_patient_with_their_reactant

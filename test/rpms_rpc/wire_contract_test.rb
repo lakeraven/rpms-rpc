@@ -141,7 +141,7 @@ class RpmsRpc::WireContractTest < Minitest::Test
       persona = data["signed_on_as"]
       if persona.nil? || persona.to_s.empty?
         failures << "#{File.basename(fixture.path)} (#{fixture.source}): missing signed_on_as"
-      elsif !%w[SYS123 PROV123].include?(persona)
+      elsif !RpmsRpc::WireCapture::FIXTURE_PERSONAS.include?(persona)
         failures << "#{File.basename(fixture.path)}: signed_on_as #{persona.inspect} is not a README synthetic persona"
       end
     end

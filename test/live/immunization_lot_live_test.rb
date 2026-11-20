@@ -12,6 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # It WRITES, so it runs only against a disposable local container.
 class ImmunizationLotLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   TETANUS_TOXOID = "104"   # IMMUNIZATION (#9999999.14), HL7-CVX CODE 35

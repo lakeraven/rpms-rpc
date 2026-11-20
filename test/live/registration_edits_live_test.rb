@@ -10,6 +10,7 @@ require "rpms_rpc/server_clock"
 # race and ethnicity (S-REG-20.2 to 20.4). The cell phone (S-REG-21.5) is
 # read only: DDR FILER cannot file #2 .134 (its AXENR13 index needs DFN).
 class RegistrationEditsLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   Reg = RpmsRpc::Registration
@@ -92,6 +93,9 @@ class RegistrationEditsLiveTest < LiveSpec::Test
     read = Reg.race_ethnicity(RACE_DFN)
     assert_equal [ [ white[:ien], self_id[:ien] ] ], read[:races].map { |r| [ r[:ien], r[:method] ] }
     assert_equal "WHITE", read[:races].first[:name]
+    # Each row carries its code file's 3 HL7 VALUE, the CDC code (rpms-rpc#830).
+    assert_equal "2106-3", read[:races].first[:hl7_value]
+    assert_equal [ "2186-5" ], read[:ethnicities].map { |e| e[:hl7_value] }
   end
 
   def test_s_reg_20_4_declined_beside_another_race_files_nothing

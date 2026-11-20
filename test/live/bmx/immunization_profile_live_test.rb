@@ -10,6 +10,7 @@ require_relative "../immunization_profile_checks"
 # Reads only. BGOVIMM PROFILE is in CIAV VUECENTRIC.
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxImmunizationProfileLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   broker :bmx
   include ImmunizationProfileChecks
 
