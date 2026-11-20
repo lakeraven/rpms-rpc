@@ -505,7 +505,7 @@ module RpmsRpc
     # (AGGLOCK.m:52-55). UPD^AGGPTUPD takes no lock of its own, so without
     # this two editors could interleave. UNLOCK^AGGLOCK releases both
     # (AGGLOCK.m:85,109-119). Both are registered under AGGRPC (the
-    # captured registry and reach files in data/inventories/).
+    # captured registry and reach files of the openrpms release, <tag>-rpcs.json).
     #
     # Reply: header "I00010RESULT^T00080MESSAGE" (AGGLOCK.m:27), then
     # RESULT^MESSAGE (AGGLOCK.m:91): 1 locked, 0 held by someone else (the
@@ -689,7 +689,7 @@ module RpmsRpc
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise
     # when AGGRPC is already bound, so nesting these is free). A client that
-    # cannot scope contexts — a MockClient, any non-broker double — runs the
+    # cannot scope contexts (a stand-in that is not a broker client) runs the
     # block as-is.
     def in_context(client, &block)
       return block.call unless client.respond_to?(:with_context)
@@ -713,9 +713,9 @@ module RpmsRpc
       Array(lines).first.to_s.strip.to_i.positive?
     end
 
-    # Route through the GLOBAL ARRAY read when the client supports it (live
-    # CiaClient); fall back to plain call_rpc for a MockClient / non-CIA
-    # client that returns the seeded reply directly.
+    # Route through the GLOBAL ARRAY read when the client supports it
+    # (CiaClient); fall back to plain call_rpc for XwbClient and BmxClient,
+    # which return the reply directly.
     def call_array(client, rpc_name, *params)
       if client.respond_to?(:call_rpc_global_array)
         client.call_rpc_global_array(rpc_name, *params)
@@ -901,9 +901,10 @@ module RpmsRpc
       message = record[:message] || record[:error] || ""
       if record[:result].to_s == "1"
         dfn = record[:dfn].to_s
-        if dfn.empty? && require_dfn
+        if require_dfn && !dfn.match?(/\A[1-9]\d*\z/)
+          # ADD^AGGPTADD answers 1^^-1 when nothing was filed (AGGPTADD.m:119-121).
           return { success: false, error: :agg_malformed_reply,
-                   message: "AGG success record carried no DFN" }
+                   message: dfn.empty? ? "AGG success record carried no DFN" : "AGG success record carried DFN #{dfn}, not a patient" }
         end
         result = { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
         # UPD^AGGPTUPD's OTHER_PARMS names what a filing code created, e.g.

@@ -1,0 +1,175 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb agg-registration.rb.
+---
+rpc: AGG ADD NEW PATIENT
+entry_point: ADD^AGGPTADD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:39:29Z'
+note: 'Run on a throwaway container: the add flows file synthetic patients and the
+  update flows edit one.'
+captures:
+- name: add_ok/1
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - Mini Registration
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=AGGADD\x1CAGGPTSEX=F\x1CAGGPTDOB=03/05/1902\x1CAGGPTSSN=900619001"
+  context: 'add_patient: a new synthetic patient through Mini Registration'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990060\x1E"
+  sha256: 9383ccd8e466576415c7f5242ce6c6fabf48ed075f7fd51a7c11fae80d53dde8
+- name: add_refused/1
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - Mini Registration
+  - ''
+  - AGGPTLNM=
+  context: add_patient with an empty last name
+  raw_return: "5\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^-1\x1E"
+  sha256: 1731ccc1d718216f622ab19081d93c997250d8e98db933bfa073cc2c4187bd16
+- name: add_unknown_window/1
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - No Such Window
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=AGGADD\x1CAGGPTSEX=F\x1CAGGPTDOB=03/05/1902\x1CAGGPTSSN=900619001"
+  context: add_patient through a window the build does not have
+  raw_return: "5\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E-1^RPC Failed: Passed in
+    window name No Such Window not found^\x1E"
+  sha256: 31ac906e77cedd3aae8932b2bac09446793dee50f8022c5d0a9a30d7d9d69771
+- name: add_bad_dob/1
+  rpc: AGG ADD NEW PATIENT
+  inputs:
+  - Mini Registration
+  - ''
+  - "AGGPTLNM=SYNTHETIC\x1CAGGPTFNM=AGGBADDOB\x1CAGGPTSEX=F\x1CAGGPTDOB=13/45/1900\x1CAGGPTSSN=900619002"
+  context: add_patient with a date of birth that is no date (13/45/1900)
+  raw_return: "5\0I00010RESULT^T00080MESSAGE^I00010DFN\x1E1^^990061\x1E"
+  sha256: a6c4d5d8d0a4b49aeff56abacb6bc10cd03eddb11b4e140b5ecac2f8b97d1218
+- name: update_ok/1
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990060'
+  - AGGPTMAR=NEVER MARRIED
+  context: 'update_patient: the new patient''s marital status'
+  raw_return: "5\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: ef1b4a602bbd231a86ead6373dc9cc37df98d4f74bcba990f1a06b9e27fb9196
+- name: update_refused/1
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990060'
+  - AGGNOSUCH=X
+  context: update_patient with a parameter the window does not have
+  raw_return: "5\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: ef1b4a602bbd231a86ead6373dc9cc37df98d4f74bcba990f1a06b9e27fb9196
+- name: update_not_on_file/1
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '999999999'
+  - AGGPTMAR=NEVER MARRIED
+  context: update_patient for DFN 999999999, which no patient has
+  raw_return: "5\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E-1^The entry does
+    not exist.^\x1E"
+  sha256: 4f33bf897992f65619b319994b8a07e3dc4bd7af114ab8a675f9607ac678f438
+- name: update_bad_dob/1
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Mini Registration
+  - '990060'
+  - AGGPTDOB=13/45/1900
+  context: 'update_patient: the new patient''s date of birth to 13/45/1900'
+  raw_return: "5\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: ef1b4a602bbd231a86ead6373dc9cc37df98d4f74bcba990f1a06b9e27fb9196
+- name: validate_ssn_taken/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=666021001\x1CAGGNOSSN=\x1CDFN="
+  context: 'validate_field: an SSN DFN 990001 already has'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^SSN
+    already used by another patient.^^^^\x1E"
+  sha256: b411d8868e42a6f08d7ea54afd590119161b0e5b035d957e675e077b14ae30c7
+- name: validate_ssn_free/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGPTSSN=900619999\x1CAGGNOSSN=\x1CDFN="
+  context: 'validate_field: an SSN no patient has'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: validate_no_ssn_reason/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - AGGNOSSN=R
+  context: 'validate_field: no SSN, reason R'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E"
+  sha256: 75083d399257443b2f08fc6e86f5021b4a6ecdd2db28cc13a65faf9227f7e4c8
+- name: validate_blank/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - New Patient
+  - "AGGNOSSN=\x1CAGGPTSSN="
+  context: 'validate_field: SSN and no-SSN reason both blank'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E"
+  sha256: 75083d399257443b2f08fc6e86f5021b4a6ecdd2db28cc13a65faf9227f7e4c8
+- name: window_personal/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Personal Detail
+  - '990031'
+  context: 'window_values: Personal Detail for DFN 990031'
+  raw_return: "5\0T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^I00010DFN^T00040AGGPTRLG\x1EEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR
+    15,1997^F\x1CFEMALE^\x1C^Pending Verification^990031^^\x1C^^29 YRS^\x1C^^^\x1C\x1E"
+  sha256: dc8ae0cf366413a187712ce0cee851c1c43103a2f3aedeeab96f4932dab9518b
+- name: window_no_patient/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Personal Detail
+  - '999999999'
+  context: 'window_values: Personal Detail for DFN 999999999, which no patient has'
+  raw_return: "5\0T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^I00010DFN^T00040AGGPTRLG\x1E"
+  sha256: f5e8b0e7eaebce0e4b70d0d2f036b7efa30beac21aeed65a7b8b1365e91d546b
+- name: window_unknown/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - No Such Window
+  - '990031'
+  context: 'window_values: a window the build does not have'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: temp_hrn/1
+  rpc: AGG GET TEMP PAT HRN
+  inputs:
+  - '990060'
+  context: temporary_hrn for the new patient
+  raw_return: "5\0T00010AGGPTHRN\x1ET00003\x1E"
+  sha256: 7843942ea0316f5598e313bb8de07fccba7b5e0c214f0ec64e2e5ece843e4ba7
+- name: temp_hrn_no_patient/1
+  rpc: AGG GET TEMP PAT HRN
+  inputs:
+  - '999999999'
+  context: temporary_hrn for DFN 999999999, which no patient has
+  raw_return: "5\0T00010AGGPTHRN\x1ET00002\x1E"
+  sha256: 629bdc5a7b9472ef60deaf3c2f5602207d2ccf9d72d25f0c496b511919ba78d5
+- name: available/1
+  rpc: CIANBRPC CANRUN
+  inputs:
+  - AGG ADD NEW PATIENT
+  context: available? as PROFILE,REG, who holds AGGRPC
+  raw_return: "5\010"
+  sha256: ecd954413b52424df0c36038e160fe6af2b946da727d363a2189c9e413ff3273
+- name: available_md/1
+  rpc: CIANBRPC CANRUN
+  signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+  inputs:
+  - AGG ADD NEW PATIENT
+  context: available? as PROFILE,MD, who does not hold AGGRPC
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415

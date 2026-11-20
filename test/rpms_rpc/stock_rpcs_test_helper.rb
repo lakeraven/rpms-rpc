@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 require "json"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
+require_relative "release_under_test"
 
 # The #420 stock specs ask an array for its one element (.sole). This Ruby
 # has no Enumerable#sole; this is that check, for the specs that load this helper.
@@ -16,24 +17,20 @@ unless Enumerable.method_defined?(:sole)
   end
 end
 
-# Shared pins for rpms-rpc#420 stock-RPC wrapper tests (pinned bcer-9.0 build).
+# Shared helpers for rpms-rpc#420 stock-RPC wrapper tests. pinned_rpc reads the openrpms release under
+# test (the latest published -ydb release, rpms-rpc#724): a wrapped RPC must be registered there, in
+# the context the wrapper binds.
 module StockRpcsTestHelper
   ROOT = File.expand_path("../..", __dir__)
-  PINNED_TAG = "bcer-9.0-20261119-f67498c-ydb"
-  INVENTORIES_DIR = File.join(ROOT, "data/inventories")
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
 
   module_function
 
-  def pinned_surface
-    @pinned_surface ||= RpmsRpc::Conformance::InventoryLock
-      .load(File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml"))
-      .surfaces(inventories_dir: INVENTORIES_DIR)[PINNED_TAG]
-  end
+  def pinned_surface = ReleaseUnderTest.surface(self)
 
   def pinned_rpc(name)
     rpc = pinned_surface[name]
-    raise "#{name} must be registered on #{PINNED_TAG} (rpcs.json)" if rpc.nil?
+    flunk "#{name} must be registered on #{pinned_surface.tag} (rpcs.json)" if rpc.nil?
 
     rpc
   end

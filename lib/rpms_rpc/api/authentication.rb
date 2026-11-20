@@ -486,8 +486,7 @@ module RpmsRpc
     def auth_success(duz, message, verify_needs_change, post_signon_message_count)
       # The broker session is now this user's, so the client is signed on: a host
       # that signs on here binds its context next (create_context refuses a client
-      # that is not). MockClient records the same DUZ; it has no such gate.
-      # A stand-in that does not respond is left alone.
+      # that is not). A stand-in that does not respond is left alone.
       client = RpmsRpc.client
       client.set_authenticated(duz.to_s) if client.respond_to?(:set_authenticated)
 

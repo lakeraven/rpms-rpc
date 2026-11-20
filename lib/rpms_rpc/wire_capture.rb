@@ -15,7 +15,7 @@ module RpmsRpc
   # "is the RPC registered / what return TYPE does it declare" down to the
   # FIELD-LEVEL layout of an actual return. The failure class this closes:
   # a DataMapper mapping authored from belief passes green against mocks
-  # that mirror the same belief (MockClient formats seeds THROUGH the
+  # that mirror the same belief (a fake that formats its seeds THROUGH the
   # mapping), so code and test agree with each other while proving nothing
   # about the real system. ORQQVI VITALS shipped declaring
   # TYPE^VALUE^UNITS^DATE when the real wire is IEN^TYPE^DATETIME^value

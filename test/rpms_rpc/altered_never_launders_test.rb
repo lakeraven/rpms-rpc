@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 
 # rpms-rpc#463 x #483 panel findings on #477: an altered line is never read as
 # verified. An altered marker is never NKA on the CIA path (control

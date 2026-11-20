@@ -2,7 +2,7 @@
 
 require "json"
 require "set"
-require_relative "conformance/inventory_lock"
+require_relative "conformance/release_inventory"
 
 module RpmsRpc
   # Declarative feature metadata: a name, the broker context it runs in, and
@@ -41,17 +41,18 @@ module RpmsRpc
   # `available?` is true when every RPC the feature names is client-callable
   # under that context on the build's RPC surface (`<tag>-rpcs.json`, each
   # record's reach). The records are read by Conformance::BuildSurface, the
-  # same reader as the pinned signature; this module does not parse them itself. An
+  # same reader as the name and callable gates; this module does not parse them itself. An
   # option named by any out-of-order reach row is out of order and never
   # counts as a serving context. That class means every option listing the
   # RPC is out of order, so excluding those names never marks a usable option
-  # unusable. With no `build:`, the one tag in
-  # data/fingerprints/rpms-ops.lock.yml is used. Zero or several pins is an
-  # ArgumentError: the caller passes `build:`. An unknown feature, a missing
-  # or malformed lock file, a missing `<tag>-rpcs.json`, an
+  # unusable. With no `build:`, the openrpms release this checkout tests
+  # against is used: the one `rake openrpms:fetch` last recorded in the cache
+  # (Conformance::ReleaseInventory.current_record; rpms-rpc#724). None recorded
+  # is an ArgumentError naming the task to run. Features never reaches the
+  # network itself. An unknown feature, a missing `<tag>-rpcs.json`, an
   # empty or non-directory `inventories_dir:`, a duplicate RPC record, a
   # malformed record (an unknown reach class, records out of order), or a
-  # build that is not pinned and not a readable inventory directory, is an
+  # build that is not in the cache and not a readable inventory directory, is an
   # ArgumentError too. `Conformance::BuildSurface::Error` from that reader is
   # re-raised as ArgumentError with the reader's reason kept.
   #
@@ -68,17 +69,17 @@ module RpmsRpc
   # are cached per [realpath, tag]. The tag is the inventory directory's own
   # name after realpath, so a symlinked alias and the real tag share one
   # entry and answer the same whether the alias is asked first or second.
-  # The parsed openrpms lock is cached with them, so a repeated `available?`
-  # or `for` does not read those files again. `reset!` drops both. One mutex
+  # A repeated `available?` or `for` does not read those files again.
+  # `reset!` drops the cache. One mutex
   # guards the caches for concurrent readers; the out-of-order set is
   # computed once, under that mutex, before the entry is published.
   #
-  # LIMIT: source checkout only. data/ is not in the gem's file list, so
-  # outside a checkout (or a github:/path: source) the pinned lock is missing
-  # and every call fails closed. Shipping the inventories is a release decision.
+  # LIMIT: source checkout only. Outside a checkout no release has been
+  # fetched, and every call without `build:` and `inventories_dir:` fails closed.
   #
-  # `inventories_dir:` reads `<dir>/<tag>/` instead of data/inventories.
-  # A directory passed that way is the build under test, pin or not.
+  # `inventories_dir:` reads `<dir>/<tag>/` instead of the release cache
+  # (tmp/openrpms/, or OPENRPMS_INVENTORIES). A directory passed that way is
+  # the build under test, fetched or not.
   module Features
     extend self
 
@@ -160,8 +161,6 @@ module RpmsRpc
       }.freeze
     ].freeze
 
-    LOCK_PATH = File.expand_path("../../data/fingerprints/#{Conformance::InventoryLock::DEFAULT_PATH}", __dir__).freeze
-    INVENTORIES_DIR = File.expand_path("../../data/inventories", __dir__).freeze
     REQUIRED_RPCS_PATH = File.expand_path("required_rpcs.json", __dir__).freeze
 
     # A single path segment: the inventory directory name, never a path.
@@ -172,8 +171,8 @@ module RpmsRpc
     OMITTED = Object.new
     private_constant :OMITTED
 
-    # One lock for the feature registry, the per-directory build surfaces, and
-    # the parsed openrpms lock. Enough for concurrent readers; writers are reset!.
+    # One lock for the feature registry and the per-directory build surfaces.
+    # Enough for concurrent readers; writers are reset!.
     CACHE_MUTEX = Mutex.new
     private_constant :CACHE_MUTEX
 
@@ -181,14 +180,11 @@ module RpmsRpc
       registry
     end
 
-    # Drop the cached feature registry, parsed build surfaces, and openrpms lock
-    # so the next read loads REQUIRED_RPCS_PATH and the inventory files again.
+    # Drop the cached feature registry and parsed build surfaces so the next read loads REQUIRED_RPCS_PATH and the inventory files again.
     def reset!
       CACHE_MUTEX.synchronize do
         @registry = nil
         @surfaces = nil
-        @pinned_lock = nil
-        @pinned_lock_path = nil
       end
     end
 
@@ -209,12 +205,6 @@ module RpmsRpc
     def for(build:, inventories_dir: nil, context: OMITTED)
       surface = surface!(build: build, inventories_dir: inventories_dir)
       registry.select { |entry| served_for?(surface, entry, context) }.map(&:name)
-    end
-
-    # Release tags recorded in the openrpms lock, in file order.
-    # `available?` with no build calls this and will not choose among them.
-    def pinned_build_tags
-      pinned_lock.entries.keys
     end
 
     # Reject a feature that names no RPCs. The registry is built through this,
@@ -389,39 +379,6 @@ module RpmsRpc
       CachedSurface.new(surface: surface, out_of_order_options: out_of_order_options(surface)).freeze
     end
 
-    # The parsed openrpms lock, read once per path until reset!.
-    def pinned_lock
-      path = LOCK_PATH
-      CACHE_MUTEX.synchronize do
-        if @pinned_lock && @pinned_lock_path == path
-          @pinned_lock
-        else
-          raise ArgumentError, "lock file is missing: #{path}" unless File.file?(path)
-
-          lock = load_lock(path)
-          @pinned_lock_path = path
-          @pinned_lock = lock
-        end
-      end
-    end
-
-    # Reading a lock that is not a mapping of releases fails in whatever way the
-    # document's shape makes Ruby fail: Psych::SyntaxError on broken YAML,
-    # TypeError on a list, IndexError on a bare scalar, NoMethodError later on a
-    # releases value that is not a mapping. Each is a malformed lock:
-    # ArgumentError naming the path. A missing file stays the ArgumentError
-    # raised by pinned_lock.
-    def load_lock(path)
-      lock = begin
-        Conformance::InventoryLock.load(path).tap(&:entries)
-      rescue StandardError => e
-        raise ArgumentError, "lock file is malformed: #{path} (#{e.class}: #{e.message})"
-      end
-      raise ArgumentError, "lock file is malformed: #{path} (releases is not a mapping)" unless lock.entries.is_a?(Hash)
-
-      lock
-    end
-
     def read_surface(dir, tag)
       path = File.join(dir, "#{tag}-#{Conformance::BuildSurface::RPCS_SUFFIX}")
       raise ArgumentError, "rpcs.json is missing for build #{tag}" unless File.file?(path)
@@ -434,7 +391,7 @@ module RpmsRpc
     end
 
     def inventories_root(dir)
-      return INVENTORIES_DIR if dir.nil?
+      return Conformance::ReleaseInventory.cache_root if dir.nil?
 
       path = dir.to_s
       raise ArgumentError, "inventories_dir is empty" if path.empty?
@@ -445,25 +402,23 @@ module RpmsRpc
 
     def resolve_tag(build, inventories_dir)
       tag = build.to_s
-      return sole_pinned_tag if tag.empty?
+      return current_release_tag if tag.empty?
       raise ArgumentError, "unknown build #{build.inspect}" unless TAG_NAME.match?(tag)
-      return tag if !inventories_dir.nil? || pinned_build_tags.include?(tag)
+      return tag if !inventories_dir.nil? || File.directory?(File.join(Conformance::ReleaseInventory.cache_root, tag))
 
-      raise ArgumentError, "unknown build #{build.inspect}"
+      raise ArgumentError, "unknown build #{build.inspect}: not in #{Conformance::ReleaseInventory.cache_root} " \
+                           "(fetch it: OPENRPMS_RELEASE=#{tag} bundle exec rake openrpms:fetch)"
     end
 
-    # The lock's one tag, held to TAG_NAME as a passed build: is, so a key that
-    # is not a String, or is a path, names no directory outside data/inventories.
-    def sole_pinned_tag
-      tags = pinned_build_tags
-      unless tags.one?
-        detail = tags.empty? ? "none" : tags.join(", ")
-        raise ArgumentError, "#{LOCK_PATH} pins #{tags.size} builds (#{detail}); pass build:"
-      end
-      tag = tags.first
-      return tag if tag.is_a?(String) && TAG_NAME.match?(tag)
+    # The release `rake openrpms:fetch` last recorded; ArgumentError when none. The recorded tag
+    # is held to TAG_NAME as a passed build: is (#628), so a path names no directory outside the cache.
+    def current_release_tag
+      tag = Conformance::ReleaseInventory.current_record.fetch("tag")
+      return tag if TAG_NAME.match?(tag)
 
-      raise ArgumentError, "#{LOCK_PATH} pins a malformed build tag #{tag.inspect}"
+      raise ArgumentError, "the recorded release names a malformed build tag #{tag.inspect}"
+    rescue Conformance::ReleaseInventory::Error => e
+      raise ArgumentError, e.message
     end
   end
 end

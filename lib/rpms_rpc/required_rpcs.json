@@ -1,6 +1,5 @@
 {
   "contract": "rpms-rpc-contract.v1",
-  "build": "bcer-9.0-20261119-f67498c-ydb",
   "modules": {
     "RpmsRpc::Adt": [
       "DDR LISTER",
@@ -515,6 +514,9 @@
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
+      "GMV ADD VM",
+      "GMV EXTRACT REC",
+      "GMV GET VITAL TYPE IEN",
       "ORQQVI VITALS",
       "ORWU DT"
     ],
@@ -533,6 +535,8 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -549,8 +553,11 @@
         "RpmsRpc::Registration.record": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG BUILD WINDOW MANY": {
@@ -574,7 +581,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
     "AGG CHECK SENSITIVE PATIENT": {
@@ -611,6 +619,8 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
@@ -639,9 +649,12 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-application.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG LOOKUP PATIENTS": {
@@ -655,6 +668,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
@@ -674,7 +688,9 @@
         "RpmsRpc::PatientProfile.languages": "read",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG QUANTUM VALIDATION": {
       "methods": {
@@ -716,9 +732,12 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-application.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG UPDATE A MULTIPLE RECORD": {
@@ -735,13 +754,17 @@
         "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
         "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG UPDATE LEGAL NAMES": {
       "methods": {
         "RpmsRpc::Agg.update_legal_names": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-legal-names.yml"
+      ]
     },
     "AGG UPDATE MEDICAID": {
       "methods": {
@@ -778,9 +801,13 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
-        "test/fixtures/captured_replies/registration-safety.yml"
+        "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG UPDATE PRIVATE INSUR": {
@@ -797,7 +824,9 @@
         "RpmsRpc::Agg.update_special_multiple": "non_idempotent_write",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG WINDOW DATA VALIDATION": {
       "methods": {
@@ -812,9 +841,13 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
-        "test/fixtures/captured_replies/registration-safety.yml"
+        "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG WINDOW TABLE LOOKUP": {
@@ -825,7 +858,9 @@
         "RpmsRpc::PatientProfile.relationships": "read",
         "RpmsRpc::PatientProfile.states": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AMHG CREATE/EDIT VISIT": {
       "methods": {
@@ -840,6 +875,7 @@
         "RpmsRpc::BehavioralHealth::Reference.admin_records": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
@@ -848,7 +884,8 @@
         "RpmsRpc::BehavioralHealth::CaseManagement.case_dates": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET CASE MANAGEMENT": {
@@ -856,21 +893,25 @@
         "RpmsRpc::BehavioralHealth::CaseManagement.case_management": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET CLINICS": {
       "methods": {
         "RpmsRpc::BehavioralHealth::Reference.clinics": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET COMMUNITY ACTIVITIES": {
       "methods": {
         "RpmsRpc::BehavioralHealth::CaseManagement.community_activities": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET COMMUNITY ACTIVITY": {
@@ -878,7 +919,8 @@
         "RpmsRpc::BehavioralHealth::CaseManagement.community_activity": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP CPT": {
@@ -886,7 +928,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_cpt": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP EDU": {
@@ -894,7 +937,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_edu": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP INFORMATION": {
@@ -902,7 +946,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_information": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP PATIENTS": {
@@ -910,7 +955,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_patients": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP POV": {
@@ -918,7 +964,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_pov": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP SEC PROVIDERS": {
@@ -926,7 +973,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUP SOAP": {
@@ -934,7 +982,8 @@
         "RpmsRpc::BehavioralHealth::Groups.group_soap": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET GROUPS": {
@@ -942,7 +991,8 @@
         "RpmsRpc::BehavioralHealth::Groups.groups": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/amhg-groups-cases.yml"
+        "test/fixtures/captured_replies/amhg-groups-cases.yml",
+        "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
     "AMHG GET INTAKE": {
@@ -950,6 +1000,7 @@
         "RpmsRpc::BehavioralHealth::Intake.intakes": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
@@ -958,6 +1009,7 @@
         "RpmsRpc::BehavioralHealth::Intake.intake_documents": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
@@ -966,6 +1018,7 @@
         "RpmsRpc::BehavioralHealth::Reference.patients": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
@@ -974,6 +1027,7 @@
         "RpmsRpc::BehavioralHealth::Reference.site_parameters": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
@@ -981,103 +1035,137 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_form": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET SUICIDE FORM CF": {
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET SUICIDE FORM METHOD": {
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_form_methods": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET SUICIDE FORM SUB": {
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_form_substances": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET SUICIDE FORMS": {
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_forms": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET TP NARRATIVE": {
       "methods": {
         "RpmsRpc::BehavioralHealth.treatment_plan_narrative": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET TP PLAN PARTICIPANTS": {
       "methods": {
         "RpmsRpc::BehavioralHealth.treatment_plan_participants": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET TP REVIEW": {
       "methods": {
         "RpmsRpc::BehavioralHealth.treatment_plan_reviews": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET TREATMENT PLAN": {
       "methods": {
         "RpmsRpc::BehavioralHealth.treatment_plan": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET TREATMENT PLANS": {
       "methods": {
         "RpmsRpc::BehavioralHealth.treatment_plans": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT ACTIVITY": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_activity": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT ASSESSMENT": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_assessment": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT AXIS II": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_axis_ii": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT AXIS III": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_axis_iii": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT AXIS IV": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_axis_iv": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT AXIS V": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_axis_v": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT CC": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_chief_complaint": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT COMM APP": {
       "methods": {
@@ -1085,6 +1173,7 @@
         "RpmsRpc::BehavioralHealth.visit_comment_appointment": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-save-progress-notes.yml"
       ]
     },
@@ -1092,7 +1181,9 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_information": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT MSR DATA ENTRY": {
       "methods": {
@@ -1106,7 +1197,9 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_screenings": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG GET VISIT SOAP": {
       "methods": {
@@ -1114,6 +1207,7 @@
         "RpmsRpc::BehavioralHealth.visit_soap": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-save-progress-notes.yml"
       ]
     },
@@ -1121,7 +1215,9 @@
       "methods": {
         "RpmsRpc::BehavioralHealth.visits": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
     },
     "AMHG SAVE HEALTH FACTORS": {
       "methods": {
@@ -1221,6 +1317,7 @@
         "RpmsRpc::Encounter.open": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/wire_captures/behoencx-chkvisit.yml"
       ]
     },
@@ -1232,6 +1329,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/behoencx-fetch.yml"
       ]
@@ -1252,6 +1350,7 @@
         "RpmsRpc::Measurement.newest_by_type": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/wire_captures/behoencx-getvisit.yml"
       ]
@@ -1260,7 +1359,9 @@
       "methods": {
         "RpmsRpc::Encounter.visits": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-visits.yml"
+      ]
     },
     "BEHOENPC SAVE": {
       "methods": {
@@ -1639,106 +1740,141 @@
       "methods": {
         "RpmsRpc::Referral.add_c32_print_log": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC ADD REFERRAL": {
       "methods": {
         "RpmsRpc::Referral.add": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC CHK YEAR SITE PARAM": {
       "methods": {
         "RpmsRpc::Referral.check_year_site_param": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC CONSULTATION STATUS UPDATE": {
       "methods": {
         "RpmsRpc::Referral.update_consultation_status": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC GET PURPOSE OF REF API": {
       "methods": {
         "RpmsRpc::Referral.purposes": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC GET RCIS TEMPLATE DETAIL": {
       "methods": {
         "RpmsRpc::Referral.rcis_template_detail": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC GET RCIS TEMPLATE LIST": {
       "methods": {
         "RpmsRpc::Referral.rcis_templates": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC GET REFERENCE DATA": {
       "methods": {
         "RpmsRpc::Referral.reference_data": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC GET REFERRAL": {
       "methods": {
         "RpmsRpc::Referral.find": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/bmc-get-referral.yml"
+        "test/fixtures/captured_replies/bmc-get-referral.yml",
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-wire.yml"
       ]
     },
     "BMC GET USERS/PROVIDERS": {
       "methods": {
         "RpmsRpc::Referral.users_providers": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC HEALTH SUMMARY TYPE": {
       "methods": {
         "RpmsRpc::Referral.health_summary_types": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC PATIENT ELIGIBILITY STATUS": {
       "methods": {
         "RpmsRpc::Referral.patient_eligibility_status": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC PATIENT FACE SHEET": {
       "methods": {
         "RpmsRpc::Referral.patient_face_sheet": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC PATIENT HEALTH SUMMARY": {
       "methods": {
         "RpmsRpc::Referral.patient_health_summary": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC PRINT REFERRAL": {
       "methods": {
         "RpmsRpc::Referral.print": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-wire.yml"
+      ]
     },
     "BMC PROVIDERS": {
       "methods": {
         "RpmsRpc::Referral.providers": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC REFERRAL STATUS UPDATE": {
       "methods": {
         "RpmsRpc::Referral.cancel": "non_idempotent_write",
         "RpmsRpc::Referral.update_status": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC SEARCH REFERRAL": {
       "methods": {
@@ -1746,20 +1882,26 @@
         "RpmsRpc::Referral.pending": "read"
       },
       "replies": [
-        "test/fixtures/captured_replies/read-call-formals-bmcrpc.yml"
+        "test/fixtures/captured_replies/read-call-formals-bmcrpc.yml",
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-wire.yml"
       ]
     },
     "BMC SEARCH REFERRED TO": {
       "methods": {
         "RpmsRpc::Referral.search_referred_to": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BMC UPDATE REFERRAL": {
       "methods": {
         "RpmsRpc::Referral.update": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/referral-calls.yml"
+      ]
     },
     "BQI PATIENT INSURANCE": {
       "methods": {
@@ -1993,7 +2135,9 @@
       "methods": {
         "RpmsRpc::Agg.available?": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/agg-registration.yml"
+      ]
     },
     "CIAVCXUS VIMINFO": {
       "methods": {
@@ -2043,6 +2187,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml",
@@ -2119,6 +2265,7 @@
         "RpmsRpc::WaitList.comments": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/agg-legal-names.yml",
         "test/fixtures/captured_replies/amhg-create-edit-visit.yml",
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
         "test/fixtures/captured_replies/amhg-save-pov.yml",
@@ -2128,16 +2275,20 @@
         "test/fixtures/captured_replies/bmc-get-referral.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
         "test/fixtures/captured_replies/e-signature-clinician.yml",
         "test/fixtures/captured_replies/er-visit.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/captured_replies/patient-address-contact.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/patient-race.yml",
         "test/fixtures/captured_replies/practitioner-detail.yml",
         "test/fixtures/captured_replies/problem-write.yml",
         "test/fixtures/captured_replies/procedure-add.yml",
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-wire.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
@@ -2151,7 +2302,9 @@
       "methods": {
         "RpmsRpc::DdrFileman.validate_key": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/ddr-fileman.yml"
+      ]
     },
     "DDR LISTER": {
       "methods": {
@@ -2239,14 +2392,18 @@
         "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/amhg-save-visit.yml",
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml",
         "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
@@ -2261,7 +2418,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
-        "test/fixtures/captured_replies/amhg-wellness.yml"
+        "test/fixtures/captured_replies/amhg-wellness.yml",
+        "test/fixtures/captured_replies/ddr-fileman.yml"
       ]
     },
     "DDR VALIDATOR": {
@@ -2271,6 +2429,7 @@
         "RpmsRpc::Tribal.validate": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
@@ -2288,6 +2447,30 @@
       },
       "replies": [
         "test/fixtures/captured_replies/dg-sensitive.yml"
+      ]
+    },
+    "GMV ADD VM": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
+      ]
+    },
+    "GMV EXTRACT REC": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
+      ]
+    },
+    "GMV GET VITAL TYPE IEN": {
+      "methods": {
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/vital-stock.yml"
       ]
     },
     "OREVNTX PAT": {
@@ -2642,6 +2825,7 @@
         "RpmsRpc::ClinicalEvent.education_topics": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-education-topics.yml"
       ]
     },
@@ -2650,6 +2834,7 @@
         "RpmsRpc::ClinicalEvent.exam_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-exam-type.yml"
       ]
     },
@@ -2658,6 +2843,7 @@
         "RpmsRpc::ClinicalEvent.health_factor_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-health-factors-ty.yml"
       ]
     },
@@ -2666,6 +2852,7 @@
         "RpmsRpc::ClinicalEvent.immunization_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-immunization-type.yml"
       ]
     },
@@ -2674,6 +2861,7 @@
         "RpmsRpc::ClinicalEvent.skin_test_types": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-skin-test-type.yml"
       ]
     },
@@ -2682,6 +2870,7 @@
         "RpmsRpc::ClinicalEvent.visit_for_note": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-get-visit.yml"
       ]
     },
@@ -2691,6 +2880,7 @@
         "RpmsRpc::ClinicalEvent.visit_status": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-hasvisit.yml"
       ]
     },
@@ -2699,6 +2889,7 @@
         "RpmsRpc::ClinicalEvent.note_visit_string": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-notevstr.yml"
       ]
     },
@@ -2707,6 +2898,7 @@
         "RpmsRpc::ClinicalEvent.pce_for_note": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml",
         "test/fixtures/wire_captures/orwpce-pce4note.yml"
       ]
     },
@@ -2840,11 +3032,13 @@
         "RpmsRpc::Registration.set_sexual_orientation": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.add_local_flag": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
-        "RpmsRpc::Vital.add": "non_idempotent_write"
+        "RpmsRpc::Vital.add": "non_idempotent_write",
+        "RpmsRpc::Vital.add_stock": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml",
-        "test/fixtures/captured_replies/orwu-dt.yml"
+        "test/fixtures/captured_replies/orwu-dt.yml",
+        "test/fixtures/captured_replies/patient-application.yml"
       ]
     },
     "ORWU HAS OPTION ACCESS": {
@@ -2945,7 +3139,9 @@
         "RpmsRpc::ClinicalEvent.visit_for_note": "read",
         "RpmsRpc::ClinicalEvent.visit_status": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/clinical-event.yml"
+      ]
     },
     "TIU GET RECORD TEXT": {
       "methods": {
@@ -3053,6 +3249,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -3074,6 +3271,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/user-management.yml"
@@ -3086,6 +3284,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]

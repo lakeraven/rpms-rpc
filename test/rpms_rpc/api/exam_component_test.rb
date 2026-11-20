@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/exam_component"
 
 class ExamComponentTest < Minitest::Test

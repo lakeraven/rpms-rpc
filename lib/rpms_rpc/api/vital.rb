@@ -291,3 +291,5 @@ module RpmsRpc
     end
   end
 end
+
+require_relative "vital_stock"

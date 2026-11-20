@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "fileutils"
 require "socket"
+require "json"
+require "tmpdir"
 require "rpms_rpc"
 require_relative "features_test_helper"
 
@@ -17,7 +19,7 @@ class FeaturesReviewTest < Minitest::Test
   CACHE_ALIAS_TAG = "features-review-cache-alias-ydb"
   BROKEN_OPTION = "ZZ BROKEN OPTION"
 
-  # The pinned rpcs.json (committed data): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
+  # The fixture rpcs.json (a real release's records): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
   PINNED_BEHOPTPC_GETBDP_REACH =
     { "class" => "client-callable", "routine_present" => true, "tag_present" => true, "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.freeze
 
@@ -47,8 +49,7 @@ class FeaturesReviewTest < Minitest::Test
 
   def test_review_511_pin_ddr_lister_and_gets_entry_data_golden_document_scmc_ooo_option
     ddr = { "class" => "client-callable", "routine_present" => true, "tag_present" => true,
-            "contexts" => [ "XQAL GUI ALERTS", "SCMC PCMM GUI WORKSTATION", "CIAV VUECENTRIC", "MWVS MEDICAL DOMAIN WEB SVCS",
-                            "XU EPCS EDIT DATA", "LR REGISTRATION CONTEXT" ], "exemptions" => [] }
+            "contexts" => [ "SCMC PCMM GUI WORKSTATION", "CIAV VUECENTRIC", "XU EPCS EDIT DATA" ], "exemptions" => [] }
     assert_equal ddr, pinned_reach("DDR LISTER")
     assert_equal ddr, pinned_reach("DDR GETS ENTRY DATA")
     assert_equal({ "class" => "out-of-order", "routine_present" => true, "tag_present" => true,
@@ -106,52 +107,37 @@ class FeaturesReviewTest < Minitest::Test
     assert_symlink_alias_order_independent(:real_first)
   end
 
-  # --- (4) Malformed lock must raise ArgumentError, not Psych/Type errors -------------------------
+  # --- (4) A malformed current-release record must raise ArgumentError, not JSON/Key errors --------
 
-  def test_review_511_malformed_lock_raises_argument_error_not_psych_syntax_error
-    with_lock_path(malformed_lock_file("repo: [")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
-    end
-  end
-
-  def test_review_511_malformed_lock_releases_key_raises_argument_error_not_no_method_error
-    with_lock_path(malformed_lock_file("releases: 3")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
-    end
-  end
-
-  def test_review_511_malformed_lock_scalar_list_raises_argument_error_not_type_error
-    with_lock_path(malformed_lock_file("- a")) do
+  def test_review_511_current_record_that_is_not_json_raises_argument_error
+    with_current_record("releases: [") do
       assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
     end
   end
 
-  # #628: a bare scalar made InventoryLock raise IndexError past the rescue.
-  def test_bare_scalar_lock_raises_argument_error_not_index_error
-    with_lock_path(malformed_lock_file("just-a-scalar")) do
-      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
-      assert_match(/lock file is malformed/, err.message)
+  def test_review_511_current_record_without_a_tag_raises_argument_error
+    with_current_record(JSON.generate({ "repo" => "lakeraven/openrpms" })) do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
     end
   end
 
-  # #628: the sole pinned tag is held to TAG_NAME, as a passed build: is.
-  def test_sole_pinned_tag_that_is_not_a_string_raises_argument_error_not_type_error
-    with_lock_path(malformed_lock_file("releases:\n  123:\n    engine: yottadb\n")) do
-      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
-      assert_match(/malformed build tag 123/, err.message)
+  def test_review_511_current_record_that_is_a_list_raises_argument_error
+    with_current_record("[]") do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
     end
   end
 
-  def test_sole_pinned_tag_that_is_a_path_raises_argument_error
-    with_lock_path(malformed_lock_file("releases:\n  ../#{PINNED_TAG}:\n    engine: yottadb\n")) do
+  # #628: the recorded tag is held to TAG_NAME, as a passed build: is.
+  def test_current_record_tag_that_is_not_a_string_raises_argument_error_not_type_error
+    with_current_record(JSON.generate({ "tag" => 123 })) do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+    end
+  end
+
+  def test_current_record_tag_that_is_a_path_raises_argument_error
+    with_current_record(JSON.generate({ "tag" => "../#{PINNED_TAG}" })) do
       err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
       assert_match(/malformed build tag/, err.message)
-    end
-  end
-
-  def test_review_511_lock_with_disallowed_yaml_tag_raises_argument_error
-    with_lock_path(malformed_lock_file("releases: !ruby/object:Object {}")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
     end
   end
 
@@ -245,23 +231,12 @@ class FeaturesReviewTest < Minitest::Test
     end
   end
 
-  def malformed_lock_file(body)
-    path = File.join(Dir.mktmpdir("features-review-lock-"), "rpms-ops.lock.yml")
-    File.write(path, body)
-    path
-  end
-
-  def with_lock_path(path)
-    feat = features!
-    original = RpmsRpc::Features::LOCK_PATH
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, path)
-    feat.reset!
-    yield
-  ensure
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, original)
-    feat.reset!
+  # Run the block with the release cache at a temp dir whose current.json is BODY.
+  def with_current_record(body)
+    Dir.mktmpdir("features-review-current-") do |root|
+      File.write(File.join(root, "current.json"), body)
+      with_cache_root(root) { yield }
+    end
   end
 
   GUARD_MESSAGE = "Features review 511 network guard"

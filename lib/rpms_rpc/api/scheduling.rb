@@ -20,13 +20,11 @@ module RpmsRpc
   #         distinguish "rejected" from "service unavailable".
   #
   # NB: BSDX RPCs are BMX GLOBAL-ARRAY (recordset) RPCs whose first wire row is a
-  # column header; the gateway/mock supplies only the data row here.
+  # column header; the mappings here read only the data row.
   #
-  # These are still exercised through MockClient — but NOT because dispatch is
-  # unavailable. openrpms#366 (the YDB releases lacking the #8994 registry)
-  # closed 2026-08-23: ^XWB is force-included in the export and its absence now
-  # fails the build. What remains missing is a live-dispatch proof for this RPC
-  # set (rpms-rpc#224), which is a different thing from a blocked backend.
+  # openrpms#366 (the YDB releases lacking the #8994 registry) closed
+  # 2026-08-23: ^XWB is force-included in the export and its absence now fails
+  # the build.
   #
   # That distinction matters here: every method below reads a global-array reply
   # through call_rpc. On a CIA broker $C(30) was the frame terminator (until

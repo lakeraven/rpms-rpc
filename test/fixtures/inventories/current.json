@@ -1,0 +1,5 @@
+{
+  "repo": "lakeraven/openrpms",
+  "tag": "bcer-9.0-20261012-e7923a4-ydb",
+  "chosen_by": "fixture: the committed cut of this release (test/fixtures/release_inventory/names.txt), for offline Features tests"
+}

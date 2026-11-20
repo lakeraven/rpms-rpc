@@ -4,21 +4,25 @@ require "fileutils"
 require "json"
 require "rpms_rpc"
 require "rpms_rpc/conformance/build_surface"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
 require_relative "pinned_rpcs_test_helper"
+require_relative "release_under_test"
 
-# Shared expectations for rpms-rpc#384 (declarative Features vs pinned reach face).
+# Shared expectations for rpms-rpc#384 (declarative Features vs a release's reach face).
+# Features reads the release cache (OPENRPMS_INVENTORIES); every test that includes this helper runs
+# with that cache pointed at test/fixtures/inventories, whose current.json names the committed fixture
+# inventory (cut from a real release, rpms-rpc#724), so these tests stay offline.
 # Round-1 review: RPC lists and reach expectations come from committed sources at
 # test time (required_rpcs.json, rpcs.json documents), not hand-copied constants.
 module FeaturesTestHelper
   ROOT = File.expand_path("../..", __dir__)
-  Lock = RpmsRpc::Conformance::InventoryLock
-  LOCK = Lock.load(File.join(ROOT, "data/fingerprints", Lock::DEFAULT_PATH))
-  PINNED_INVENTORIES = File.join(ROOT, "data/inventories")
-  FIXTURE_INVENTORIES = File.join(ROOT, "test/fixtures/inventories")
+  Lock = RpmsRpc::Conformance::ReleaseInventory
+  # The fixture release (a real release's records, cut) and the cache root that holds it.
+  PINNED_INVENTORIES = ReleaseUnderTest::FIXTURE_ROOT
+  FIXTURE_INVENTORIES = ReleaseUnderTest::FIXTURE_ROOT
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
 
-  PINNED_TAG = LOCK.entries.keys.first
+  PINNED_TAG = ReleaseUnderTest::FIXTURE_TAG
 
   CLIENT_CALLABLE = RpmsRpc::Features::CLIENT_CALLABLE
 
@@ -133,6 +137,32 @@ module FeaturesTestHelper
       PinnedRpcsTestHelper.record(name, reach: { "class" => CLIENT_CALLABLE, "routine_present" => true, "tag_present" => true,
                                                  "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.merge(reach.fetch(name, {})))
     end
+  end
+
+  # Point the release cache at the fixture root for the whole test, then put it back.
+  def before_setup
+    @saved_cache_env = ENV.fetch(Lock::CACHE_ENV, nil)
+    ENV[Lock::CACHE_ENV] = PINNED_INVENTORIES
+    RpmsRpc::Features.reset!
+    super
+  end
+
+  def after_teardown
+    super
+  ensure
+    ENV[Lock::CACHE_ENV] = @saved_cache_env
+    RpmsRpc::Features.reset!
+  end
+
+  # Run the block with the release cache at ROOT.
+  def with_cache_root(root)
+    saved = ENV.fetch(Lock::CACHE_ENV, nil)
+    ENV[Lock::CACHE_ENV] = root
+    RpmsRpc::Features.reset!
+    yield
+  ensure
+    ENV[Lock::CACHE_ENV] = saved
+    RpmsRpc::Features.reset!
   end
 
   module_function

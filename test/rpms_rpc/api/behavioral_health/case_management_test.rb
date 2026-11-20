@@ -38,12 +38,10 @@ class BehavioralHealthCaseManagementTest < Minitest::Test
   end
 
   # CM^AMHGDCM always writes one row (AMHGDCM.m:38-40).
-  def test_case_management_for_an_ien_not_on_file_is_a_row_of_blanks
+  def test_case_management_for_an_ien_not_on_file_is_nil
     client = replay("case_management_not_on_file")
 
-    record = C.case_management(NOT_ON_FILE)
-    assert_equal NOT_ON_FILE, record[:ien]
-    assert_empty record.except(:ien).values.compact
+    assert_nil C.case_management(NOT_ON_FILE)
     assert_equal [ [ NOT_ON_FILE ] ], sent(client)
   end
 

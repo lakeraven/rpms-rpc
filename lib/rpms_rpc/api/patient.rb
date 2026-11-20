@@ -532,8 +532,8 @@ module RpmsRpc
       # XwbClient/BmxClient answer with an Array from split_response, and with
       # word wrap off a type-4 reply arrives as ONE element holding the whole
       # framed blob — join before looking for framing, or it reads as a single
-      # unparseable row. MockClient's seeded line arrays have no framing and
-      # fall through to the unchanged return below.
+      # unparseable row. A reply with no framing falls through to the
+      # unchanged return below.
       body = raw.is_a?(Array) ? raw.join : raw
       return raw unless body.is_a?(String)
 

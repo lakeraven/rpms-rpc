@@ -1,20 +1,19 @@
 # frozen_string_literal: true
 
 # A release may be tagged only when live summaries prove a green run against
-# the single pinned openrpms build (rpms-rpc#361, ADR 0010 assertion 10), of
-# the very files the gem ships (rpms-rpc#441) and the live suite that produced
+# the openrpms release under test (`rake openrpms:fetch`, rpms-rpc#724; rpms-rpc#361,
+# ADR 0010 assertion 10), of the very files the gem ships (rpms-rpc#441) and the live suite that produced
 # the summary (schema 3: passed and suite).
 # This task runs before Bundler tags or pushes. It does not tag, publish,
 # or read the build off a server.
 namespace :release do
-  desc "Refuse to tag unless live summaries are green for the pinned build"
+  desc "Refuse to tag unless live summaries are green for the openrpms release under test"
   task :live_guard do
     require_relative "../rpms_rpc/live_summary"
 
     root = File.expand_path("../..", __dir__)
-    lock_path = File.join(root, "data/fingerprints/rpms-ops.lock.yml")
     begin
-      build = RpmsRpc::LiveSummary.pinned_build(lock_path)
+      build = RpmsRpc::LiveSummary.release_build
     rescue StandardError => e
       abort "release:live_guard: refusing to release: #{e.message}"
     end

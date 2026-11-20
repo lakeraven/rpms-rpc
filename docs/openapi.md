@@ -4,7 +4,7 @@ rpms-rpc generates two OpenAPI 3.1 documents (#395), and this page is where thei
 
 | Document | Task | Release asset | What it describes |
 |---|---|---|---|
-| RPC surface | `rake openapi:surface` | `rpc-surface.openapi.json` | every RPC the pinned build registers in REMOTE PROCEDURE (#8994), sent over the broker by name, from its `<tag>-rpcs.json` |
+| RPC surface | `rake openapi:surface` | `rpc-surface.openapi.json` | every RPC the release under test registers in REMOTE PROCEDURE (#8994), sent over the broker by name, from its `<tag>-rpcs.json` |
 | Client API | `rake openapi:api` | `client-api.openapi.json` | the gem's public methods, each addressed as a resource, with the RPCs behind it |
 
 `rake openapi` writes both into `pkg/openapi/` (`OUT=` overrides the path of one).
@@ -13,46 +13,33 @@ The same inputs give byte-identical output: nothing in either document is a time
 
 ## Where the facts come from
 
-**The surface** reads ONE openrpms file: the pinned build's `<tag>-rpcs.json` (openrpms#732), the structured view openrpms projects from a release's raw inventory files.
-`rake openapi:pin RELEASE=<tag>` pins it the way `conformance:pin` pins the raw files:
-- it reads the release over REST (`gh api`), refuses unless the asset's digest is the sha256 `conformance:pin` locked for it, and downloads the file, checking the bytes against that digest (published releases only);
-- it resolves the file's header commit (7 to 40 hex) to the full build commit `conformance:pin` locked for the tag in `data/fingerprints/rpms-ops.lock.yml`, and refuses if the lock is silent or disagrees, so run `conformance:pin` first;
-- it fetches the openrpms `releases/schema/<schema>.schema.json` the file's `schema` field names (`rpcs.v1` or `rpcs.v2`) at that commit;
-- it validates the file and commits both under `data/openapi/`, with `data/openapi/rpcs.lock.yml` recording the tag, the sha256 of each, and the schema's source.
+**The surface** reads ONE openrpms file: the `<tag>-rpcs.json` of the release under test (openrpms#732), the structured view openrpms projects from a release's raw inventory files.
+Nothing is pinned in this repository (#724).
+`rake openrpms:fetch` resolves the release (the latest published `-ydb` release, or `OPENRPMS_RELEASE=<tag>`), downloads it into `tmp/openrpms/<tag>/`, checks every byte against the release's asset digests and the sidecar, checks that `rpcs.json` was projected from the sidecar's raw files, and records the release in `tmp/openrpms/current.json`.
+`openapi:surface` reads those same bytes back offline (`tools/openapi/release_surface.rb`), verifying them again first, so run `rake openrpms:fetch` before it.
 
-Before anything is read, `openapi:surface` proves the pin offline:
-- the file's sha256 is the pinned one;
-- its `schema` field is `rpcs.v1`;
-- it validates against the closed schema;
-- its header names the pinned tag.
-
-It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the one reader of the build's surface (#394, #406).
+It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the one reader of the build's surface (#394, #406), which refuses a `schema` it does not know.
 
 **rpcs.v1 and rpcs.v2.**
-A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned until 2026-11-19, publishes rpcs.v1, and releases gated after openrpms#877 publish rpcs.v2, as `bcer-9.0-20261119-f67498c-ydb`, the build pinned now, does.
-`openapi:pin` fetches the schema the file's `schema` field names, at the build's own commit, and the lock records which (`schema`).
+A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb` publishes rpcs.v1, and releases gated after openrpms#877 publish rpcs.v2.
 rpcs.v2 adds #8994's text, kept as stored (each byte is the Latin-1 code point of its value).
 From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with openrpms#877's generator gives a document byte-identical to the one from the raw files.
 
 **What rpcs.v1 does not carry.**
-It has no #8994 text and none of a few #8994 fields, so the surface leaves out what it would otherwise take from them:
+It has no #8994 text and none of a few #8994 fields, so from an rpcs.v1 release the surface leaves out what it would otherwise take from them:
 - the operation's DESCRIPTION (the description then says the file lacks it);
 - INPUT PARAMETER descriptions, MAX LENGTH (`maxLength`) and SEQUENCE NUMBER (`x-rpms-sequence`);
 - RETURN PARAMETER DESCRIPTION (the response is described by its type);
 - WORD WRAP (`word_wrap` reads `false`) and VERSION.
 
-On `bcer-9.0-20261012-e7923a4-ydb` that is 1,733 operation descriptions, 1,829 argument descriptions, 571 maximum lengths, 1,360 sequence numbers and 1,028 reply descriptions.
 Everything else matches what the raw files give: every verb and path, the tags, the counts, entry points, reach and contexts, packages, formals, and the order, type and required flag of each argument.
-rpcs.v2 carries all of them; re-pinning to the first release that publishes it (`rake openapi:pin RELEASE=<tag>`) restores them, with no code change.
 
 **Which build.**
-Both documents name the same build.
-`data/rpc_coverage/config.yml`, which the client API's analysis reads, and `data/openapi/rpcs.lock.yml`, which the surface reads, both pin `bcer-9.0-20261119-f67498c-ydb`.
-`rake openapi` refuses to report success when the two documents' `x-rpms-build.tag` differ, and a test holds the defaults to the same tag.
-The surface keeps a pin of its own (it also pins the schema the file names, and validates against it), so a re-pin is both commands with the same tag: `rake conformance:pin RELEASE=<tag>` and `rake openapi:pin RELEASE=<tag>`.
-Both commit the same `<tag>-rpcs.json` bytes; `conformance:pin` puts it in `data/inventories/<tag>/`, where the gates read it (#406).
+Both documents name the same build: the release `current.json` records.
+`rake openapi` refuses to report success when the two documents' `x-rpms-build.tag` differ.
+Which openrpms release proved which rpms-rpc commit is stated once, in openrpms `docs/PINS.md`.
 
-**The client API** runs `rake rpc:api_coverage`'s analysis in process (`METHODS=<file>` reads a JSON it wrote instead); its build is the one `data/rpc_coverage/config.yml` pins.
+**The client API** runs `rake rpc:api_coverage`'s analysis in process on the same release (`METHODS=<file>` reads a JSON it wrote instead).
 
 ## Publishing
 

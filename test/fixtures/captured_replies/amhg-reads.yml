@@ -1,0 +1,347 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-reads.rb.
+---
+rpc: AMHG GET VISITS
+entry_point: VISITL^AMHGD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair), the clinician that holds
+  AMHGRPC
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T06:03:40Z'
+note: Reads only, on a throwaway container given BH visits by the amhg-save-* captures
+  first.
+captures:
+- name: visits/1
+  rpc: AMHG GET VISITS
+  inputs:
+  - 3200101|3261231|990034
+  context: 'visits(990034): its BH visit, with a progress note'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050POV^T00020Axis V^T00020Clinic^T00020Activity^T00020Visit
+    Type^T00020Contact Type^T00030Provider^T00001Signed^T00001EHR^T00001DeleteIntakes^T00030LocationofEncounter^T00001Group^T00080Program^T00005ActivityTime^T00030DOBI\x1E4^3261120^11/20/2026^^^ALCOHOL
+    AND SUBSTANCE^^REGULAR VISIT^ADMINISTRATIVE^PROVIDER,TEST^*^^^DEMO IHS CLINIC^^MENTAL
+    HEALTH^\x1E"
+  sha256: 5f45e436d19b7e11e6c0bb35c9f67202c4ba18b64b3b0b0210fcda5b118b7f9d
+- name: visits_pov/1
+  rpc: AMHG GET VISITS
+  inputs:
+  - 3200101|3261231|990035
+  context: 'visits(990035): its BH visit, with POVs'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050POV^T00020Axis V^T00020Clinic^T00020Activity^T00020Visit
+    Type^T00020Contact Type^T00030Provider^T00001Signed^T00001EHR^T00001DeleteIntakes^T00030LocationofEncounter^T00001Group^T00080Program^T00005ActivityTime^T00030DOBI\x1E3^3261120^11/20/2026^SYNTH
+    POV NARR C^70^ALCOHOL AND SUBSTANCE^^REGULAR VISIT^ADMINISTRATIVE^PROVIDER,TEST^*^^^DEMO
+    IHS CLINIC^^MENTAL HEALTH^\x1E"
+  sha256: 3fd7bccf3dfd274b83c3690ddd8ab73066926ba2b72b50fb31dacc1de307d174
+- name: visits_group/1
+  rpc: AMHG GET VISITS
+  inputs:
+  - 3200101|3261231|990036
+  context: 'visits(990036): two visits, one in a group'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050POV^T00020Axis V^T00020Clinic^T00020Activity^T00020Visit
+    Type^T00020Contact Type^T00030Provider^T00001Signed^T00001EHR^T00001DeleteIntakes^T00030LocationofEncounter^T00001Group^T00080Program^T00005ActivityTime^T00030DOBI\x1E2^3261120^11/20/2026^^^ALCOHOL
+    AND SUBSTANCE^^REGULAR VISIT^ADMINISTRATIVE^PROVIDER,TEST^*^^^DEMO IHS CLINIC^^MENTAL
+    HEALTH^\x1E1^3261120^11/20/2026^^^ALCOHOL AND SUBSTANCE^^REGULAR VISIT^ADMINISTRATIVE^PROVIDER,TEST^*^^^DEMO
+    IHS CLINIC^1^MENTAL HEALTH^30\x1E"
+  sha256: 9d32a9d98dff208755e0942baa709ee67d614d05acd6c00abef931f8e72d6216
+- name: visits_none/1
+  rpc: AMHG GET VISITS
+  inputs:
+  - 3200101|3261231|990033
+  context: 'visits(990033): none'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050POV^T00020Axis V^T00020Clinic^T00020Activity^T00020Visit
+    Type^T00020Contact Type^T00030Provider^T00001Signed^T00001EHR^T00001DeleteIntakes^T00030LocationofEncounter^T00001Group^T00080Program^T00005ActivityTime^T00030DOBI\x1E"
+  sha256: 34a8b84fa5ebab54f8290a242626376fc0df68c87df6ea875694467db91ea68b
+- name: visit_information/1
+  rpc: AMHG GET VISIT INFORMATION
+  inputs:
+  - '3'
+  context: visit_information of DFN 990035's visit
+  raw_return: "5\0T00010BMXIEN^T00030PrimaryProvider^T00030Program^T00030Clinic^T00030TypeofContact^T00010ArrivalTime^T00020EncounterDate^T00030EncounterLocation^T00010ApptWi^T00030CommofService^T00010Visit^T00001EHR\x1E3^200~PROVIDER,TEST^MENTAL
+    HEALTH^63~ALCOHOL AND SUBSTANCE^1~ADMINISTRATIVE^^2026,11,20,6,1^7819~DEMO IHS
+    CLINIC^WALK-IN^7421~11-MILE CORN^^\x1E"
+  sha256: bab7c1d1e0853062fe6edf11a372430d06b09d0b0572567467e947fc2b3e6b89
+- name: visit_information_none/1
+  rpc: AMHG GET VISIT INFORMATION
+  inputs:
+  - '999999'
+  context: visit_information of a record no visit has
+  raw_return: "5\0T00010BMXIEN^T00030PrimaryProvider^T00030Program^T00030Clinic^T00030TypeofContact^T00010ArrivalTime^T00020EncounterDate^T00030EncounterLocation^T00010ApptWi^T00030CommofService^T00010Visit^T00001EHR\x1E999999^200~PROVIDER,TEST^^^^^1700,,,12,0^^^^^\x1E"
+  sha256: 6b476e56e64d24217c19a1e090a9ed51e6897055ab7434e50a578ed6ff6d35d1
+- name: visit_activity/1
+  rpc: AMHG GET VISIT ACTIVITY
+  inputs:
+  - '3'
+  context: visit_activity of DFN 990035's visit
+  raw_return: "5\0T00010BMXIEN^T00030ActivityType^T00010ActivityTime^T00010Flag^T00030LocalServiceSite^T00010NumberServed^T00001InterpreterUtilized\x1E3^^^^^^\x1E"
+  sha256: 3897cc7dc1c3e912fd86d048e9e39ff421a0b1e63cf3ccf23a964c9a357d7378
+- name: visit_axis_ii/1
+  rpc: AMHG GET VISIT AXIS II
+  inputs:
+  - '3'
+  context: visit_axis_ii of DFN 990035's visit
+  raw_return: "5\0T00010BMXIEN^T00010Code^T00100Narrative\x1E2^2^SYNTH POV NARR C\x1E"
+  sha256: be2bd545bec69b08cc9df64526190c5229a1d07d89a1cc0d4ef233b8fe876211
+- name: visit_axis_iii/1
+  rpc: AMHG GET VISIT AXIS III
+  inputs:
+  - '3'
+  context: visit_axis_iii of DFN 990035's visit
+  raw_return: "5\0T00250AxisIII\x1ESYNTH AXIS III LINE\x1E"
+  sha256: b14649bddda312ce03be7ef7270ccd9a14eb71e6e4700474ed0b607ba730d1a7
+- name: visit_axis_iv/1
+  rpc: AMHG GET VISIT AXIS IV
+  inputs:
+  - '3'
+  context: visit_axis_iv of DFN 990035's visit
+  raw_return: "5\0T00010BMXIEN^T00010Code^T00100Narrative\x1E3^3^EDUCATIONAL PROBLEMS\x1E"
+  sha256: 292e98cc2ca5e6bb9bb2e431f8ac169617381d523f5ea8e92d289bd617552b33
+- name: visit_axis_v/1
+  rpc: AMHG GET VISIT AXIS V
+  inputs:
+  - '3'
+  context: visit_axis_v of DFN 990035's visit
+  raw_return: "5\0T00010AxisV^T00020GAF\x1E70^\x1E"
+  sha256: bc77fe42d2b598e0d0b6c41f30ba16b853a380820a76ce7ca8d341dd664cc92b
+- name: visit_chief_complaint/1
+  rpc: AMHG GET VISIT CC
+  inputs:
+  - '4'
+  context: visit_chief_complaint of DFN 990034's visit
+  raw_return: "5\0T00100ChiefComplaint\x1ESYNTH CC\x1E"
+  sha256: 27d636588aba256e297c3dcc13321cbb9381686a7da274ffe2053372f32c9d2a
+- name: visit_chief_complaint_none/1
+  rpc: AMHG GET VISIT CC
+  inputs:
+  - '3'
+  context: visit_chief_complaint of DFN 990035's visit, which has none
+  raw_return: "5\0T00100ChiefComplaint\x1E\x1E"
+  sha256: cbdb44d075d81ff468e3193a46297522d2eea162b51156fb14cc0f8ea06224d9
+- name: visit_soap/1
+  rpc: AMHG GET VISIT SOAP
+  inputs:
+  - '4'
+  context: visit_soap of DFN 990034's visit
+  raw_return: "5\0T00250Soap\x1ESYNTH note after blank comment.\x1E"
+  sha256: 4695e80566b87a962f88cc48b68102400d3a025d55fbdf0577359fcf029a24cf
+- name: visit_comment_appointment/1
+  rpc: AMHG GET VISIT COMM APP
+  inputs:
+  - '4'
+  context: visit_comment_appointment of DFN 990034's visit
+  raw_return: "5\0T00250CommentAppointment\x1ESYNTH comment line A\n\x1ESYNTH comment
+    line B\x1E"
+  sha256: 9c28d77623d2160419589ade917167b099da349d93b46a4258b815c702263096
+- name: visit_assessment/1
+  rpc: AMHG GET VISIT ASSESSMENT
+  inputs:
+  - '1'
+  context: visit_assessment of intake 1, which no intake has
+  raw_return: "5\0T00250Assessment\x1E"
+  sha256: b05ebf9682ca8d8bb52778691b1594ae4d688e1c9130aab781ceb76be5d4288c
+- name: visit_screenings/1
+  rpc: AMHG GET VISIT SCREENING
+  inputs:
+  - '3'
+  context: visit_screenings of DFN 990035's visit
+  raw_return: "5\0T00010BMXIEN^T00030ScreeningType^T00030ScreeningResult^T00010ScreeningProviderIEN^T00030ScreeningProvider^T00250ScreeningComment\x1E"
+  sha256: 482c31a3f627dbe7c3004a7d1c12a8035d139a8e40eca01543d60f2b0dd818fd
+- name: treatment_plans/1
+  rpc: AMHG GET TREATMENT PLANS
+  inputs:
+  - 3200101|3261231|990035
+  context: treatment_plans(990035)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030DateEstablished^T00030Program^T00030Status^T00080Problem^T00030Provider^T00030ReviewDate^T00010Reviews^T00030ClosedDate\x1E"
+  sha256: '0778135378f28bd077d6309187b62efabe357d0bd1e62dc62cfb6358c5da5177'
+- name: treatment_plan/1
+  rpc: AMHG GET TREATMENT PLAN
+  inputs:
+  - '1'
+  context: treatment_plan(1)
+  raw_return: "5\0T00010BMXIEN^T00030DateEstablished^T00030Program^T00030TargetDate^T00030ReviewDate^T00030DateClosed^T00030DesignatedProvider^T00240ProblemList^T00030CaseAdmit^T00030ConcurredDate^T00030ConcurSupervisor^T00001dsm4\x1E1^^^^^^^^^^^\x1E"
+  sha256: 030aa4a26b1c6b6946fff4759dbadf0a1dd1119e2c8257589143c703fae0eed6
+- name: treatment_plan_reviews/1
+  rpc: AMHG GET TP REVIEW
+  inputs:
+  - '1'
+  context: treatment_plan_reviews(1)
+  raw_return: "5\0T00010BMXIEN^T00010BMXIEN2^T00030ReviewDate^T00030ReviewProvider^T00030ReviewSupervisor^T00030NextReviewDate^T00050ReviewProviderComplete^T00050ReviewSupervisorComplete\x1E"
+  sha256: 40d3fe94fb270d60d9eabba1853ffb0a66ffd35c2e994092d0207328b962f342
+- name: treatment_plan_participants/1
+  rpc: AMHG GET TP PLAN PARTICIPANTS
+  inputs:
+  - '1'
+  context: treatment_plan_participants(1)
+  raw_return: "5\0T00010BMXIEN^T00030Participant^T00030Relationship\x1E"
+  sha256: ccd549d5af1c372b45b3a74a86178b861390e654114e544f0e72c7c6447eb5a1
+- name: treatment_plan_narrative/1
+  rpc: AMHG GET TP NARRATIVE
+  inputs:
+  - '1'
+  context: treatment_plan_narrative(1)
+  raw_return: "5\0T00250TreatmentPlanNarrative\x1E"
+  sha256: def1941e7d7ba868cae0925bcfc59d497ebab119980d314fe500e2dbf57367ff
+- name: suicide_forms/1
+  rpc: AMHG GET SUICIDE FORMS
+  inputs:
+  - 3200101|3261231|990035
+  context: suicide_forms(990035)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00030LocalCaseNumber^T00030Provider^T00080SuicidalBehavior^T00001Incomplete\x1E"
+  sha256: d4acd50e63301e69f42e5ebb200f5e45a2862c9094063583730acef64514a3ce
+- name: suicide_form/1
+  rpc: AMHG GET SUICIDE FORM
+  inputs:
+  - '1'
+  context: suicide_form(1)
+  raw_return: "5\0T00010BMXIEN^T00030LocalCaseNumber^T00050Provider^T00030DateofAct^T00050CommunityWhereOccurred^T00010RelationshipStatus^T00010EmploymentStatus^T00010Education^T00010HighestGrade^T00010SuicidalBehavior^T00010PreviousAttempts^T00010Lethality^T00010LocationofAct^T00080LocationOther^T00050Disposition^T00080DispositionText\x1E1^^^^^^^^^^^^^^^\x1E"
+  sha256: '084c62eac787e3b45e526ffba17f5a913c87be6fba66b2e72a18f1917b6ce23f'
+- name: suicide_form_methods/1
+  rpc: AMHG GET SUICIDE FORM METHOD
+  inputs:
+  - '1'
+  context: suicide_form_methods(1)
+  raw_return: "5\0T00010BMXIEN^T00010Method^T00050MethodIfOther^T00050DrugIfOverdose^T00050DrugIfOther\x1E"
+  sha256: c0e6439a3aa8fd954927eea40a8074359ee6ff6467bb61baaa455b42af671534
+- name: suicide_form_substances/1
+  rpc: AMHG GET SUICIDE FORM SUB
+  inputs:
+  - '1'
+  context: suicide_form_substances(1)
+  raw_return: "5\0T00010BMXIEN^T00010Substance^T00050Drug^T00050DrugIfOther\x1E1^^^\x1E"
+  sha256: 74a5d558301e6017142e89002634407ed2d0312c6bb394d43a659ec31f1a7a77
+- name: suicide_form_contributing_factors/1
+  rpc: AMHG GET SUICIDE FORM CF
+  inputs:
+  - '1'
+  context: suicide_form_contributing_factors(1)
+  raw_return: "5\0T00010BMXIEN^T00010ContributingFactor^T00050ContributingFactorIfOther\x1E"
+  sha256: 6759f13b505488fa99f4fbbe3300fce8b7175fb064399f1d0de5aac0e27696d5
+- name: case_dates/1
+  rpc: AMHG GET CASE DATES
+  inputs:
+  - 3200101|3261231|990035
+  context: CaseManagement.case_dates(990035)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030OpenDate^T00030AdmitDate^T00030ClosedDate^T00050Disposition^T00030Program^T00030Provider\x1E"
+  sha256: 6f52c7614bae8395d0ce877f23115410cfeb9a0043841b5691684a8f56e3abeb
+- name: case_management/1
+  rpc: AMHG GET CASE MANAGEMENT
+  inputs:
+  - '1'
+  context: CaseManagement.case_management(1)
+  raw_return: "5\0T00010BMXIEN^T00030CaseOpen^T00030CaseAdmit^T00030CaseClosed^T00030Disposition^T00030Program^T00030Provider^T00030Problem^T00030NextReview^T00250Comment\x1E1^^^^^^^^^\x1E"
+  sha256: 8fddbce616c93484cc73eaeae379e8bb2e6c693952bd8284192029682f99d925
+- name: community_activities/1
+  rpc: AMHG GET COMMUNITY ACTIVITIES
+  inputs:
+  - 3200101|3261231|200
+  context: CaseManagement.community_activities(200)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00030Provider^T00010Time^T00050ActivityCode^T00050POV^T00080ProviderNarrative^T00030LocationofEncounter\x1E"
+  sha256: 7be5b6acae1eb51ad2440b92a05936d3a0fe74b2b704e54e0b5a0d4028a08327
+- name: community_activity/1
+  rpc: AMHG GET COMMUNITY ACTIVITY
+  inputs:
+  - '1'
+  context: CaseManagement.community_activity(1)
+  raw_return: "5\0T00010BMXIEN^T00050Provider^T00030Program^T00050TypeofContact^T00010StartTime^T00010Time^T00010NumberServed^T00030Target^T00030Date^T00050Location^T00050CommunityofService^T00060ActivityCode^T00050LocalServiceSite^T00010Flag^T00050Clinic\x1E1^200~PROVIDER,TEST^MENTAL
+    HEALTH^1~ADMINISTRATIVE^^30^^^2026,11,20,6,1^7819~DEMO IHS CLINIC^7421~11-MILE
+    CORN^^^^63~ALCOHOL AND SUBSTANCE\x1E"
+  sha256: 257bee500bf4528cb2410520b3b614724998fde557b0df5c1a7b035ad8003e62
+- name: groups/1
+  rpc: AMHG GET GROUPS
+  inputs:
+  - 3200101|3261231|200
+  context: Groups.groups(200)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00030GroupName^T00050ActivityCode^T00030Program^T00030Clinic^T00030Provider^T00030ContactType^T00080POV^T00001Signed^T00030LocationofEncounter\x1E"
+  sha256: 25d25f0cab0ae2b0065afcf8f2f423c2da0fd5f77758e3c7c87114f72d6814e5
+- name: group_information/1
+  rpc: AMHG GET GROUP INFORMATION
+  inputs:
+  - '1'
+  context: Groups.group_information(1)
+  raw_return: "5\0T00010BMXIEN^T00030PrimaryProvider^T00030Program^T00030GroupName^T00030Clinic^T00030TypeofContact^T00030EncounterLocation^T00020EncounterDate^T00010ArrivalTime^T00050CommofService^T00050Activity^T00010ActivityTime^T00250ChiefComplaint\x1E1^^^^^^^1700,,,12,0^^^^^\x1E"
+  sha256: a4064019df6abfbb10998c08ecefce0ba6506b1738cd1ddf1d85d14aba19f798
+- name: group_patients/1
+  rpc: AMHG GET GROUP PATIENTS
+  inputs:
+  - '1'
+  context: Groups.group_patients(1)
+  raw_return: "5\0T00010BMXIEN^T00010PatientIEN^T00010AMHREC^T00030PatientName^T00001Sex^T00010Age^T00020DOB^T00010Chart^T00030DOD\x1E"
+  sha256: 6c9d72cb1b79244df0bf3c4faba9401ff687e3d74c4101b9703b19d6dac669e3
+- name: group_cpt/1
+  rpc: AMHG GET GROUP CPT
+  inputs:
+  - '1'
+  context: Groups.group_cpt(1)
+  raw_return: "5\0T00010BMXIEN^T00010Code^T00050Narrative^T00010Quantity^T00010Mod1IEN^T00010Mod1^T00010Mod2IEN^T00010Mod2\x1E"
+  sha256: 506c1c7dec50f793e26b1e1914db99b579269ed383af5334d75aff48cbaeb72b
+- name: group_edu/1
+  rpc: AMHG GET GROUP EDU
+  inputs:
+  - '1'
+  context: Groups.group_edu(1)
+  raw_return: "5\0T00010BMXIEN^T00030EducationTopic^T00010TimeSpent^T00030LevelOfUnderstanding^T00100Comment^T00050CPT^T00030Status^T00030Goal^T00050Provider\x1E"
+  sha256: b473ae3b3e25f7f73584c3874b732b79a93a41c856777d917227ba3c344e746c
+- name: group_pov/1
+  rpc: AMHG GET GROUP POV
+  inputs:
+  - '1'
+  context: Groups.group_pov(1)
+  raw_return: "5\0T00010BMXIEN^T00010Code^T00100Narrative\x1E"
+  sha256: 76143a576a90c3ff429c3289d79906537a5e3eb0396caa98616536997d4ce1b7
+- name: group_soap/1
+  rpc: AMHG GET GROUP SOAP
+  inputs:
+  - '1'
+  context: Groups.group_soap(1)
+  raw_return: "5\0T00250Soap\x1E"
+  sha256: b5e6d80b2288a02357d9c21e79172e814887d6d5de7e2cfba061e9f4486c32fa
+- name: group_secondary_providers/1
+  rpc: AMHG GET GROUP SEC PROVIDERS
+  inputs:
+  - '1'
+  context: Groups.group_secondary_providers(1)
+  raw_return: "5\0T00010BMXIEN^T00030Provider\x1E"
+  sha256: 603ae1fa6c0df548c72e7ad4ec26a7b9f91fc48bf4dbba7b3a46150853cf7a29
+- name: intakes/1
+  rpc: AMHG GET INTAKE
+  inputs:
+  - 3200101|3261231|990035
+  context: Intake.intakes(990035)
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050InitialProvider^T00007VisitIEN^T00030Visit^T00050PrimaryProvider\x1E"
+  sha256: '0498503b9257477c016fdad4d8ba4007a2b6e0ee140cddc34d1450055a43c8e7'
+- name: intake_documents/1
+  rpc: AMHG GET INTAKE DOCUMENTS
+  inputs:
+  - 990035|MENTAL HEALTH|3200101|3261231
+  context: Intake.intake_documents(990035)
+  raw_return: "5\0T00010BMXIEN^T00001Type^T00010AMHREC^T00030DateInitial^T00030Program^T00030ProviderInitial^T00030DateUpdate^T00030ProviderUpdate^T00001Signed^T00010IPIen^T00010UpdIen^T00010InitialIntake^T00030UpdateProgram^T00010UserUpdate^T00030DateofLastUpdate\x1E"
+  sha256: 43ada7d20c28f896d5293335790b120e0209ff7fa59d04ef9d9ff0b6885373e7
+- name: clinics/1
+  rpc: AMHG GET CLINICS
+  inputs: []
+  context: Reference.clinics
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: patients/1
+  rpc: AMHG GET PATIENT
+  inputs:
+  - "|IVORY|ALL"
+  context: Reference.patients("IVORY")
+  raw_return: "5\0T00010IEN^T00030PATIENTNAME^T00015DOB^T00001SEX^T00007CHART^T00009SSN^T00010REG^T00030MORE^T00030DOD^T00010AGE^T00001MESSAGEFLAG^T02500MESSAGE^T00001PRF\x1E990035^IVORY,EMERSON^09/01/1947^F^990035^^^^^79^^^0\x1E"
+  sha256: 204a6c997cf0149b0ddf098bdca5e42aa549a252dde032c9255306d91401c8f1
+- name: site_parameters/1
+  rpc: AMHG GET SITE PARAMETERS
+  inputs:
+  - '1'
+  context: Reference.site_parameters(1)
+  raw_return: "5\0T00010BMXIEN^T00030TypeofVisit^T00030TypeofHS^T00030DefMHLoc^T00030DefMHComm^T00030DefMHClinic^T00030DefTypeofContact^T00001AskInterpreter^T00001AllowPCCPrbUp^T00030DefSSLoc^T00030DefSSComm^T00030DefSSClinic^T00030DefCDLoc^T00030DefCDComm^T00030DefCDClinic^T00030DefOthLoc^T00030DefOthComm^T00030DefOthClinic^T00030DefEHRComm^T00001InteractivePCCLink^T00030DefAppt^T00005Lockout^T00001DeleteOverride\x1E1^^^^^^^^^^^^^^^^^^^0^^99999^0\x1E"
+  sha256: 0ac801d61972bcc0434cb45f39cfe537d4694182c66d2fdda75c5923dbf48cca
+- name: admin_records/1
+  rpc: AMHG GET ADMIN RECORDS
+  inputs:
+  - 3200101|3261231|200
+  context: 'Reference.admin_records(200): the build answers an M error'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050ActivityCode^T00050POV^T00010Time^T00030Provider^T00080ProviderNarrative^T00030LocationofEncounter\x1EM
+    ERROR|MUMPS error: \"150373850,ADML+32^AMHGDA,%YDB-E-LVUNDEF, Undefined local
+    variable: AMHPOVE <UNDEFINED>\"\x1E"
+  sha256: 9ba8457b95540590962fbe91c3feec498fa46a68ca71e169ac556ecb83b8c51c

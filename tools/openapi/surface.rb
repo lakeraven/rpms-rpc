@@ -206,7 +206,7 @@ module OpenApi
 
     # The whole document for one build. surface: an RpmsRpc::Conformance::BuildSurface with reach and
     # signature structure (from <tag>-rpcs.json, or the raw files); build: the provenance of its source
-    # (OpenApi::RpcsPin.build_provenance); gem: OpenApi.gem_provenance.
+    # (OpenApi::ReleaseSurface.build_provenance); gem: OpenApi.gem_provenance.
     def document(surface, build:, gem:)
       raise Refused, "#{surface.tag}: no reach face" unless surface.reach?
       raise Refused, "#{surface.tag}: no signatures" unless surface.signatures?

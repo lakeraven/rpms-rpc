@@ -13,8 +13,8 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 `docs/vuecentric-exit.md` is the analysis: what each need is, which stock routes exist, and how they compare.
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
-The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the build's broker-option inventory (`data/inventories/<build>/<build>-contexts_19_05.txt`, the build `required_rpcs.json` names) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261012-e7923a4-ydb` that is 63 RPCs.
+The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the broker-option inventory of the openrpms release under test (`<tag>-contexts_19_05.txt`, fetched by `rake openrpms:fetch`, rpms-rpc#724) lists it in `CIAV VUECENTRIC` only.
+On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 
 ## Decision
 
@@ -99,7 +99,7 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 63 RPCs.
 
 ### Negative
 
-- The list is computed against one build's inventory (the one `required_rpcs.json` names). A build whose options differ needs its inventory pinned before the test reflects it.
+- The list is computed against the inventory of the openrpms release under test. A release whose options differ changes the list, and the test fails until this table follows.
 - On a session bound to another option, each of these calls costs a bind and a restore.
 - The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `Patient.brief_header` reads `BEHOPTCX PTINFO` (in `CIAV VUECENTRIC` and `VEN RPC`) beside `BEHOPTPC GETBDP`; `OR CPRS GUI CHART` carries neither.
 
