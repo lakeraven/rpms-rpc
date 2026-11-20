@@ -29,8 +29,8 @@ module RpmsRpc
   # A fixed-context feature is judged under that declared context in both
   # `available?` and `for`; any `context:` passed with the call is ignored.
   # A session-context feature requires `context:` on `available?` and on
-  # `for`. Omitting the keyword on `available?`, or passing nil to either
-  # method, is an ArgumentError. Omitting the keyword on `for` still lists
+  # `for`. Omitting the keyword on `available?`, or passing nil or anything
+  # but a non-empty String to either method, is an ArgumentError. Omitting the keyword on `for` still lists
   # the fixed-context features the build serves.
   #
   # `for(build:)` returns the fixed-context features the build serves.
@@ -58,8 +58,11 @@ module RpmsRpc
   # LIMIT: the out-of-order set is a sound but incomplete derivation. An
   # out-of-order option whose RPCs are all also listed by usable options is
   # not detected — those RPCs are published as client-callable, so no
-  # out-of-order row names the option. The complete fix needs openrpms to
-  # publish a per-option out-of-order flag, tracked in lakeraven/openrpms#1043.
+  # out-of-order row names the option. openrpms publishes the complete set
+  # since lakeraven/openrpms#1048 (OUT_OF_ORDER, field 7 of <tag>-rpc_reach.txt),
+  # but <tag>-rpcs.json, the one surface document pinned here, does not carry
+  # it yet: lakeraven/openrpms#1266. On bcer-9.0-20261119-f67498c-ydb the two
+  # agree (one option, SCMC PCMM GUI WORKSTATION).
   #
   # The parsed build surface, and the out-of-order options derived from it,
   # are cached per [realpath, tag]. The tag is the inventory directory's own
@@ -294,12 +297,16 @@ module RpmsRpc
     end
 
     # Fixed-context features always use their declared context. Session-context
-    # features use the passed context, and refuse a missing or nil one.
+    # features use the passed context, and refuse a missing or nil one, and
+    # anything but a non-empty String (an option name is never "" or a Symbol).
     def bind_context(entry, context)
       return entry.context unless entry.context.nil?
-      return context unless keyword_omitted?(context) || context.nil?
+      if keyword_omitted?(context) || context.nil?
+        raise ArgumentError, "feature #{entry.name} runs under the session's bound context; pass context:"
+      end
+      return context if context.is_a?(String) && !context.empty?
 
-      raise ArgumentError, "feature #{entry.name} runs under the session's bound context; pass context:"
+      raise ArgumentError, "feature #{entry.name}: context: must be a non-empty String option name, not #{context.inspect}"
     end
 
     def keyword_omitted?(context) = context.equal?(OMITTED)
@@ -326,11 +333,9 @@ module RpmsRpc
     # that reach class means every option listing the RPC is out of order, so
     # a usable option is not in the set.
     #
-    # LIMIT: sound but incomplete. An out-of-order option whose RPCs are all
-    # also listed by usable options is not detected — those RPCs are published
-    # as client-callable, so no out-of-order row names the option. The complete
-    # fix needs openrpms to publish a per-option out-of-order flag, tracked in
-    # lakeraven/openrpms#1043.
+    # LIMIT: sound but incomplete (see the module comment): the complete set is
+    # openrpms' OUT_OF_ORDER field, read once rpcs.json carries it
+    # (lakeraven/openrpms#1266).
     def client_callable_under?(cached, rpc_name, context)
       return false if cached.out_of_order_options.include?(context)
 
@@ -400,21 +405,21 @@ module RpmsRpc
       end
     end
 
-    # InventoryLock.load raises Psych::SyntaxError on broken YAML and TypeError
-    # when the document is not a mapping (a scalar list). A releases value that
-    # is not a mapping would be NoMethodError on entries.keys; reject it here.
-    # Each of those is a malformed lock: ArgumentError naming the path. A
-    # missing file stays the ArgumentError raised by pinned_lock.
+    # Reading a lock that is not a mapping of releases fails in whatever way the
+    # document's shape makes Ruby fail: Psych::SyntaxError on broken YAML,
+    # TypeError on a list, IndexError on a bare scalar, NoMethodError later on a
+    # releases value that is not a mapping. Each is a malformed lock:
+    # ArgumentError naming the path. A missing file stays the ArgumentError
+    # raised by pinned_lock.
     def load_lock(path)
-      lock = Conformance::InventoryLock.load(path)
-      entries = lock.entries
-      unless entries.is_a?(Hash)
-        raise ArgumentError, "lock file is malformed: #{path}"
+      lock = begin
+        Conformance::InventoryLock.load(path).tap(&:entries)
+      rescue StandardError => e
+        raise ArgumentError, "lock file is malformed: #{path} (#{e.class}: #{e.message})"
       end
+      raise ArgumentError, "lock file is malformed: #{path} (releases is not a mapping)" unless lock.entries.is_a?(Hash)
 
       lock
-    rescue Psych::Exception, NoMethodError, TypeError => e
-      raise ArgumentError, "lock file is malformed: #{path} (#{e.message})"
     end
 
     def read_surface(dir, tag)
@@ -447,12 +452,18 @@ module RpmsRpc
       raise ArgumentError, "unknown build #{build.inspect}"
     end
 
+    # The lock's one tag, held to TAG_NAME as a passed build: is, so a key that
+    # is not a String, or is a path, names no directory outside data/inventories.
     def sole_pinned_tag
       tags = pinned_build_tags
-      return tags.first if tags.one?
+      unless tags.one?
+        detail = tags.empty? ? "none" : tags.join(", ")
+        raise ArgumentError, "#{LOCK_PATH} pins #{tags.size} builds (#{detail}); pass build:"
+      end
+      tag = tags.first
+      return tag if tag.is_a?(String) && TAG_NAME.match?(tag)
 
-      detail = tags.empty? ? "none" : tags.join(", ")
-      raise ArgumentError, "#{LOCK_PATH} pins #{tags.size} builds (#{detail}); pass build:"
+      raise ArgumentError, "#{LOCK_PATH} pins a malformed build tag #{tag.inspect}"
     end
   end
 end

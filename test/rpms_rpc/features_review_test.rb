@@ -126,6 +126,29 @@ class FeaturesReviewTest < Minitest::Test
     end
   end
 
+  # #628: a bare scalar made InventoryLock raise IndexError past the rescue.
+  def test_bare_scalar_lock_raises_argument_error_not_index_error
+    with_lock_path(malformed_lock_file("just-a-scalar")) do
+      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+      assert_match(/lock file is malformed/, err.message)
+    end
+  end
+
+  # #628: the sole pinned tag is held to TAG_NAME, as a passed build: is.
+  def test_sole_pinned_tag_that_is_not_a_string_raises_argument_error_not_type_error
+    with_lock_path(malformed_lock_file("releases:\n  123:\n    engine: yottadb\n")) do
+      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+      assert_match(/malformed build tag 123/, err.message)
+    end
+  end
+
+  def test_sole_pinned_tag_that_is_a_path_raises_argument_error
+    with_lock_path(malformed_lock_file("releases:\n  ../#{PINNED_TAG}:\n    engine: yottadb\n")) do
+      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+      assert_match(/malformed build tag/, err.message)
+    end
+  end
+
   def test_review_511_lock_with_disallowed_yaml_tag_raises_argument_error
     with_lock_path(malformed_lock_file("releases: !ruby/object:Object {}")) do
       assert_raises(ArgumentError) { features!.pinned_build_tags }
@@ -152,6 +175,16 @@ class FeaturesReviewTest < Minitest::Test
   def test_review_511_for_with_nil_context_raises_argument_error
     assert_raises(ArgumentError) do
       features!.for(build: PINNED_TAG, context: nil)
+    end
+  end
+
+  # #628: an empty or non-String context answered false instead of refusing.
+  def test_context_that_is_not_a_non_empty_string_raises_argument_error
+    [ "", :"CIAV VUECENTRIC", 19 ].each do |context|
+      assert_raises(ArgumentError, context.inspect) do
+        features!.available?(:patient_chart_banner, build: PINNED_TAG, context: context)
+      end
+      assert_raises(ArgumentError, context.inspect) { features!.for(build: PINNED_TAG, context: context) }
     end
   end
 
