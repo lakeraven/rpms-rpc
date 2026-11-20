@@ -14,7 +14,7 @@
 # inventory_tags prints the pair the inventory would use as iris=<tag> and ydb=<tag> lines (a GitHub step output).
 # inventory_notes writes RELEASE's notes with the inventory section in place (tools/rpc_inventory release_notes):
 # the two tags, the command, and the columns against the previous release that carries the CSV. Both are how
-# .github/workflows/rpc-inventory-release.yml attaches the inventory to an rpms-rpc release.
+# .github/workflows/openrpms-tags.yml attaches the inventory to an rpms-rpc release.
 namespace :rpc do
   inventory_tool = lambda do
     root = File.expand_path("../..", __dir__)
