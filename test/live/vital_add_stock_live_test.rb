@@ -10,6 +10,8 @@ require "rpms_rpc/fileman_date_parser"
 # WRITES against a disposable local container only.
 class VitalAddStockLiveTest < LiveSpec::Test
   runs_as :provider
+  # GMV GET VITAL TYPE IEN runs under OR CPRS GUI CHART, which PROFILE,MD is not given yet (PROVIDER,TEST was, openrpms#1192).
+  needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   writes!
 
   DFN = 2

@@ -824,7 +824,7 @@ PROV123 (PROVIDER,TEST) is not a test role; it stays a stack's staging sign-on.
 Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it:
 
 - AMHGRPC for the provider, the Behavioral Health specs: https://github.com/lakeraven/openrpms/issues/1275
-- OR CPRS GUI CHART for the provider, the sensitive-record check, a note's patient, a user's roles, and the XWB user class: https://github.com/lakeraven/openrpms/issues/1276
+- OR CPRS GUI CHART for the provider, the sensitive-record check, a note's patient, a user's roles, the stock VistA vital add, and the XWB user class: https://github.com/lakeraven/openrpms/issues/1276
 - XQAL GUI ALERTS for the provider, the notification spec: https://github.com/lakeraven/openrpms/issues/1277
 
 - **Wire-format tests** construct packet bytes and assert their layout
