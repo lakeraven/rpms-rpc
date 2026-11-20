@@ -1,0 +1,514 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb patient-profile.rb.
+---
+rpc: AGG UPDATE PATIENT
+entry_point: UPD^AGGPTUPD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:30:06Z'
+note: Run on a fresh throwaway container, flows in order. DFN 990007 is a synthetic
+  seed patient with no emergency contact, next of kin, language entry or other name
+  before the first flow.
+captures:
+- name: contacts_none/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  context: 'contacts before any is filed: both windows answer only their header'
+  raw_return: "5\0T00035AGGECNME^T00020AGGECPHN^T00040AGGECREL^T00030AGGECAD1^T00030AGGECAD2^T00030AGGECAD3^T00030AGGECCTY^T00030AGGECSTE^T00015AGGECZIP^T00020AGGECWPH^T00030AGGECORL\x1E"
+  sha256: e5f5d9a36d7fa34e208d6ebc98d1e57e9d6aaa2c904d1da40b963f69e580755a
+- name: contacts_none/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Next of Kin Info
+  - '990007'
+  context: 'contacts before any is filed: both windows answer only their header'
+  raw_return: "6\0T00035AGGNKNME^T00020AGGNKPHN^T00040AGGNKREL^T00030AGGNKAD1^T00030AGGNKAD2^T00030AGGNKAD3^T00035AGGNKCTY^T00040AGGNKSTE^T00015AGGNKZIP^T00020AGGNKWPH^T00030AGGNKORL\x1E"
+  sha256: cf135065933e636be0e75750c0908dbfa5cd34cf50aa15ee20b62c087135f5f1
+- name: emergency_name_required/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  context: emergency contact relationship and phone with no name on file
+  raw_return: "5\0T00035AGGECNME^T00020AGGECPHN^T00040AGGECREL^T00030AGGECAD1^T00030AGGECAD2^T00030AGGECAD3^T00030AGGECCTY^T00030AGGECSTE^T00015AGGECZIP^T00020AGGECWPH^T00030AGGECORL\x1E"
+  sha256: e5f5d9a36d7fa34e208d6ebc98d1e57e9d6aaa2c904d1da40b963f69e580755a
+- name: emergency_name_refused/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Emergency Contact Info
+  - "AGGECNME=DOE, JANE\x1CDFN=990007"
+  context: 'emergency contact name DOE, JANE: AG''s name check refuses it'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^No
+    space after the comma^^^^\x1E"
+  sha256: 0e5a1e84fa7f0f8298d47da90da67d882b43700b2dcf2489cf9222066dbc10e6
+- name: emergency/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Emergency Contact Info
+  - "AGGECNME=DOE,JANE\x1CDFN=990007"
+  context: emergency contact doe,jane, SPOUSE, 1 MAIN ST, 12345, 555-555-0100
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: emergency/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Emergency Contact Info
+  - "AGGECZIP=12345\x1CDFN=990007"
+  context: emergency contact doe,jane, SPOUSE, 1 MAIN ST, 12345, 555-555-0100
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: emergency/3
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: emergency contact doe,jane, SPOUSE, 1 MAIN ST, 12345, 555-555-0100
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: emergency/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  - "AGGECNME=DOE,JANE\x1CAGGECREL=22\x1CAGGECAD1=1 MAIN ST\x1CAGGECZIP=12345\x1CAGGECPHN=555-555-0100"
+  context: emergency contact doe,jane, SPOUSE, 1 MAIN ST, 12345, 555-555-0100
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: emergency/5
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: emergency contact doe,jane, SPOUSE, 1 MAIN ST, 12345, 555-555-0100
+  raw_return: "9\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: cd2ae1257b9d2ae8cb4c43bf31438571827f26914d8a880a8497a5ac68590957
+- name: next_of_kin/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Next of Kin Info
+  - "AGGNKNME=DOE,JOHN\x1CDFN=990007"
+  context: next of kin DOE,JOHN with a work phone
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: next_of_kin/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: next of kin DOE,JOHN with a work phone
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: next_of_kin/3
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Next of Kin Info
+  - '990007'
+  - "AGGNKNME=DOE,JOHN\x1CAGGNKWPH=555-555-0102"
+  context: next of kin DOE,JOHN with a work phone
+  raw_return: "7\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 9974578d06bd5f9f658d3867951b3b804d49831d8a673235e740bc3460173d08
+- name: next_of_kin/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: next of kin DOE,JOHN with a work phone
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: contacts/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  context: contacts after both are filed
+  raw_return: "5\0T00035AGGECNME^T00020AGGECPHN^T00040AGGECREL^T00030AGGECAD1^T00030AGGECAD2^T00030AGGECAD3^T00030AGGECCTY^T00030AGGECSTE^T00015AGGECZIP^T00020AGGECWPH^T00030AGGECORL\x1EDOE,JANE^555-555-0100^22\x1CSPOUSE^1
+    MAIN ST^^^^\x1C^12345^^\x1E"
+  sha256: 801f38e543e245acc1ef5ddd0edcb49020e253e8b418ddc9ffc5c719c47903ca
+- name: contacts/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Next of Kin Info
+  - '990007'
+  context: contacts after both are filed
+  raw_return: "6\0T00035AGGNKNME^T00020AGGNKPHN^T00040AGGNKREL^T00030AGGNKAD1^T00030AGGNKAD2^T00030AGGNKAD3^T00035AGGNKCTY^T00040AGGNKSTE^T00015AGGNKZIP^T00020AGGNKWPH^T00030AGGNKORL\x1EDOE,JOHN^^\x1C^^^^^\x1C^^555-555-0102^\x1E"
+  sha256: 408858bd0e3fc3247b5d688c3326dbbf53ff0295f8580d97e37ff3e270717a09
+- name: emergency_city/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  context: emergency contact city alone, the name on file
+  raw_return: "5\0T00035AGGECNME^T00020AGGECPHN^T00040AGGECREL^T00030AGGECAD1^T00030AGGECAD2^T00030AGGECAD3^T00030AGGECCTY^T00030AGGECSTE^T00015AGGECZIP^T00020AGGECWPH^T00030AGGECORL\x1EDOE,JANE^555-555-0100^22\x1CSPOUSE^1
+    MAIN ST^^^^\x1C^12345^^\x1E"
+  sha256: 801f38e543e245acc1ef5ddd0edcb49020e253e8b418ddc9ffc5c719c47903ca
+- name: emergency_city/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: emergency contact city alone, the name on file
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: emergency_city/3
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  - AGGECCTY=ANYTOWN
+  context: emergency contact city alone, the name on file
+  raw_return: "7\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 9974578d06bd5f9f658d3867951b3b804d49831d8a673235e740bc3460173d08
+- name: emergency_city/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: emergency contact city alone, the name on file
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: emergency_zip_refused/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Emergency Contact Info
+  - '990007'
+  context: 'emergency contact zip ABCDE: AG refuses it'
+  raw_return: "5\0T00035AGGECNME^T00020AGGECPHN^T00040AGGECREL^T00030AGGECAD1^T00030AGGECAD2^T00030AGGECAD3^T00030AGGECCTY^T00030AGGECSTE^T00015AGGECZIP^T00020AGGECWPH^T00030AGGECORL\x1EDOE,JANE^555-555-0100^22\x1CSPOUSE^1
+    MAIN ST^^^ANYTOWN^\x1C^12345^^\x1E"
+  sha256: 48c3f1d90d5dedc0d04ca538fb1999d9dd92c1e5c4e900cc9e0c99fcf5dbc6f2
+- name: emergency_zip_refused/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Emergency Contact Info
+  - "AGGECZIP=ABCDE\x1CDFN=990007"
+  context: 'emergency contact zip ABCDE: AG refuses it'
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^Enter
+    numbers for zip code.^^^^\x1E"
+  sha256: 91b62ef6c803fc1e4795d5a3d1a8635d66d863561e109fee0f6e5f585f8816d1
+- name: languages_english/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a first language entry: English, very well'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: languages_english/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Other Patient
+  - '990007'
+  - "AGGLGPRI=144\x1CAGGINTRP=\x1CAGGLGPRF=144\x1CAGGLGEPF=VERY WELL"
+  context: 'a first language entry: English, very well'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^AGGLNG=1\x1E"
+  sha256: c06cd78932e5dcbc3e6b7f831f1e02b515c8f275687c25fd5c553ad6d0869fd5
+- name: languages_english/3
+  rpc: AGG PATIENT LANGUAGES
+  inputs:
+  - '990007'
+  context: 'a first language entry: English, very well'
+  raw_return: "7\0T00040AGGLGOTH^I00010LGIEN\x1E"
+  sha256: 466d0fd0ea76cdad9e1c0e0cc6eba0e915b08fcfa466439105f3e913d05eacfe
+- name: languages_english/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a first language entry: English, very well'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: languages_spanish/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a new entry: Spanish with an interpreter, English not well, English as
+    another language'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: languages_spanish/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Other Patient
+  - '990007'
+  - "AGGLGPRI=531\x1CAGGINTRP=YES\x1CAGGLGPRF=531\x1CAGGLGEPF=NOT WELL"
+  context: 'a new entry: Spanish with an interpreter, English not well, English as
+    another language'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^AGGLNG=2\x1E"
+  sha256: 07fa90e542eabe0e4082846eb48c74435be94ad732d9c37d27cbee375dec1abd
+- name: languages_spanish/3
+  rpc: AGG PATIENT LANGUAGES
+  inputs:
+  - '990007'
+  context: 'a new entry: Spanish with an interpreter, English not well, English as
+    another language'
+  raw_return: "7\0T00040AGGLGOTH^I00010LGIEN\x1E"
+  sha256: 466d0fd0ea76cdad9e1c0e0cc6eba0e915b08fcfa466439105f3e913d05eacfe
+- name: languages_spanish/4
+  rpc: AGG UPDATE SPECIAL MULTIPLES
+  inputs:
+  - Other Languages
+  - '990007'
+  - '2'
+  - A
+  - AGGLGOTH=144
+  context: 'a new entry: Spanish with an interpreter, English not well, English as
+    another language'
+  raw_return: "8\0I00010RESULT^T01024ERROR\x1E1^\x1E"
+  sha256: 043a21be155dd19a4d17a072f3f856356878d9a6280953463a9687b3a46a17a1
+- name: languages_spanish/5
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a new entry: Spanish with an interpreter, English not well, English as
+    another language'
+  raw_return: "9\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: cd2ae1257b9d2ae8cb4c43bf31438571827f26914d8a880a8497a5ac68590957
+- name: languages_switch/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: languages_switch/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Other Patient
+  - '990007'
+  - "AGGLGPRI=144\x1CAGGINTRP=\x1CAGGLGPRF=\x1CAGGLGEPF=VERY WELL"
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^AGGLNG=3\x1E"
+  sha256: a5e6fef77dcd1aa1874acc84269f5a4c10c0365a052839e1d19f24e0f86265d8
+- name: languages_switch/3
+  rpc: AGG PATIENT LANGUAGES
+  inputs:
+  - '990007'
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "7\0T00040AGGLGOTH^I00010LGIEN\x1E144\x1CENGLISH^144\x1E"
+  sha256: 4c0b5af92b6c18993839c5475b01b60d36919727bfcade6b38e48ad0db87c4b6
+- name: languages_switch/4
+  rpc: AGG UPDATE SPECIAL MULTIPLES
+  inputs:
+  - Other Languages
+  - '990007'
+  - '3'
+  - A
+  - AGGLGOTH=531
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "8\0I00010RESULT^T01024ERROR\x1E1^\x1E"
+  sha256: 043a21be155dd19a4d17a072f3f856356878d9a6280953463a9687b3a46a17a1
+- name: languages_switch/5
+  rpc: AGG UPDATE SPECIAL MULTIPLES
+  inputs:
+  - Other Languages
+  - '990007'
+  - '3'
+  - D
+  - AGGLGOTH=144
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "9\0I00010RESULT^T01024ERROR\x1E1^\x1E"
+  sha256: 5cdb1c8d81c29901903be47354a854c628b6d0199ed3390c3ef76fccbf7bc778
+- name: languages_switch/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: 'a new entry: English, Spanish as another language; AG copies English from
+    the entry before'
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: languages/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Other Patient
+  - '990007'
+  context: the latest language entry and its other languages
+  raw_return: "5\0T00030AGETH^T00030AGRACE^T00040AGGLGPRI^T00007AGGINTRP^T01024OTHLNG^T00007AGGMGSTS^T00007AGGHMSTS^T00007AGGINTNT^T00030AGGWEBF^T00002AGGTHNUM^T00007AGGTHINC^T00010AGGHINP^T00035AGGMGTYP^D00015AGGMSTDT^T00020AGGHMTYP^D00015AGGHMSDT^T00040AGGLGPRF^T00015AGGLGEPF^T00030AGMETH^D00015AGGINTDT^T01024AGGOLL^T01024AGGINTW^D00015AGGLGDT^T00065AGGPTEML\x1E^^144\x1CENGLISH^\x1C^^^^^^^^^^^^^\x1C^VW\x1CVERY
+    WELL^^^SPANISH^^NOV 20,2026^\x1E"
+  sha256: 19a72629f98d345161cd62b19ed11fbff6636c11a52608131e9217cfde032f6a
+- name: languages/2
+  rpc: AGG PATIENT LANGUAGES
+  inputs:
+  - '990007'
+  context: the latest language entry and its other languages
+  raw_return: "6\0T00040AGGLGOTH^I00010LGIEN\x1E531\x1CSPANISH^531\x1E"
+  sha256: e25f312065481bc80590afdf902c5a3baf8130fcf1803665ada372d005182f5d
+- name: languages_other_refused/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: languages_other_refused/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Other Patient
+  - '990007'
+  - "AGGLGPRI=144\x1CAGGINTRP=\x1CAGGLGPRF=\x1CAGGLGEPF=VERY WELL"
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^AGGLNG=4\x1E"
+  sha256: 87716d19f19dbafc136b7ed6dc249fcd0b509b5b2b3425748f31d68b7e215787
+- name: languages_other_refused/3
+  rpc: AGG PATIENT LANGUAGES
+  inputs:
+  - '990007'
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "7\0T00040AGGLGOTH^I00010LGIEN\x1E531\x1CSPANISH^531\x1E"
+  sha256: 333675f67dc0e4258a84c316a084b3d611b5e8d2226c092b0f0ed80f7bd20d45
+- name: languages_other_refused/4
+  rpc: AGG UPDATE SPECIAL MULTIPLES
+  inputs:
+  - Other Languages
+  - '990007'
+  - '4'
+  - A
+  - AGGLGOTH=999999
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "8\0I00010RESULT^T01024ERROR\x1E1^\x1E"
+  sha256: 043a21be155dd19a4d17a072f3f856356878d9a6280953463a9687b3a46a17a1
+- name: languages_other_refused/5
+  rpc: AGG UPDATE SPECIAL MULTIPLES
+  inputs:
+  - Other Languages
+  - '990007'
+  - '4'
+  - D
+  - AGGLGOTH=531
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "9\0I00010RESULT^T01024ERROR\x1E1^\x1E"
+  sha256: 5cdb1c8d81c29901903be47354a854c628b6d0199ed3390c3ef76fccbf7bc778
+- name: languages_other_refused/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: a new entry with LANGUAGE 999999, not on file, as another language
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: alias_add/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Aliases
+  - "AGGPTALS=OLDNAME,ROBIN\x1CDFN=990007"
+  context: add the other name oldname,robin
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: alias_add/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: add the other name oldname,robin
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: alias_add/3
+  rpc: AGG UPDATE ALIASES
+  inputs:
+  - '990007'
+  - A
+  - ''
+  - AGGPTALS=OLDNAME,ROBIN
+  context: add the other name oldname,robin
+  raw_return: "7\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^1\x1E"
+  sha256: b06e04dafede28d623cd8c89e2b2c600ebe9b6156017b5f75d0da8b07cb8b91b
+- name: alias_add/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: add the other name oldname,robin
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: alias_refused/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Aliases
+  - "AGGPTALS=OLD, NAME\x1CDFN=990007"
+  context: 'add the other name OLD, NAME: AG''s name check refuses it'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^No
+    space after the comma^^^^\x1E"
+  sha256: 0e5a1e84fa7f0f8298d47da90da67d882b43700b2dcf2489cf9222066dbc10e6
+- name: aliases/1
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Aliases
+  - ".01"
+  - '990007'
+  - ''
+  context: the other names on file
+  raw_return: "5\0T00035AGGPTALS^I00010RIEN\x1EOLDNAME,ROBIN^1\x1E"
+  sha256: 95267e2927d3874a5eece476d773742d67b337f4a04fe9a9de6385d4c0b4b001
+- name: alias_remove_missing/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: remove other name entry 999, which the patient does not have
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: alias_remove_missing/2
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Aliases
+  - ".01"
+  - '990007'
+  - ''
+  context: remove other name entry 999, which the patient does not have
+  raw_return: "6\0T00035AGGPTALS^I00010RIEN\x1EOLDNAME,ROBIN^1\x1E"
+  sha256: 7efe993c33c51e6867e0a04d9e23fc3e107ee42768802d0192146238ef48f38b
+- name: alias_remove_missing/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: remove other name entry 999, which the patient does not have
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: alias_remove/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990007'
+  context: remove the other name alias_add filed
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: alias_remove/2
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Aliases
+  - ".01"
+  - '990007'
+  - ''
+  context: remove the other name alias_add filed
+  raw_return: "6\0T00035AGGPTALS^I00010RIEN\x1EOLDNAME,ROBIN^1\x1E"
+  sha256: 7efe993c33c51e6867e0a04d9e23fc3e107ee42768802d0192146238ef48f38b
+- name: alias_remove/3
+  rpc: AGG UPDATE ALIASES
+  inputs:
+  - '990007'
+  - D
+  - '1'
+  - ''
+  context: remove the other name alias_add filed
+  raw_return: "7\0I00010RESULT^T01024ERROR^I00010RIEN\x1E1^^1\x1E"
+  sha256: b06e04dafede28d623cd8c89e2b2c600ebe9b6156017b5f75d0da8b07cb8b91b
+- name: alias_remove/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990007'
+  context: remove the other name alias_add filed
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: relationships/1
+  rpc: AGG WINDOW TABLE LOOKUP
+  inputs:
+  - '9999999.36'
+  - SP
+  - ''
+  context: RELATIONSHIP look-up for sp
+  raw_return: "5\0T00015IEN^T00065RELATIONSHIP^T00007UB-92_CODE\x1E43^SPONSORED DEPENDENT^16\x1E22^SPOUSE^02\x1E"
+  sha256: 5a76716cc2fe4dcc8af3208bf01f9a65263908ff53f26dde166d54a2061aaedc
+- name: states/1
+  rpc: AGG WINDOW TABLE LOOKUP
+  inputs:
+  - '5'
+  - MONT
+  - ''
+  context: STATE look-up for mont
+  raw_return: "5\0T00015IEN^T00035NAME^T00010VA_STATE_CODE^T00035NAME\x1E27^MONTANA^30^\x1E"
+  sha256: 1f81570367b1fda6dbb30e8bcc8e66df483bdcb7c72b43e11b5328b40af8363c

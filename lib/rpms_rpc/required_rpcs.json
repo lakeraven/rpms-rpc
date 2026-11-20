@@ -536,6 +536,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -553,7 +554,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
     "AGG BUILD WINDOW MANY": {
@@ -577,7 +579,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage-on-file.yml",
-        "test/fixtures/captured_replies/coverage.yml"
+        "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
     "AGG CHECK SENSITIVE PATIENT": {
@@ -614,6 +617,7 @@
         "RpmsRpc::Registration.register_via_agg": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
       ]
     },
@@ -642,6 +646,8 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-application.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml"
@@ -658,6 +664,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-lookup-patients.yml",
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/wire_captures/agg-lookup-patients.yml"
@@ -677,7 +684,9 @@
         "RpmsRpc::PatientProfile.languages": "read",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG QUANTUM VALIDATION": {
       "methods": {
@@ -719,6 +728,8 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-application.yml",
+        "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml"
@@ -738,7 +749,9 @@
         "RpmsRpc::PatientProfile.add_alias": "non_idempotent_write",
         "RpmsRpc::PatientProfile.remove_alias": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG UPDATE LEGAL NAMES": {
       "methods": {
@@ -781,6 +794,8 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -800,7 +815,9 @@
         "RpmsRpc::Agg.update_special_multiple": "non_idempotent_write",
         "RpmsRpc::PatientProfile.record_languages": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AGG WINDOW DATA VALIDATION": {
       "methods": {
@@ -815,6 +832,8 @@
         "RpmsRpc::Registration.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
@@ -828,7 +847,9 @@
         "RpmsRpc::PatientProfile.relationships": "read",
         "RpmsRpc::PatientProfile.states": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/patient-profile.yml"
+      ]
     },
     "AMHG CREATE/EDIT VISIT": {
       "methods": {
@@ -2046,6 +2067,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/coverage.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml",
@@ -2137,6 +2159,7 @@
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/captured_replies/patient-address-contact.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/patient-race.yml",
         "test/fixtures/captured_replies/practitioner-detail.yml",
         "test/fixtures/captured_replies/problem-write.yml",
@@ -2244,7 +2267,9 @@
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
+        "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
@@ -2866,7 +2891,8 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml",
-        "test/fixtures/captured_replies/orwu-dt.yml"
+        "test/fixtures/captured_replies/orwu-dt.yml",
+        "test/fixtures/captured_replies/patient-application.yml"
       ]
     },
     "ORWU HAS OPTION ACCESS": {
@@ -3075,6 +3101,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
@@ -3096,6 +3123,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
         "test/fixtures/captured_replies/user-management.yml"
@@ -3108,6 +3136,7 @@
       "replies": [
         "test/fixtures/captured_replies/agg-patient-lookup.yml",
         "test/fixtures/captured_replies/authentication.yml",
+        "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-safety.yml"
       ]
