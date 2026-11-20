@@ -58,7 +58,7 @@ rpms-rpc is the conformance suite for openrpms, kept in its own repository, and 
 Its versions are openrpms release names, not semver.
 - `main` is tested by this repository's CI against the latest published openrpms release; a change merges when green.
 - An openrpms release gate checks out rpms-rpc `main` as it stands at the cut and runs its live suite and wire cases against the candidate.
-- The gate records that commit in the release's `<tag>-harness.json`. Once the release is published, rpms-rpc tags itself: `.github/workflows/openrpms-tags.yml` reads the record and, when its contract passed, tags the commit with the release's name (for example `bcer-9.0-20261116-2a9b3fe-ydb`) and creates the rpms-rpc release of that name, with the records and the OpenAPI documents attached.
+- The gate records that commit in the release's `<tag>-harness.json`. Once the release is published, rpms-rpc tags itself: `.github/workflows/openrpms-tags.yml` reads the record and, when its contract passed, tags the commit with the release's name (for example `bcer-9.0-20261116-2a9b3fe-ydb`) and creates the rpms-rpc release of that name, with the records, the OpenAPI documents and the RPC inventory attached.
   That tag means "this build, and the client verified against it".
   The `-ydb` and `-iris` releases of one openrpms commit are cut at different times, so each takes its own tag, which may name different rpms-rpc commits; pin the one for the engine you deploy against.
 - A host pins the rpms-rpc tag that matches the openrpms release it deploys against:
@@ -618,10 +618,10 @@ Each published release carries both files as assets, so a consumer pins one file
 gh release download <rpms-rpc tag> -R lakeraven/rpms-rpc -p rpc-inventory.csv
 ```
 
-`.github/workflows/rpc-inventory-release.yml` writes them at the release's commit for the newest published release of each engine, uploads them and checks the uploaded bytes.
+`.github/workflows/openrpms-tags.yml` writes them at the tagged commit as it creates each release, for that openrpms release and the newest published release of the other engine, uploads them and checks the uploaded bytes.
 It adds an "RPC inventory" section to the release notes: both openrpms tags, the `rake rpc:inventory IRIS=<tag> YDB=<tag>` command that writes the same bytes, and the columns added or removed since the previous release that carries the CSV.
 A column change is listed there, so a consumer that checks the header can see why it stopped matching.
-Running it by hand (`workflow_dispatch`) re-attaches them to an existing release, for a pair of tags given or the newest.
+A tagged commit older than these tasks (before rpms-rpc#833) cannot write this inventory; its release goes without it, and its notes say so, rather than carry one written from a later commit that would describe that commit's coverage.
 
 ## Order checks
 

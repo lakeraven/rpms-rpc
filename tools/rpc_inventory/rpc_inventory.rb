@@ -40,7 +40,7 @@ module RpcInventory
   EXCLUSIONS = "data/rpc_coverage/exclusions.yml"
   # The reasons a person decided, not the ones each release's reach classes give (those are the reach_* columns).
   REVIEWED = (RpcCoverage::EXCLUSION_REASONS.keys - RpcCoverage::REACH_REASONS.values).freeze
-  # What an rpms-rpc release carries (.github/workflows/rpc-inventory-release.yml).
+  # What an rpms-rpc release carries (.github/workflows/openrpms-tags.yml).
   FILES = %w[rpc-inventory.csv rpc-inventory.md].freeze
 
   COLUMNS = %w[
@@ -541,7 +541,7 @@ module RpcInventory
     { "rpc-inventory.csv" => csv(rs), "rpc-inventory.md" => markdown(rs, releases) }
   end
 
-  # --- the release asset (.github/workflows/rpc-inventory-release.yml) --------------------------
+  # --- the release asset (.github/workflows/openrpms-tags.yml) --------------------------
 
   NOTES_BEGIN = "<!-- rpc-inventory -->"
   NOTES_END = "<!-- /rpc-inventory -->"
