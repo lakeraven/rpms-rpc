@@ -3,7 +3,6 @@
 require "minitest/autorun"
 require "date"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/allergy"
 
 # Regression tests for issue #218: the four clinical reads feeding FHIR
