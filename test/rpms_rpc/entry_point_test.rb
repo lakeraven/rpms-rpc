@@ -24,19 +24,20 @@ class RpmsRpc::EntryPointTest < Minitest::Test
   end
 
   # AC 1: the single require is enough for the configuration surface.
-  def test_require_rpms_rpc_alone_configures_a_mock_client
+  def test_require_rpms_rpc_alone_configures_a_client
     out = run_fresh(<<~RUBY)
       require "rpms_rpc"
-      mock = RpmsRpc.mock!
-      raise "mock! did not configure the client" unless RpmsRpc.client.equal?(mock)
+      client = Object.new
+      RpmsRpc.configure { |c| c.client = client }
+      raise "configure did not set the client" unless RpmsRpc.client.equal?(client)
       RpmsRpc.reset!
       begin
         RpmsRpc.client
         raise "reset! left a client configured"
       rescue RpmsRpc::NotConfiguredError
       end
-      RpmsRpc.configure { |c| c.client = mock }
-      raise "configure did not set the client" unless RpmsRpc.client.equal?(mock)
+      RpmsRpc.configure { |c| c.client = client }
+      raise "configure after reset! did not set the client" unless RpmsRpc.client.equal?(client)
       print RpmsRpc::Configuration.new.class
     RUBY
     assert_equal "RpmsRpc::Configuration", out
@@ -59,9 +60,9 @@ class RpmsRpc::EntryPointTest < Minitest::Test
   def test_version_rb_defines_only_version
     out = run_fresh(<<~RUBY)
       require "rpms_rpc/version"
-      print RpmsRpc.constants.sort.inspect, "|", RpmsRpc.respond_to?(:configure), "|", RpmsRpc.respond_to?(:mock!)
+      print RpmsRpc.constants.sort.inspect, "|", RpmsRpc.respond_to?(:configure)
     RUBY
-    assert_equal "[:VERSION]|false|false", out
+    assert_equal "[:VERSION]|false", out
   end
 
   # AC 4: the gemspec loads version.rb, so loading the gemspec loads one gem file.
