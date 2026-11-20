@@ -901,11 +901,10 @@ module RpmsRpc
       message = record[:message] || record[:error] || ""
       if record[:result].to_s == "1"
         dfn = record[:dfn].to_s
-        # ADD^AGGPTADD answers 1^^-1 when it filed nothing (an empty name):
-        # only a positive DFN names a patient (rpms-rpc#878).
         if require_dfn && !dfn.match?(/\A[1-9]\d*\z/)
+          # ADD^AGGPTADD answers 1^^-1 when nothing was filed (AGGPTADD.m:119-121).
           return { success: false, error: :agg_malformed_reply,
-                   message: dfn.empty? ? "AGG success record carried no DFN" : "AGG success record named no patient" }
+                   message: dfn.empty? ? "AGG success record carried no DFN" : "AGG success record carried DFN #{dfn}, not a patient" }
         end
         result = { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
         # UPD^AGGPTUPD's OTHER_PARMS names what a filing code created, e.g.

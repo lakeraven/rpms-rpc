@@ -122,6 +122,7 @@ class AggTest < Minitest::Test
 
     refute result[:success]
     assert_equal :agg_malformed_reply, result[:error]
+    assert_nil result[:dfn]
   end
 
   # -- AGG WINDOW DATA VALIDATION (VAL^AGGWVAL) ------------------------------
