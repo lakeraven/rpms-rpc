@@ -1,0 +1,640 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-save-visit.rb.
+---
+rpc: AMHG SAVE VISIT
+entry_point: VISIT^AMHGSVF
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair), the clinician that holds
+  AMHGRPC
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:45:49Z'
+note: Run on a throwaway container. Setup lists the first clinic, type of contact,
+  location and community and another user (#200), and reads the server's now (ORWU
+  DT); the flows run in this order for DFN 990036, the edits on the visit the first
+  add filed. Synthetic patient and text only.
+captures:
+- name: save_record_not_on_file
+  inputs:
+  - E|999999|200|MENTAL HEALTH|63|1||3261120.0345|7819|APPOINTMENT|7421|990036||||
+  context: AMHG SAVE VISIT sent an edit of a record IEN no BH visit has (the gem refuses
+    it first)
+  raw_return: "2\0T00010BMXIEN\x1E999999\x1E\x1F"
+  sha256: 56dbc5cd96e32a302df452732a8890d8e45abff964e022093898878dee9b19cc
+- name: add/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: add/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 63,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "6\0[Data]\r40.7^63^.01^ALCOHOL AND SUBSTANCE^\r"
+  sha256: 2e17095aa2fa1d1e3d538c1a9b0646c85126580ee3660af9004b9f1d17d4e3b1
+- name: add/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.1'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "7\0[Data]\r9002012.1^1^.01^ADMINISTRATIVE^\r"
+  sha256: d35e2ffeac1d9e78c00205fa13366acf9336ee2f4813ab6d3db18cf694a18fff
+- name: add/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.06'
+    IENS: 7819,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "8\0[Data]\r9999999.06^7819^.01^7819^\r"
+  sha256: 6371d76c051fa1ae6102b47686ab3ec82287b298575cd798ddadfc89f28f01ed
+- name: add/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.05'
+    IENS: 7421,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "9\0[Data]\r9999999.05^7421^.01^11-MILE CORN^\r"
+  sha256: 3db2a5b28a4640a5cea87863a8c04a0004ca27641a0a9dbd6b2f9b111f5e995d
+- name: add/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 200,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "1\0[Data]\r200^200^.01^PROVIDER,TEST^\r"
+  sha256: 45fcd06d6c065d8e1c62ab551ff0343b1b067fde814de15a8f9e5eb4e1b507b4
+- name: add/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990036,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "2\0[Data]\r9000001^990036^.01^990036^\r"
+  sha256: 40fd0c4a2d5f2481ac028bf593b5792212fe809de3be3372a4655b20caf408c3
+- name: add/8
+  rpc: AMHG SAVE VISIT
+  inputs:
+  - A||200|MENTAL HEALTH|63|1||3261120.0345|7819|APPOINTMENT|7421|990036|SYNTH GROUP
+    ALPHA|45||30
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "3\0T00010BMXIEN\x1E6\x1E"
+  sha256: 3ab7e54f3c0d66178aa1dfccc951c51ec1f084aede5e9b46decbf02d3ff6231f
+- name: add/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".01;.02;.04;.05;.07;.08;.11;.25;.12;.34;1104;1109"
+    FLAGS: IE
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "4\0[Data]\r9002011^6^.01^3261120.0345^NOV 20, 2026@03:45\r9002011^6^.02^M^MENTAL
+    HEALTH\r9002011^6^.04^7819^DEMO IHS CLINIC\r9002011^6^.05^7421^11-MILE CORN\r9002011^6^.07^1^ADMINISTRATIVE\r9002011^6^.08^990036^LARKSPUR,BLAIR\r9002011^6^.11^A^APPOINTMENT\r9002011^6^.12^30^30\r9002011^6^.25^63^ALCOHOL
+    AND SUBSTANCE\r9002011^6^.34^1^YES\r9002011^6^1104^45^45\r9002011^6^1109^SYNTH
+    GROUP ALPHA^SYNTH GROUP ALPHA\r"
+  sha256: da4a07dc93f98fe87adac78672753d1ebc65b04453b2548ebc9f5b9ef9e914f1
+- name: add/10
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit add: every field, a group of 45 minutes, activity time 30'
+  raw_return: "5\0[Data]\r7^200^990036^6^P\r"
+  sha256: 5f5d3498c5f23073f4af20b4cabb0db1b45623fe6434db52329aedb8675c343f
+- name: add_required/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: add_required/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 63,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "6\0[Data]\r40.7^63^.01^ALCOHOL AND SUBSTANCE^\r"
+  sha256: 2e17095aa2fa1d1e3d538c1a9b0646c85126580ee3660af9004b9f1d17d4e3b1
+- name: add_required/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.1'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "7\0[Data]\r9002012.1^1^.01^ADMINISTRATIVE^\r"
+  sha256: d35e2ffeac1d9e78c00205fa13366acf9336ee2f4813ab6d3db18cf694a18fff
+- name: add_required/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.06'
+    IENS: 7819,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "8\0[Data]\r9999999.06^7819^.01^7819^\r"
+  sha256: 6371d76c051fa1ae6102b47686ab3ec82287b298575cd798ddadfc89f28f01ed
+- name: add_required/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.05'
+    IENS: 7421,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "9\0[Data]\r9999999.05^7421^.01^11-MILE CORN^\r"
+  sha256: 3db2a5b28a4640a5cea87863a8c04a0004ca27641a0a9dbd6b2f9b111f5e995d
+- name: add_required/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 200,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "1\0[Data]\r200^200^.01^PROVIDER,TEST^\r"
+  sha256: 45fcd06d6c065d8e1c62ab551ff0343b1b067fde814de15a8f9e5eb4e1b507b4
+- name: add_required/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990036,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "2\0[Data]\r9000001^990036^.01^990036^\r"
+  sha256: 40fd0c4a2d5f2481ac028bf593b5792212fe809de3be3372a4655b20caf408c3
+- name: add_required/8
+  rpc: AMHG SAVE VISIT
+  inputs:
+  - A||200|MENTAL HEALTH|63|1||3261120|7819||7421|990036||||
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "3\0T00010BMXIEN\x1E7\x1E"
+  sha256: c3563286da0b268be1a9537cf089facdc02f4c002c3fa30e8479a6ef3b4872b0
+- name: add_required/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 7,
+    FIELDS: ".01;.02;.04;.05;.07;.08;.11;.25"
+    FLAGS: IE
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "4\0[Data]\r9002011^7^.01^3261120^NOV 20, 2026\r9002011^7^.02^M^MENTAL
+    HEALTH\r9002011^7^.04^7819^DEMO IHS CLINIC\r9002011^7^.05^7421^11-MILE CORN\r9002011^7^.07^1^ADMINISTRATIVE\r9002011^7^.08^990036^LARKSPUR,BLAIR\r9002011^7^.11^^\r9002011^7^.25^63^ALCOHOL
+    AND SUBSTANCE\r"
+  sha256: 34b261599c45ef0bc8fb965890d661e60be154af75dda6c3bcdb2e691a6d06de
+- name: add_required/10
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '7'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=7
+  context: 'save_visit add: the required fields only, the encounter date without a
+    time'
+  raw_return: "5\0[Data]\r8^200^990036^7^P\r"
+  sha256: cf25447b7328170e5a143431738d64b861fd7bf692db6243eaab81abbb35594b
+- name: edit/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: edit/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "6\0[Data]\r9002011^6^.08^990036^\r9002011^6^1112^^\r"
+  sha256: b7e43e9b3f73bef9d13eee38ae29009bf80ac6134693854c2a76cf2cc1fac9a5
+- name: edit/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "7\0[Data]\r7^200^990036^6^P\r"
+  sha256: 651da1102f0e952ad935bd631cc2f1de819c87158e5ebf56bc076a9cfaff520d
+- name: edit/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 63,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "8\0[Data]\r40.7^63^.01^ALCOHOL AND SUBSTANCE^\r"
+  sha256: 93ed30ac200f3e0261e22c0e3e59d2d284434374144812b06de969374f1aff30
+- name: edit/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.1'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "9\0[Data]\r9002012.1^1^.01^ADMINISTRATIVE^\r"
+  sha256: 3a9b34619d19b706c7b464a88d1e4ea4b5b4fa22124921bc5dce7b2066d6e270
+- name: edit/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.06'
+    IENS: 7819,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "1\0[Data]\r9999999.06^7819^.01^7819^\r"
+  sha256: f85ba2610bc68b3283187e124c3587094301a40d39009e3f961b99a41c3b878c
+- name: edit/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.05'
+    IENS: 7421,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "2\0[Data]\r9999999.05^7421^.01^11-MILE CORN^\r"
+  sha256: 8bd5b349622f614cb9d29d3f5200f0624fccef5119f08b0ddfcea27f4b7c60c1
+- name: edit/8
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 200,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "3\0[Data]\r200^200^.01^PROVIDER,TEST^\r"
+  sha256: 94075c1a475f0b34050b0e42a65f35e8c2ce8a4c9fdbef74ab22c4e7c731039a
+- name: edit/9
+  rpc: AMHG SAVE VISIT
+  inputs:
+  - E|6|200|MENTAL HEALTH|63|1||3261120.0345|7819|APPOINTMENT|7421|990036|SYNTH GROUP
+    ALPHA|45||30
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "4\0T00010BMXIEN\x1E6\x1E"
+  sha256: 35a346cc559d631b03c854d774fa2ad33c5de76c79ade05e78a1e3e9b1725d0a
+- name: edit/10
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".01;.02;.04;.05;.07;.08;.11;.25;.12;.34;1104;1109"
+    FLAGS: IE
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "5\0[Data]\r9002011^6^.01^3261120.0345^NOV 20, 2026@03:45\r9002011^6^.02^M^MENTAL
+    HEALTH\r9002011^6^.04^7819^DEMO IHS CLINIC\r9002011^6^.05^7421^11-MILE CORN\r9002011^6^.07^1^ADMINISTRATIVE\r9002011^6^.08^990036^LARKSPUR,BLAIR\r9002011^6^.11^A^APPOINTMENT\r9002011^6^.12^30^30\r9002011^6^.25^63^ALCOHOL
+    AND SUBSTANCE\r9002011^6^.34^1^YES\r9002011^6^1104^45^45\r9002011^6^1109^SYNTH
+    GROUP ALPHA^SYNTH GROUP ALPHA\r"
+  sha256: ffae380b1b92940d8c37a416cd42a67061d05a16b89d3af41903cf0b05d93c81
+- name: edit/11
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit edit of the first visit: every field, the group unchanged'
+  raw_return: "6\0[Data]\r7^200^990036^6^P\r"
+  sha256: e7a2caefd2d2ef400ec93bf33c000b6c56e8dfb0b858291b48050bb0cab687b5
+- name: edit_no_group_change/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: edit_no_group_change/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "6\0[Data]\r9002011^6^.08^990036^\r9002011^6^1112^^\r"
+  sha256: b7e43e9b3f73bef9d13eee38ae29009bf80ac6134693854c2a76cf2cc1fac9a5
+- name: edit_no_group_change/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "7\0[Data]\r7^200^990036^6^P\r"
+  sha256: 651da1102f0e952ad935bd631cc2f1de819c87158e5ebf56bc076a9cfaff520d
+- name: edit_no_group_change/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 63,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "8\0[Data]\r40.7^63^.01^ALCOHOL AND SUBSTANCE^\r"
+  sha256: 93ed30ac200f3e0261e22c0e3e59d2d284434374144812b06de969374f1aff30
+- name: edit_no_group_change/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.1'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "9\0[Data]\r9002012.1^1^.01^ADMINISTRATIVE^\r"
+  sha256: 3a9b34619d19b706c7b464a88d1e4ea4b5b4fa22124921bc5dce7b2066d6e270
+- name: edit_no_group_change/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.06'
+    IENS: 7819,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "1\0[Data]\r9999999.06^7819^.01^7819^\r"
+  sha256: f85ba2610bc68b3283187e124c3587094301a40d39009e3f961b99a41c3b878c
+- name: edit_no_group_change/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.05'
+    IENS: 7421,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "2\0[Data]\r9999999.05^7421^.01^11-MILE CORN^\r"
+  sha256: 8bd5b349622f614cb9d29d3f5200f0624fccef5119f08b0ddfcea27f4b7c60c1
+- name: edit_no_group_change/8
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 200,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "3\0[Data]\r200^200^.01^PROVIDER,TEST^\r"
+  sha256: 94075c1a475f0b34050b0e42a65f35e8c2ce8a4c9fdbef74ab22c4e7c731039a
+- name: edit_no_group_change/9
+  rpc: AMHG SAVE VISIT
+  inputs:
+  - E|6|200|MENTAL HEALTH|63|1||3261120.0345|7819|APPOINTMENT|7421|990036||||
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "4\0T00010BMXIEN\x1E6\x1E"
+  sha256: 35a346cc559d631b03c854d774fa2ad33c5de76c79ade05e78a1e3e9b1725d0a
+- name: edit_no_group_change/10
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".01;.02;.04;.05;.07;.08;.11;.25"
+    FLAGS: IE
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "5\0[Data]\r9002011^6^.01^3261120.0345^NOV 20, 2026@03:45\r9002011^6^.02^M^MENTAL
+    HEALTH\r9002011^6^.04^7819^DEMO IHS CLINIC\r9002011^6^.05^7421^11-MILE CORN\r9002011^6^.07^1^ADMINISTRATIVE\r9002011^6^.08^990036^LARKSPUR,BLAIR\r9002011^6^.11^A^APPOINTMENT\r9002011^6^.25^63^ALCOHOL
+    AND SUBSTANCE\r"
+  sha256: 7d4f4ebdd39c4452cb12d76d592b7a7c5c9c9ca0aa35c813a5270d75b84b72a3
+- name: edit_no_group_change/11
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit edit with a blank group name: the group fields are not sent
+    or read back'
+  raw_return: "6\0[Data]\r7^200^990036^6^P\r"
+  sha256: e7a2caefd2d2ef400ec93bf33c000b6c56e8dfb0b858291b48050bb0cab687b5
+- name: add_clinic_not_on_file/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit add with a clinic IEN no entry has: refused after its read'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: add_clinic_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add with a clinic IEN no entry has: refused after its read'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: add_patient_not_on_file/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: add_patient_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '40.7'
+    IENS: 63,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "6\0[Data]\r40.7^63^.01^ALCOHOL AND SUBSTANCE^\r"
+  sha256: 2e17095aa2fa1d1e3d538c1a9b0646c85126580ee3660af9004b9f1d17d4e3b1
+- name: add_patient_not_on_file/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.1'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "7\0[Data]\r9002012.1^1^.01^ADMINISTRATIVE^\r"
+  sha256: d35e2ffeac1d9e78c00205fa13366acf9336ee2f4813ab6d3db18cf694a18fff
+- name: add_patient_not_on_file/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.06'
+    IENS: 7819,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "8\0[Data]\r9999999.06^7819^.01^7819^\r"
+  sha256: 6371d76c051fa1ae6102b47686ab3ec82287b298575cd798ddadfc89f28f01ed
+- name: add_patient_not_on_file/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.05'
+    IENS: 7421,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "9\0[Data]\r9999999.05^7421^.01^11-MILE CORN^\r"
+  sha256: 3db2a5b28a4640a5cea87863a8c04a0004ca27641a0a9dbd6b2f9b111f5e995d
+- name: add_patient_not_on_file/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 200,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "1\0[Data]\r200^200^.01^PROVIDER,TEST^\r"
+  sha256: 45fcd06d6c065d8e1c62ab551ff0343b1b067fde814de15a8f9e5eb4e1b507b4
+- name: add_patient_not_on_file/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_visit add for a DFN no patient has: refused after its read'
+  raw_return: "2\0[ERROR]\r"
+  sha256: 50fc00a899b22f3ec69958aaee844f6ba39d4d823cca6273e60cce364193a833
+- name: edit_other_patient/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit edit naming DFN 990037 on DFN 990036''s visit: refused after
+    the pre-read'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: edit_other_patient/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_visit edit naming DFN 990037 on DFN 990036''s visit: refused after
+    the pre-read'
+  raw_return: "6\0[Data]\r9002011^6^.08^990036^\r9002011^6^1112^^\r"
+  sha256: b7e43e9b3f73bef9d13eee38ae29009bf80ac6134693854c2a76cf2cc1fac9a5
+- name: edit_not_primary/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit edit naming a provider who is not the visit''s primary: refused
+    after the provider list'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: edit_not_primary/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_visit edit naming a provider who is not the visit''s primary: refused
+    after the provider list'
+  raw_return: "6\0[Data]\r9002011^6^.08^990036^\r9002011^6^1112^^\r"
+  sha256: b7e43e9b3f73bef9d13eee38ae29009bf80ac6134693854c2a76cf2cc1fac9a5
+- name: edit_not_primary/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.02'
+    FIELDS: ".01;.02;.03;.04"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: 'save_visit edit naming a provider who is not the visit''s primary: refused
+    after the provider list'
+  raw_return: "7\0[Data]\r7^200^990036^6^P\r"
+  sha256: 651da1102f0e952ad935bd631cc2f1de819c87158e5ebf56bc076a9cfaff520d
+- name: edit_record_not_on_file/1
+  rpc: ORWU DT
+  inputs:
+  - T
+  - TS
+  context: 'save_visit edit of a record IEN no visit has: refused after the pre-read'
+  raw_return: "5\03261120"
+  sha256: 18e35ea1a4104d6f6a317d690859cf32afa90747acf3a444dedc2807a626b965
+- name: edit_record_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 999999,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_visit edit of a record IEN no visit has: refused after the pre-read'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
