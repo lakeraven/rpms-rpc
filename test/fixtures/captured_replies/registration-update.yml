@@ -1,0 +1,335 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-update.rb.
+---
+rpc: AGG UPDATE PATIENT
+entry_point: UPD^AGGPTUPD
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:39:55Z'
+note: Run on a fresh throwaway container, flows in order. Tribe 204, classification
+  2 and community 7421 are entries of the build's code files.
+captures:
+- name: record/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Personal Detail
+  - '990031'
+  context: record of DFN 990031
+  raw_return: "5\0T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^I00010DFN^T00040AGGPTRLG\x1EEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR
+    15,1997^F\x1CFEMALE^\x1C^Pending Verification^990031^^\x1C^^29 YRS^\x1C^^^\x1C\x1E"
+  sha256: dc8ae0cf366413a187712ce0cee851c1c43103a2f3aedeeab96f4932dab9518b
+- name: record/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Address
+  - '990031'
+  context: record of DFN 990031
+  raw_return: "6\0T00035AGGPTAD1^T00035AGGPTAD2^T00035AGGPTAD3^T00015AGGPTCTY^T00035AGGPTSTE^T00020AGGPTZIP^T01024AGGPTHME^T00040AGGPTCOM^T00015AGGPTCDT^T00020AGGPTHPH^T00020AGGPTWPH^T00060AGGPTOPH^T00050AGGCMCNY^T00020AGGPTCPH\x1E317
+    DUNEGRASS ST^^^ANYWHERE^27\x1CMONTANA^59000^^\x1C^^406-555-1031^^^^\x1E"
+  sha256: ec9eb91c8179592feac5e0a2da973baf5945eb8bb3b107f562e696e996c06d10
+- name: record_no_patient/1
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Personal Detail
+  - '99999999'
+  context: record of DFN 99999999, which no patient has
+  raw_return: "5\0T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^I00010DFN^T00040AGGPTRLG\x1E"
+  sha256: f5e8b0e7eaebce0e4b70d0d2f036b7efa30beac21aeed65a7b8b1365e91d546b
+- name: record_no_patient/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Address
+  - '99999999'
+  context: record of DFN 99999999, which no patient has
+  raw_return: "6\0T00035AGGPTAD1^T00035AGGPTAD2^T00035AGGPTAD3^T00015AGGPTCTY^T00035AGGPTSTE^T00020AGGPTZIP^T01024AGGPTHME^T00040AGGPTCOM^T00015AGGPTCDT^T00020AGGPTHPH^T00020AGGPTWPH^T00060AGGPTOPH^T00050AGGCMCNY^T00020AGGPTCPH\x1E"
+  sha256: 218b1091daf81e44c25167caf8f63ac2fbe57eed99a83ef28f9f791f6c229246
+- name: pick_marital/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '11'
+    FIELDS: "@;.01"
+    MAX: '200'
+    PART: MA
+    XREF: B
+  context: pick_list of marital statuses from MA
+  raw_return: "5\0[Data]\r2^MARRIED\r"
+  sha256: 69aea7be402584692d07a77eaaf7f7ad72dbf40376d58a51ef18ed336588baf4
+- name: three_windows/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Personal Detail
+  - "AGGPTDOB=03/15/1997\x1CDFN=990031"
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: three_windows/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: three_windows/3
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Personal Detail
+  - '990031'
+  - AGGPTDOB=03/15/1997
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "7\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 9974578d06bd5f9f658d3867951b3b804d49831d8a673235e740bc3460173d08
+- name: three_windows/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990031'
+  - "AGGPTHPH=406-555-0101\x1CAGGPTEML=una@example.test"
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: three_windows/5
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Eligibility
+  - '990031'
+  - "AGGPTTRI=204\x1CAGGPTELG=DIRECT ONLY"
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "9\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 56057eb4920b4f2e686e27a07d04e70c43f37db49010c2a1878581115e286292
+- name: three_windows/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: date of birth, home phone, email, tribe and eligibility'
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: one_window/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: the work phone alone'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: one_window/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990031'
+  - AGGPTWPH=406-555-0199
+  context: 'update: the work phone alone'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 7a28d9f713daf141944e16ed66d48e6f0be30161b7887340eb2165db0563a5ad
+- name: one_window/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: the work phone alone'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: eligibility/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: tribe, classification, eligibility, quantums and enrollment number'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: eligibility/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Eligibility
+  - '990031'
+  - "AGGPTTRI=204\x1CAGGPTCLB=2\x1CAGGPTELG=C\x1CAGGPTBLQ=1/2\x1CAGGPTTRQ=1/4\x1CAGGPTTEN=ZZ4901"
+  context: 'update: tribe, classification, eligibility, quantums and enrollment number'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 7a28d9f713daf141944e16ed66d48e6f0be30161b7887340eb2165db0563a5ad
+- name: eligibility/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: tribe, classification, eligibility, quantums and enrollment number'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: date_moved/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: community 7421 since 05/01/2020, with a home phone'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: date_moved/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990031'
+  - "AGGPTCOM=7421\x1CAGGPTHPH=406-555-0101\x1CAGGPTCDT=05/01/2020"
+  context: 'update: community 7421 since 05/01/2020, with a home phone'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 7a28d9f713daf141944e16ed66d48e6f0be30161b7887340eb2165db0563a5ad
+- name: date_moved/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: community 7421 since 05/01/2020, with a home phone'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: clear/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: clear the work phone (email nil is not sent)'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: clear/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990031'
+  - AGGPTWPH=
+  context: 'update: clear the work phone (email nil is not sent)'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 7a28d9f713daf141944e16ed66d48e6f0be30161b7887340eb2165db0563a5ad
+- name: clear/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: clear the work phone (email nil is not sent)'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: lock_held/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: update while another user holds AG's lock on the patient
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
+    by PROFILE,SCHED.\x1E"
+  sha256: 4f2caf4f37db3ccdfdc6ed231142210318cfacd3f283217fa3ab50e041bb86f9
+- name: no_patient/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '99999999'
+  context: update of DFN 99999999, which no patient has
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E-1^Invalid Patient selected\x1E"
+  sha256: 68991bd11547cb951d72c179e9d21e0ab8d9890ce875fe14302ce493ba1cd836
+- name: personal_detail/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: religion 1, employer 1, employment full-time, marital 2'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: personal_detail/2
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Personal Detail
+  - '990031'
+  - "AGGPTRLG=1\x1CAGGPTEPL=1\x1CAGGEMSTS=FULL-TIME\x1CAGGPTMAR=2"
+  context: 'update: religion 1, employer 1, employment full-time, marital 2'
+  raw_return: "6\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 7a28d9f713daf141944e16ed66d48e6f0be30161b7887340eb2165db0563a5ad
+- name: personal_detail/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: religion 1, employer 1, employment full-time, marital 2'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: name/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Aliases
+  - "AGGPTALS=EMBER,AVERY\x1CDFN=990031"
+  context: 'update: the name, given in lower case with spaces'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: name/2
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: the name, given in lower case with spaces'
+  raw_return: "6\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: dba90684c6936f17aeddda92515352e97add2a57db696138980516284a95c95d
+- name: name/3
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Personal Detail
+  - '990031'
+  - PTNAME=EMBER,AVERY
+  context: 'update: the name, given in lower case with spaces'
+  raw_return: "7\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 9974578d06bd5f9f658d3867951b3b804d49831d8a673235e740bc3460173d08
+- name: name/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: the name, given in lower case with spaces'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: name_refused/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Aliases
+  - "AGGPTALS=EMBER AVERY\x1CDFN=990031"
+  context: 'update: a name with no comma'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^Name
+    does not contain a comma^^^^\x1E"
+  sha256: e1ca981e808b31dccd0a8d3583f36c9d98abce8dabc012fa98563addc7ec306d
+- name: ssn_held/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Personal Detail
+  - "AGGPTSSN=666101009\x1CDFN=990031"
+  context: 'update: an SSN another patient holds, with a home phone'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E-1^SSN
+    already used by another patient.^^^^\x1E"
+  sha256: b411d8868e42a6f08d7ea54afd590119161b0e5b035d957e675e077b14ae30c7
+- name: dob_zip/1
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Personal Detail
+  - "AGGPTDOB=03/15/1997\x1CDFN=990031"
+  context: 'update: date of birth, zip and city'
+  raw_return: "5\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 35a76b03ec87933fdac3352b38ada2cac003f3621cecf939dbd8c49eaf42abbc
+- name: dob_zip/2
+  rpc: AGG WINDOW DATA VALIDATION
+  inputs:
+  - Address
+  - "AGGPTZIP=59000\x1CDFN=990031"
+  context: 'update: date of birth, zip and city'
+  raw_return: "6\0I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1E1^^^^^\x1E"
+  sha256: 3716a6f135dd355212cbda0bae26f12d8ffb21e71efca8a7ef5c55d1b8b14e49
+- name: dob_zip/3
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: date of birth, zip and city'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: dob_zip/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Personal Detail
+  - '990031'
+  - AGGPTDOB=03/15/1997
+  context: 'update: date of birth, zip and city'
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: dob_zip/5
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990031'
+  - "AGGPTZIP=59000\x1CAGGPTCTY=ANYWHERE"
+  context: 'update: date of birth, zip and city'
+  raw_return: "9\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 56057eb4920b4f2e686e27a07d04e70c43f37db49010c2a1878581115e286292
+- name: dob_zip/6
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990031'
+  context: 'update: date of birth, zip and city'
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869

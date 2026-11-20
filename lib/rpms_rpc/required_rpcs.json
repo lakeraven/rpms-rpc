@@ -557,7 +557,8 @@
         "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
-        "test/fixtures/captured_replies/patient-profile.yml"
+        "test/fixtures/captured_replies/patient-profile.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG BUILD WINDOW MANY": {
@@ -653,7 +654,8 @@
         "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG LOOKUP PATIENTS": {
@@ -735,7 +737,8 @@
         "test/fixtures/captured_replies/patient-profile.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-preferred-name.yml"
+        "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG UPDATE A MULTIPLE RECORD": {
@@ -804,7 +807,8 @@
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
-        "test/fixtures/captured_replies/registration-safety.yml"
+        "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG UPDATE PRIVATE INSUR": {
@@ -843,7 +847,8 @@
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml",
         "test/fixtures/captured_replies/registration-refused-validation.yml",
-        "test/fixtures/captured_replies/registration-safety.yml"
+        "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml"
       ]
     },
     "AGG WINDOW TABLE LOOKUP": {
@@ -2338,6 +2343,7 @@
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-race-ethnicity.yml",
         "test/fixtures/captured_replies/registration-safety.yml",
+        "test/fixtures/captured_replies/registration-update.yml",
         "test/fixtures/captured_replies/scheduling-holiday-writes.yml",
         "test/fixtures/captured_replies/tribal.yml"
       ]
