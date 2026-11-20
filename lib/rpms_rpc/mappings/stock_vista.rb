@@ -185,17 +185,18 @@ module RpmsRpc
     # these mappings will get raw strings + simple keyed rows respectively.
 
     # Best-effort field positions pending broker trace capture for
-    # problem_audit_history / problem_comments / problem_detail /
-    # problem_clinic_search / problem_lex_search / problem_provider_list /
-    # problem_edit_load — wire formats below mirror the closest analogous
-    # ORQQPL RPC (problem_list) and the standard VistA "IEN^DESCRIPTION..."
-    # convention. Refine when trace capture lands.
+    # problem_clinic_search / problem_provider_list / problem_edit_load —
+    # wire formats below mirror the closest analogous ORQQPL RPC
+    # (problem_list) and the standard VistA "IEN^DESCRIPTION..." convention.
+    # Refine when trace capture lands. problem_audit_history,
+    # problem_comments, problem_detail and problem_lex_search are read from
+    # captured replies (#821, #872).
 
+    # HIST^ORQQPL2: a count line, then "date^text" rows (Problem.audit_history).
     DataMapper.define(:problem_audit_history) do |m|
       m.rpc "ORQQPL AUDIT HIST"
-      m.field 0, :event
-      m.field 1, :date, :fileman_date
-      m.field 2, :actor
+      m.field 0, :date
+      m.field 1, :text
     end
 
     DataMapper.define(:problem_check_duplicate) do |m|
@@ -236,17 +237,21 @@ module RpmsRpc
       m.rpc "ORQQPL INIT USER"
     end
 
+    # GETCOMM^ORQQPL2: one line per active note, its text alone (Problem.comments).
     DataMapper.define(:problem_comments) do |m|
       m.rpc "ORQQPL PROB COMMENTS"
-      m.field 0, :date, :fileman_date
-      m.field 1, :author
-      m.field 2, :comment
+      m.field 0, :comment
     end
 
+    # LEXSRCH^ORQQPL1: "lexicon IEN^text^ICD code^ICD IEN^coding system", then
+    # a match-count line (Problem.lex_search).
     DataMapper.define(:problem_lex_search) do |m|
       m.rpc "ORQQPL PROBLEM LEX SEARCH"
-      m.field 0, :code, :string, terminology: :icd10
+      m.field 0, :ien
       m.field 1, :description
+      m.field 2, :code
+      m.field 3, :code_ien
+      m.field 4, :coding_system
     end
 
     DataMapper.define(:problem_problem_list) do |m|
