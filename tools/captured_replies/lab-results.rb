@@ -56,6 +56,11 @@ CAPTURE = {
                            "unverified one skipped, the 2026-09-01 one read and left out",
                     run: -> { RpmsRpc::Lab.results(LAB_DFN, from: Date.new(2026, 10, 1), to: Date.new(2026, 11, 19)) } },
     "no_lab_data" => { about: "results(4, ...): a patient with no LAB DATA",
-                       run: -> { RpmsRpc::Lab.results(4, from: Date.new(2026, 10, 1), to: Date.new(2026, 11, 19)) } }
+                       run: -> { RpmsRpc::Lab.results(4, from: Date.new(2026, 10, 1), to: Date.new(2026, 11, 19)) } },
+    "specimen_default" => { about: "specimen(990031) with no from: (rpms-rpc#840): the newest released specimen, " \
+                                   "asked from tomorrow",
+                            run: -> { RpmsRpc::Lab.specimen(LAB_DFN) } },
+    "specimen_no_lab_data" => { about: "specimen(4) with no from:: a patient with no LAB DATA",
+                                run: -> { RpmsRpc::Lab.specimen(4) } }
   }
 }.freeze

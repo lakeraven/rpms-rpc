@@ -1,6 +1,7 @@
 RpmsRpc::Adt.admissions	GET /patients/{dfn}/admissions
 RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
+RpmsRpc::Adt.movements	GET /patients/{dfn}/admissions/movements
 RpmsRpc::Agg.error_screen	GET /agg/error-screen
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup

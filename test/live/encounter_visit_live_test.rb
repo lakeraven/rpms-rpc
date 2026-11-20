@@ -4,15 +4,21 @@ require_relative "live_helper"
 require "rpms_rpc/api/encounter"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/fileman_date_parser"
+require_relative "seed_clinic"
 
-# Visit open/create over BEHOENCX on seed patient DFN 2, visit IEN 1 (#563).
+# Visit open/create over BEHOENCX on seed patient DFN 2, visit IEN 1 (#563), at
+# the seed clinic, looked up by name (LiveSpec::SeedClinic). The create files
+# at that clinic too: a #44 IEN the build does not hold is filed as a visit with
+# no HOSPITAL LOCATION (BEHOENCX answers success and no location name), which is
+# why an IEN written down for an earlier build read back nil (#837).
 class EncounterVisitLiveTest < LiveSpec::Test
+  include LiveSpec::SeedClinic
+
   runs_as "PROV123"
   writes!
 
   DFN = 2
   VISIT_IEN = 1
-  LOCATION_IEN = 6
   VISIT_FILE = "9000010"
 
   def test_open_visit_one_lists_no_component_the_server_reports_present
@@ -20,7 +26,8 @@ class EncounterVisitLiveTest < LiveSpec::Test
     refute_nil result, "visit IEN #{VISIT_IEN} must open for DFN #{DFN}"
     assert_equal VISIT_IEN, result[:visit_ien]
     assert_equal DFN, result[:patient_dfn]
-    assert_equal LOCATION_IEN, result[:location_ien]
+    assert_equal seed_clinic_ien, result[:location_ien]
+    assert_equal SEED_CLINIC, result[:location]
 
     assert_equal [ { component: "E&M", message: "Visit has no note" } ], result[:missing_components]
   end
@@ -32,7 +39,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
     # (seen live: 117 after 120). It is one CREATE=0 did not find before.
     datetime = unused_past_visit_datetime_fm
     vstr_args = {
-      location_ien: LOCATION_IEN,
+      location_ien: seed_clinic_ien,
       datetime: datetime,
       service_category: "A",
       create: 1
@@ -41,6 +48,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
 
     first = RpmsRpc::Encounter.create(DFN, **vstr_args)
     assert first[:success], "create should succeed: #{first.inspect}"
+    assert_equal SEED_CLINIC, first[:location_name], "the create must file at the clinic it was sent: #{first.inspect}"
     visit_ien = first[:visit_ien]
     assert visit_ien.is_a?(Integer) && visit_ien.positive?
 
@@ -55,7 +63,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
     row = RpmsRpc::DataMapper.encounter_visit.fetch_one(visit_ien.to_s)
     refute_nil row
     assert_equal DFN, row[:patient_dfn]
-    assert_equal LOCATION_IEN, row[:location_ien]
+    assert_equal seed_clinic_ien, row[:location_ien]
     assert_equal "A", row[:service_category]
     assert row[:datetime_raw].to_s.start_with?(date_part),
            "GETVISIT datetime_raw #{row[:datetime_raw].inspect} must start with sent date #{date_part.inspect}"
@@ -81,7 +89,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
 
     tried = Array.new(VISIT_TIME_TRIES) do
       datetime = draw_past_visit_datetime_fm(now)
-      found = RpmsRpc::Encounter.create(DFN, location_ien: LOCATION_IEN, datetime: datetime,
+      found = RpmsRpc::Encounter.create(DFN, location_ien: seed_clinic_ien, datetime: datetime,
                                              service_category: "A", create: 0)
       return datetime unless found && found[:success]
 
