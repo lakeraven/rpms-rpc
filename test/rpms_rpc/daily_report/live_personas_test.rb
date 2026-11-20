@@ -19,6 +19,7 @@ class RpmsRpc::DailyReport::LivePersonasTest < Minitest::Test
     report::LIVE_PERSONAS.each do |persona|
       assert_includes report::SIGN_ON_KEYS, "#{persona}_ACCESS"
       assert_includes report::SIGN_ON_KEYS, "#{persona}_VERIFY"
+      assert_includes report::SIGN_ON_KEYS, "#{persona}_ESIG"
     end
   end
 end

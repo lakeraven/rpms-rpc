@@ -815,7 +815,7 @@ module RpmsRpc
               "lines until the next '~' (ORWPS.m:45-48). Text blob — :medication_active " \
               "does not split caret pieces.",
         pieces: [],
-        note: "No active medications in the seed. An empty reply is no-data, not a layout."
+        note: "DFN 2 carries the seeded outpatient ASPIRIN prescription (SEEDCHRT). An empty reply is no-data, not a layout."
       ),
       CatalogEntry.new(
         rpc: "ORWPT SELECT", mapping: :patient_select, kind: "fields", mode: :live,
@@ -987,11 +987,11 @@ module RpmsRpc
       # (BEHOENCX.m:107-111), and even a 3-piece VSTR runs FNDVIS with
       # IN("NEVER ADD")=1 (BEHOENCX.m:80). The inputs name the one visit the
       # rung carries at build time (visit IEN 1 of the build's test patient,
-      # DFN 2, at hospital location 6) by DFN and extended VSTR. The capture
-      # runs as PROV123 on the pinned build.
+      # DFN 2, at hospital location 10, the seed clinic DEMO PRIMARY CARE)
+      # by DFN and extended VSTR. The capture runs as PROV123 on the pinned build.
       CatalogEntry.new(
         rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields", mode: :live,
-        inputs: [ "2", "6;3260825.09;A;1", "", "0" ],
+        inputs: [ "2", "10;3260825.09;A;1", "", "0" ],
         cite: "FETCH^BEHOENCX (BEHOENCX.m:24-47): header lines 30-31 LOCNAME^LOCABBR^" \
               "ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT; pieces 1-2 " \
               "^SC(LOC,0) (line 41), 3 ^DPT(DFN,.101) (42), 4 PRV (43), 5 ^VA(200,PRV,0) " \
@@ -1201,9 +1201,9 @@ module RpmsRpc
         inputs: [ "<note ien>" ].freeze,
         cite: "TGET^TIUSRVR1 (REMOTE PROCEDURE registration for TIU GET RECORD TEXT: " \
               "tag TGET, routine TIUSRVR1, in " \
-              "data/fingerprints/references/bcer-9.0-20261012-e7923a4-ydb.yml and " \
-              "data/inventories/bcer-9.0-20261012-e7923a4-ydb/" \
-              "bcer-9.0-20261012-e7923a4-ydb-broker_8994.txt). Text blob. This repo " \
+              "data/fingerprints/references/bcer-9.0-20261119-f67498c-ydb.yml and " \
+              "data/inventories/bcer-9.0-20261119-f67498c-ydb/" \
+              "bcer-9.0-20261119-f67498c-ydb-rpcs.json). Text blob. This repo " \
               "does not cite TGET line numbers",
         pieces: [],
         note: "Read-back of the note just written. Catalog input is a note-IEN " \

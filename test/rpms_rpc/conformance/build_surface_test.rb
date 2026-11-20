@@ -28,7 +28,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     assert_equal P.pinned_doc["rpcs"].size, pinned.rpcs.size
     assert_equal P.pinned_doc.except("rpcs"), pinned.meta
     assert pinned.reach? && pinned.signatures? && pinned.contexts?
-    refute pinned.texts?, "#{TAG} publishes rpcs.v1, which carries no #8994 text"
+    assert pinned.texts?, "#{TAG} publishes rpcs.v2, which carries #8994 text"
     pmr = pinned["BPC PMR"]
     assert_equal [ "^BGUPMR", nil, [], "no-context" ], [ pmr.entry_point, pmr.inactive, pmr.params, pmr.reach ]
     av = pinned["XUS AV CODE"]

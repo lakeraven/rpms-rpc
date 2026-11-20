@@ -13,7 +13,8 @@ require_relative "core"
 # Orchestrator runs the suites through injected collaborators. The real
 # defaults — GitHub releases, a child process, the docker CLI, a CIA connect,
 # a loopback port, a file — are what Orchestrator.from_env wires in. Sign-on
-# codes are copied into one persona's `rake test:live` child and nowhere else.
+# codes, and the persona's optional signature code, are copied into that
+# persona's `rake test:live` child and nowhere else.
 # That child gets LIVE_DISPOSABLE=1 under FRESH=1, and otherwise only when the
 # operator set LIVE_DISPOSABLE=1. BROKER_PROTOCOL is copied there when set.
 # `rake test` receives none of those.
@@ -26,10 +27,13 @@ module RpmsRpc
     # disagree.
     LIVE_PERSONAS = %w[PROV123 PMD123 PREG123 PSCH123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
-    # Names whose values are sign-on codes. They are omitted from every string
-    # form of a child environment and scrubbed from reports, plans, and errors.
-    SIGN_ON_KEYS = (%w[RPMS_ACCESS RPMS_VERIFY] +
-                    LIVE_PERSONAS.flat_map { |persona| [ "#{persona}_ACCESS", "#{persona}_VERIFY" ] }).freeze
+    # Names whose values are sign-on codes, or electronic signature codes
+    # (#848). They are omitted from every string form of a child environment
+    # and scrubbed from reports, plans, and errors.
+    SIGN_ON_KEYS = (%w[RPMS_ACCESS RPMS_VERIFY RPMS_ESIG] +
+                    LIVE_PERSONAS.flat_map do |persona|
+                      [ "#{persona}_ACCESS", "#{persona}_VERIFY", "#{persona}_ESIG" ]
+                    end).freeze
     # The id each suite's log is filed and linked under (#757). Not the
     # persona name, so a link never depends on what redaction leaves of it.
     UNIT_SUITE_ID = "rake-test"
@@ -721,6 +725,9 @@ module RpmsRpc
         pairs["PERSONA"] = persona
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
+        # Optional: a persona without one runs, and its signing specs skip (#848).
+        esig = @env["#{persona}_ESIG"].to_s
+        pairs["RPMS_ESIG"] = esig unless esig.strip.empty?
         pairs["VISTA_RPC_ENV"] = "development" if DEVELOPMENT_PERSONAS.include?(persona)
         pairs["LIVE_DISPOSABLE"] = "1" if enabled?("FRESH") || @env["LIVE_DISPOSABLE"].to_s.strip == "1"
         protocol = @env["BROKER_PROTOCOL"].to_s.strip

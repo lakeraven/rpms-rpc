@@ -1,11 +1,11 @@
-# Unmapped wire capture: AGG UPDATE MEDICARE, synthetic patient 990048 on bcer-9.0-20261012-e7923a4-ydb.
+# Unmapped wire capture: AGG UPDATE MEDICARE, synthetic patient 990048 on bcer-9.0-20261119-f67498c-ydb.
 ---
 rpc: AGG UPDATE MEDICARE
 entry_point: UPD^AGGUPMCR
-release_tag: bcer-9.0-20261012-e7923a4-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
-client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 6723a7f)
-captured_at: '2026-10-31T00:56:28Z'
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 8fd3f941)
+captured_at: '2026-11-20T00:19:17Z'
 captures:
 - inputs:
   - '990048'
@@ -15,8 +15,8 @@ captures:
   - AGGMCESD=10/31/2026
   context: add eligibility row (AGGUPMCR.m:25)
   ack: data
-  raw_return: "8\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^5\x1E\x1F"
-  sha256: '093b245a11107335a82cbb7ba2a0d9585590193a61d78b3401cfcf00ee269024'
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^1\x1E"
+  sha256: f0b414f207e866b216844869c9ad0af3acbe20962c40492d1dd4e5df5c2c9d4b
 - inputs:
   - '990048'
   - D
@@ -25,5 +25,6 @@ captures:
   - ''
   context: delete missing MIEN (AGGUPMCR.m:37-41)
   ack: data
-  raw_return: "9\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E-1^The entry does not exist.^^\x1E\x1F"
-  sha256: e4a493ccf17aac62679338bef120717ceb8f9515dc8d8599366a5e4e33668e41
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E-1^The entry does
+    not exist.^^\x1E"
+  sha256: fe5f731c5e81e76006b8bc842a7429b96733fdbc9a72fa214d89ee744dbb6c0d
