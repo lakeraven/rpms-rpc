@@ -278,15 +278,19 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     ].join(row_sep)
   end
 
-  # Same line pieces ProgressNote.update_text sends in TIUX("TEXT",n,0).
+  # Same line pieces ProgressNote.update_text sends in TIUX("TEXT",n,0), on
+  # the build's own CANDO and SET DOCUMENT TEXT replies for the note
+  # test/fixtures/captured_replies/progress-note.yml wrote.
   def wrapped_note_text_lines(note_body)
-    note_ien = "1"
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
+    captures = CapturedReplies.file("progress-note").fetch("captures")
+    note_ien = captures.find { |c| c["name"] == "set_text" }.fetch("inputs").first
+    client = CapturedReplies::ReplayCiaClient.new(
+      "TIU AUTHORIZATION" => [ CapturedReplies.raw("progress-note", "authorize_edit") ],
+      "TIU SET DOCUMENT TEXT" => [ CapturedReplies.raw("progress-note", "set_text") ]
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
     RpmsRpc::ProgressNote.update_text(note_ien, note_body)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU SET DOCUMENT TEXT" }
+    call = client.calls.find { |c| c[:rpc] == "TIU SET DOCUMENT TEXT" }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
 
     tiux = call[:params][1]
