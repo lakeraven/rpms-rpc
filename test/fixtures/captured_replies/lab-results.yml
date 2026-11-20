@@ -1,0 +1,66 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb lab-results.rb.
+---
+rpc: ORWLRR INTERIMG
+entry_point: INTERIMG^ORWLRR
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-19T23:20:02Z'
+note: 'Run on a throwaway container. Setup files four synthetic chemistry specimens
+  for DFN 990031 through DDR FILER (#63, #2 field 63, #63.04): 3261110.0915 POC GLUCOSE
+  96 and COVID-19 Negative, 3261105.1 POC GLUCOSE 120 with no DATE REPORT COMPLETED,
+  3261103.083 POC GLUCOSE 142, 3260901.1 POC GLUCOSE 210. FileMan files no normalcy
+  flag. DFN 4 has no LAB DATA.'
+captures:
+- name: in_range/1
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '990031'
+  - '3261120'
+  - '1'
+  - '1'
+  context: 'results(990031, from: 2026-10-01, to: 2026-11-19): two released specimens,
+    the unverified one skipped, the 2026-09-01 one read and left out'
+  raw_return: "5\02^CH^3261110.0915^70^BLOOD^CH 1110 2^PROVIDER,TEST^^^3261110.0915\r2096008^_COVID-19(Abbott
+    ID NOW)^COVID-19 Negative^^^\r2096016^POC GLUCOSE^      96^^mg/dL^70 - 110^^^^^^^^^2340-8\r
+    \rReport Released Date/Time: 11/10/2026 12:00 PM\r"
+  sha256: fd41061c5c1e3abfb8f83abb905311024f7e2c5a99c24e5d1b75df69923b8dbc
+- name: in_range/2
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '990031'
+  - '3261110.0915'
+  - '1'
+  - '1'
+  context: 'results(990031, from: 2026-10-01, to: 2026-11-19): two released specimens,
+    the unverified one skipped, the 2026-09-01 one read and left out'
+  raw_return: "6\01^CH^3261103.083^70^BLOOD^CH 1103 1^PROVIDER,TEST^^^3261103.083\r2096016^POC
+    GLUCOSE^     142^^mg/dL^70 - 110^^^^^^^^^2340-8\r \rReport Released Date/Time:
+    11/03/2026 12:00 PM\r"
+  sha256: 84684df766879674163f349751b2c592249e611c4945c3330238de9f110a1a5a
+- name: in_range/3
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '990031'
+  - '3261103.083'
+  - '1'
+  - '1'
+  context: 'results(990031, from: 2026-10-01, to: 2026-11-19): two released specimens,
+    the unverified one skipped, the 2026-09-01 one read and left out'
+  raw_return: "7\01^CH^3260901.1^70^BLOOD^CH 0901 3^PROVIDER,TEST^^^3260901.1\r2096016^POC
+    GLUCOSE^     210^^mg/dL^70 - 110^^^^^^^^^2340-8\r \rReport Released Date/Time:
+    09/01/2026 12:00 PM\r"
+  sha256: f860eaaf708e769f295461c3952c0f07df99ffce35c48a12091b8db058030933
+- name: no_lab_data/1
+  rpc: ORWLRR INTERIMG
+  inputs:
+  - '4'
+  - '3261120'
+  - '1'
+  - '1'
+  context: 'results(4, ...): a patient with no LAB DATA'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

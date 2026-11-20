@@ -1,6 +1,7 @@
 RpmsRpc::Adt.admissions	GET /patients/{dfn}/admissions
 RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
+RpmsRpc::Adt.movements	GET /patients/{dfn}/admissions/movements
 RpmsRpc::Agg.error_screen	GET /agg/error-screen
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
@@ -39,6 +40,7 @@ RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
+RpmsRpc::EmergencyRoom.visit	GET /patients/{dfn}/emergency-rooms/visits/{visit_ien}
 RpmsRpc::Encounter.activity_time	GET /encounters/{visit_ien}/activity-time
 RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
 RpmsRpc::Encounter.providers	GET /patients/{dfn}/encounters/{visit_ien}/providers
@@ -59,6 +61,7 @@ RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Lab.cover_sheet_orders	GET /patients/{dfn}/labs/cover-sheet-orders
 RpmsRpc::Lab.result_date_range	GET /patients/{dfn}/labs/result-date-range
+RpmsRpc::Lab.results	GET /patients/{dfn}/labs/results
 RpmsRpc::Lab.specimen	GET /patients/{dfn}/labs/specimen
 RpmsRpc::Location.find	GET /locations/{ien}
 RpmsRpc::Location.search	GET /locations

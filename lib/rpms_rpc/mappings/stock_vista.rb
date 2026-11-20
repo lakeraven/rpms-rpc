@@ -212,11 +212,11 @@ module RpmsRpc
       m.field 1, :description
     end
 
+    # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): a display report in Y(I), one
+    # text line per node (ORQQPL.m:26-59), not caret rows.
     DataMapper.define(:problem_detail) do |m|
       m.rpc "ORQQPL DETAIL"
-      m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.text_blob :detail_text
     end
 
     DataMapper.define(:problem_edit_load) do |m|
