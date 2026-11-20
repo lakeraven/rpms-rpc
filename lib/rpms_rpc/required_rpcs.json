@@ -1242,6 +1242,7 @@
         "RpmsRpc::Encounter.open": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/wire_captures/behoencx-chkvisit.yml"
       ]
     },
@@ -1253,6 +1254,7 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/behoencx-fetch.yml"
       ]
@@ -1273,6 +1275,7 @@
         "RpmsRpc::Measurement.newest_by_type": "read"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/wire_captures/behoencx-getvisit.yml"
       ]
@@ -1281,7 +1284,9 @@
       "methods": {
         "RpmsRpc::Encounter.visits": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-visits.yml"
+      ]
     },
     "BEHOENPC SAVE": {
       "methods": {

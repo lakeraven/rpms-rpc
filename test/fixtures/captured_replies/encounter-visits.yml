@@ -1,0 +1,27 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb encounter-visits.rb.
+---
+rpc: BEHOENCX VISITLST
+entry_point: VISITLST^BEHOENCX
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T07:16:54Z'
+note: Read only; any container of the pinned build.
+captures:
+- name: visits/1
+  rpc: BEHOENCX VISITLST
+  inputs:
+  - '2'
+  - '2000101'
+  - '3991231'
+  - ''
+  - X
+  - '1'
+  context: DFN 2's whole visit history, no appointments
+  raw_return: "5\03;3261119.0112;A;13^DEMO IHS CLINIC^3261119.0112^AMBULATORY^0^^1\r10;3261005.1;A;12^DEMO
+    PRIMARY CARE^3261005.1^AMBULATORY^0^206^PROFILE,MD^1\r10;3260825.09;A;1^DEMO PRIMARY
+    CARE^3260825.09^AMBULATORY^0^206^PROFILE,MD^1\r"
+  sha256: da7bd1972d276fc495cdf8fc838d143cccb5e8c3446eda96d28b3bb7a0f21868
