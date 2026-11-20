@@ -94,11 +94,11 @@ class ChartTabReadsLiveTest < LiveSpec::Test
 end
 
 # PTSEC^DGSEC4 answers 0 (access granted, no warning) for a patient whose
-# record is not sensitive. The demo build has no sensitive record. No demo
-# persona may run DG SENSITIVE RECORD ACCESS on bcer-9.0-20261116-2a9b3fe-ydb, so the
-# operator runs it until a release gives the clinician the option (#814).
+# record is not sensitive. The demo build has no sensitive record. The
+# clinician may run DG SENSITIVE RECORD ACCESS from bcer-9.0-20261119-f67498c-ydb,
+# where it holds OR CPRS GUI CHART (openrpms#1192, #814).
 class ChartTabSensitiveRecordLiveTest < LiveSpec::Test
-  runs_as "SYS123"
+  runs_as "PROV123"
   writes!
 
   def test_sensitive_record_access_to_a_record_that_is_not_sensitive

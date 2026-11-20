@@ -21,6 +21,7 @@
 "RpmsRpc::Adt.admissions": read
 "RpmsRpc::Adt.current_location": read
 "RpmsRpc::Adt.discharge_datetime": read
+"RpmsRpc::Adt.movements": read
 "RpmsRpc::Agg.add_patient": non_idempotent_write
 "RpmsRpc::Agg.available?": non_idempotent_write
 "RpmsRpc::Agg.canonical_dfn": read
@@ -168,6 +169,7 @@
 "RpmsRpc::ESignature.which_action": read
 "RpmsRpc::Eligibility.codes": read
 "RpmsRpc::Eligibility.for_patient": read
+"RpmsRpc::EmergencyRoom.visit": read
 "RpmsRpc::Encounter.activity_time": read
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
@@ -195,6 +197,7 @@
 "RpmsRpc::ImmunizationRefusal.record": non_idempotent_write
 "RpmsRpc::Lab.cover_sheet_orders": read
 "RpmsRpc::Lab.result_date_range": read
+"RpmsRpc::Lab.results": read
 "RpmsRpc::Lab.specimen": read
 "RpmsRpc::Location.find": read
 "RpmsRpc::Location.search": read

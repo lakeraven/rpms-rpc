@@ -7,7 +7,7 @@ require "rpms_rpc/api/medication"
 require "rpms_rpc/api/vital"
 
 # Vital.latest_by_type (BEHOVM LIST), Vital.grid (BEHOVM GRID),
-# Lab.result_date_range (ORWLRR NEWOLD), Lab.specimen (ORWLRR INTERIMG),
+# Lab.result_date_range (ORWLRR NEWOLD), Lab.specimen and Lab.results (ORWLRR INTERIMG),
 # Lab.cover_sheet_orders (BEHOLRCV LIST) and Medication.profile (BEHORXFN
 # GETRXS). Each answer is checked against the file it reads with DDR:
 # V MEASUREMENT (#9000010.01), LAB DATA (#63), ORDER (#100), PRESCRIPTION
@@ -16,7 +16,8 @@ require "rpms_rpc/api/vital"
 # The pinned demo build has vitals for DFN 2 and no lab data, lab order or
 # medication for anyone, so the lab and medication reads prove the empty
 # answer against the empty file; a build that files them is checked entry
-# by entry.
+# by entry (Lab.results against #63.04; on a container seeded as
+# tools/captured_replies/lab-results.rb seeds one, that branch runs).
 class LabVitalMedicationReadsLiveTest < LiveSpec::Test
   runs_as "PROV123"
   DFN = 2 # the demo patient with vitals on the pinned build
@@ -57,13 +58,16 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
       assert_equal({ newest: nil, oldest: nil }, RpmsRpc::Lab.result_date_range(DFN), "#63 is empty, so ORWLRR NEWOLD answers ^")
       assert_nil RpmsRpc::Lab.specimen(DFN)
       assert_nil RpmsRpc::Lab.specimen(DFN, from: "3000101", direction: :newer)
+      assert_empty RpmsRpc::Lab.results(DFN, from: Date.new(2000, 1, 1)), "#63 is empty, so ORWLRR INTERIMG lists nothing"
       return
     end
 
     row = lab_patients.find { |r| r[:pieces][0] == "2" } # PARENT FILE 2: a patient
     flunk "#63 has entries but none for a patient: #{lab_patients.first(3).inspect}" unless row
     dfn = row[:pieces][1].to_i
-    refute_nil RpmsRpc::Lab.result_date_range(dfn)[:newest], "#63 #{row[:ien]} is DFN #{dfn}'s"
+    range = RpmsRpc::Lab.result_date_range(dfn)
+    refute_nil range[:newest], "#63 #{row[:ien]} is DFN #{dfn}'s"
+    results_match_lab_data(dfn, row[:ien], range)
   end
 
   # LIST^ORQOR1 walks display group LAB and its member groups, so the
@@ -94,6 +98,25 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
   end
 
   private
+
+  # Lab.results over the patient's whole range: each listed specimen is a
+  # #63.04 entry whose DATE REPORT COMPLETED is set, its accession and
+  # specimen read back, newest first; every completed entry is listed.
+  def results_match_lab_data(dfn, lrdfn, range)
+    oldest = range[:oldest] || range[:newest]
+    results = RpmsRpc::Lab.results(dfn, from: Date.new(oldest.year, oldest.month, oldest.day), to: Date.new(range[:newest].year, range[:newest].month, range[:newest].day))
+    entries = RpmsRpc::DdrFileman.lister(file: "63.04", iens: ",#{lrdfn},", fields: ".01;.03;.05;.06", flags: "IP", max: "200")
+    flunk "DDR LISTER on 63.04 failed: #{entries.inspect}" if entries.nil? || entries[:error]
+    completed = entries[:entries].reject { |e| e[:pieces][1].to_s.empty? }
+    assert_equal completed.size, results.count { |s| s[:area] == "CH" }, "one result per completed #63.04 entry"
+    assert_equal results.map { |s| s[:collected_at] }.sort.reverse, results.map { |s| s[:collected_at] }, "newest first"
+    results.each do |s|
+      on_file = completed.find { |e| RpmsRpc::FilemanDateParser.parse_datetime_or_date(e[:pieces][0]) == s[:collected_at] }
+      flunk "#{s.slice(:collected_at, :accession).inspect} is no completed #63.04 entry" unless on_file
+      assert_equal [ on_file[:pieces][2].to_i, on_file[:pieces][3] ], [ s[:specimen_ien], s[:accession] ]
+      assert_equal :final, s[:status]
+    end
+  end
 
   def listed(file, fields)
     got = RpmsRpc::DdrFileman.lister(file: file, fields: fields, flags: "IP", max: "200")

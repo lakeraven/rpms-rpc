@@ -9,10 +9,10 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # The AMHG reference, intake, group and case-management reads over the wire
 # (rpms-rpc#622, #673), under AMHGRPC. Each answers parsed rows, never the
 # recordset's typed header read as a record. Reads only.
-# Needs a persona AMHGRPC lets run these reads (the operator, SYS123).
+# Needs a persona AMHGRPC lets run these reads (the clinician, PROV123).
 class BehavioralHealthReferenceLiveTest < LiveSpec::Test
-  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
-  runs_as "SYS123"
+  # The clinician holds AMHGRPC from bcer-9.0-20261119-f67498c-ydb (openrpms#1192, #814).
+  runs_as "PROV123"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4" # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
   FROM = "3000101"
