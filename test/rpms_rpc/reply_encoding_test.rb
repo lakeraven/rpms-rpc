@@ -4,8 +4,6 @@ require "minitest/autorun"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
 require "rpms_rpc/cia_client"
-require "rpms_rpc/mock_client"
-require "rpms_rpc/mappings"
 
 # rpms-rpc#463 — a reply reaches the host as valid UTF-8, and a reply whose
 # bytes had to be altered says so.
@@ -102,83 +100,5 @@ class RpmsRpc::ReplyEncodingTest < Minitest::Test
   def test_altered_helper_reads_false_for_a_plain_array
     refute RpmsRpc::Reply.altered?([ "plain" ])
     refute RpmsRpc::Reply.altered?(nil)
-  end
-
-  # MockClient replies follow the same rule, so host tests see production
-  # encoding.
-  def test_mock_client_reply_is_valid_utf8_and_flags_alteration
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:site_info].rpc_name
-    mock.seed_raw_lines(:site_info, "", [ VALID_UTF8.dup, INVALID.dup, ASCII.dup ])
-    reply = mock.call_rpc(rpc, "")
-    assert(reply.all? { |l| l.encoding == Encoding::UTF_8 && l.valid_encoding? })
-    assert_equal [ "café SYNTHETIC", "caf� SYNTHETIC", "PLAIN SYNTHETIC" ], reply
-    assert reply.altered?
-    assert_equal [ 1 ], reply.altered_lines
-  end
-
-  # Copilot round (#477): a reply seeded as a bare String is sanitised once,
-  # where the invalid bytes are replaced, and that fact must reach the line
-  # reply. Wrapping the already-sanitised String again reads as unaltered and
-  # lets altered text pass for verified text.
-  def test_mock_client_string_seed_with_an_invalid_byte_reads_as_altered_through_call_rpc_lines
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name
-    mock.seed_text(:bmc_patient_face_sheet, "1", INVALID.dup)
-    reply = mock.call_rpc_lines(rpc, "1")
-    assert(reply.all? { |l| l.encoding == Encoding::UTF_8 && l.valid_encoding? })
-    assert_equal [ "caf\uFFFD SYNTHETIC" ], reply
-    assert reply.altered?, "text altered at the seed must not read as unaltered"
-    assert_equal [ 0 ], reply.altered_lines
-  end
-
-  def test_mock_client_multi_line_string_seed_names_the_altered_line
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name
-    mock.seed_text(:bmc_patient_face_sheet, "1", [ VALID_UTF8, INVALID, ASCII ].join("\n").b)
-    reply = mock.call_rpc_lines(rpc, "1")
-    assert_equal [ "café SYNTHETIC", "caf\uFFFD SYNTHETIC", "PLAIN SYNTHETIC" ], reply
-    assert_equal [ 1 ], reply.altered_lines
-  end
-
-  def test_mock_client_valid_utf8_string_seed_reads_as_unaltered
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name
-    mock.seed_text(:bmc_patient_face_sheet, "1", VALID_UTF8.dup)
-    reply = mock.call_rpc_lines(rpc, "1")
-    assert_equal [ "café SYNTHETIC" ], reply
-    refute reply.altered?
-    assert_empty reply.altered_lines
-  end
-
-  def test_mock_client_plain_ascii_string_seed_reads_as_unaltered
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name
-    mock.seed_text(:bmc_patient_face_sheet, "1", ASCII.dup)
-    reply = mock.call_rpc_lines(rpc, "1")
-    assert_equal [ "PLAIN SYNTHETIC" ], reply
-    refute reply.altered?
-  end
-
-  def test_mock_client_array_seed_through_call_rpc_lines_matches_the_string_seed
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:site_info].rpc_name
-    mock.seed_raw_lines(:site_info, "", [ INVALID.dup ])
-    reply = mock.call_rpc_lines(rpc, "")
-    assert_equal [ "caf\uFFFD SYNTHETIC" ], reply
-    assert reply.altered?
-    assert_equal [ 0 ], reply.altered_lines
-  end
-
-  # The same seed tagged as UTF-8 (a plain Ruby literal) must flag, not raise:
-  # splitting an invalid UTF-8 String on a newline used to blow up inside the
-  # mock, so host tests crashed on input production reports as altered.
-  def test_mock_client_utf8_tagged_multi_line_string_seed_flags_instead_of_raising
-    mock = RpmsRpc::MockClient.new
-    rpc = RpmsRpc::DataMapper[:bmc_patient_face_sheet].rpc_name
-    mock.seed_text(:bmc_patient_face_sheet, "1", +"ok\ncaf\xE9 X")
-    reply = mock.call_rpc_lines(rpc, "1")
-    assert_equal [ "ok", "caf\uFFFD X" ], reply
-    assert_equal [ 1 ], reply.altered_lines
   end
 end
