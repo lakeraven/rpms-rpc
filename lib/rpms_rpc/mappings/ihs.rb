@@ -1548,6 +1548,7 @@ module RpmsRpc
     #   AGG BUILD WINDOW MULTIPLE     MUL^AGGPTDMG    window, node, DFN, entry
     #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
     #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
+    #   AGG UPDATE LEGAL NAMES        LEGL^AGGPTNAM   DFN, A/D/"", entry, PARMS
     #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
     #   AGG UPDATE A MULTIPLE RECORD  UPD^AGGMLUPD    window, A/D, DFN, entry, PARMS
     #   AGG QUANTUM VALIDATION        QNT^AGGFTVAL    tribe, quantum, membership, its quantum, blood quantum, class, others
@@ -1556,6 +1557,7 @@ module RpmsRpc
       agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
       agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
       agg_update_aliases: "AGG UPDATE ALIASES",
+      agg_update_legal_names: "AGG UPDATE LEGAL NAMES",
       agg_update_special_multiples: "AGG UPDATE SPECIAL MULTIPLES",
       agg_update_multiple_record: "AGG UPDATE A MULTIPLE RECORD",
       agg_quantum_validation: "AGG QUANTUM VALIDATION",
