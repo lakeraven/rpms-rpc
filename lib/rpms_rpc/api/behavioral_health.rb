@@ -354,12 +354,17 @@ module RpmsRpc
       mapping.parse_many(raise_m_error_row!(save_visit_rows(response))).map { |row| decorate_visit(row) }
     end
 
-    # Detail for one visit, or nil when the IEN yields no row.
+    EMPTY_ENCOUNTER_DATE = "1700,,,12,0"
+
+    # Detail for one visit, or nil when the visit is not on file.
     def visit_information(visit_ien)
       mapping = DataMapper[:amhg_visit_information]
       response = call_amhg(mapping, visit_ien)
       row = mapping.parse_many(frame_rows(response)).first
-      return nil if row.nil?
+      # For a visit not on file the build still answers a row: the IEN, the
+      # signed-on user as provider and the empty date "1700,,,12,0". A filed
+      # visit always has its .01 DATE OF SERVICE (#882).
+      return nil if row.nil? || [ "", EMPTY_ENCOUNTER_DATE ].include?(row[:encounter_date].to_s.strip)
 
       {
         ien: row[:ien],
@@ -1195,7 +1200,7 @@ module RpmsRpc
     # One treatment plan, or nil. Dates are INTERNAL FileMan here — see the
     # note on {treatment_plans}.
     def treatment_plan(plan_ien)
-      row = first_row(:amhg_treatment_plan, plan_ien)
+      row = on_file_row(:amhg_treatment_plan, plan_ien)
       return nil if row.nil?
 
       {
@@ -1286,7 +1291,7 @@ module RpmsRpc
     # loses Lethality, LocationofAct, LocationOther, Disposition and
     # DispositionText.
     def suicide_form(form_ien)
-      row = first_row(:amhg_suicide_form, form_ien)
+      row = on_file_row(:amhg_suicide_form, form_ien)
       return nil if row.nil?
 
       {
@@ -1333,7 +1338,7 @@ module RpmsRpc
     # all, not that the question went unasked.
     def suicide_form_substances(form_ien)
       mapping = DataMapper[:amhg_suicide_form_substances]
-      mapping.parse_many(frame_rows(call(mapping, form_ien))).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, form_ien))).reject { |row| echo_only?(row) }.map do |row|
         { form_ien: row[:form_ien],
           substance: presence(row[:substance]),
           drug: split_ien_name(row[:drug_raw]),

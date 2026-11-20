@@ -1,0 +1,81 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb encounter.rb.
+---
+rpc: BEHOENCX FETCH
+entry_point: FETCH^BEHOENCX
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T07:16:56Z'
+note: 'Run on a fresh throwaway container: create files a visit for DFN 2 at 3261110.0900.'
+captures:
+- name: open/1
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '1'
+  context: open visit 1 for DFN 2
+  raw_return: "5\010^3260825.09^A^2^^0"
+  sha256: 561202f8667c88c7d6b65c1b5dc22ebf31c624c2515bda5f9dc0fb481d5bc8f2
+- name: open/2
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '2'
+  - 10;3260825.09;A;1
+  - ''
+  - '0'
+  context: open visit 1 for DFN 2
+  raw_return: "6\0DEMO PRIMARY CARE^DPC^^200^PROVIDER,TEST^1^^0"
+  sha256: 8c407287c2ce59069481af07f1358ab50861a811a4516828b64feb58984aa4ff
+- name: open/3
+  rpc: BEHOENCX CHKVISIT
+  inputs:
+  - '1'
+  context: open visit 1 for DFN 2
+  raw_return: "7\0POV^Visit has POV\rE&M^Visit has no note\r"
+  sha256: 92ada824608adf9c2cc6b76896dfa3465f7489345fd39daed6182b4949fb08e0
+- name: open_other_patient/1
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '1'
+  context: open visit 1 for DFN 3, whose visit it is not
+  raw_return: "5\010^3260825.09^A^2^^0"
+  sha256: 561202f8667c88c7d6b65c1b5dc22ebf31c624c2515bda5f9dc0fb481d5bc8f2
+- name: open_unknown/1
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '99999999'
+  context: open visit 99999999, not on file
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: create/1
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '2'
+  - 10;3261110.0900;A
+  - ''
+  - '1'
+  context: a visit at DEMO PRIMARY CARE, created if not found
+  raw_return: "5\0DEMO PRIMARY CARE^DPC^^200^PROVIDER,TEST^118^^0"
+  sha256: 5732c347a460c0eac38925e875b87c8f3a2a909b467bb64ea29b4427b3e74666
+- name: create_found/1
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '2'
+  - 10;3261110.0900;A
+  - ''
+  - '0'
+  context: the same visit string with CREATE=0 finds it
+  raw_return: "5\0DEMO PRIMARY CARE^DPC^^200^PROVIDER,TEST^118^^0"
+  sha256: 5732c347a460c0eac38925e875b87c8f3a2a909b467bb64ea29b4427b3e74666
+- name: create_unknown_location/1
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '2'
+  - 999999;3261110.0900;A
+  - ''
+  - '1'
+  context: 'a visit at #44 IEN 999999, not on file'
+  raw_return: "5\0^^^200^PROVIDER,TEST^119^^0"
+  sha256: a54be0d3ea78f089d6846d04feaf87104ce8833ad62702927fd8226cc56c4330

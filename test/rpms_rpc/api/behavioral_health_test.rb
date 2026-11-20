@@ -238,6 +238,15 @@ class BehavioralHealthTest < Minitest::Test
     assert_equal [ "8801" ], call[:params]
   end
 
+  # The build's row for a visit not on file: the IEN, the signed-on user as
+  # provider and the empty date (#882).
+  def test_visit_information_is_nil_for_a_visit_not_on_file
+    row = "999999^4~PROVIDER,TEST^^^^^1700,,,12,0^^^^^" + RS
+    @mock.seed_text(:amhg_visit_information, "999999", [ VISIT_INFO_HEADER, row, US ].join("\n"))
+
+    assert_nil BH.visit_information(999999)
+  end
+
   def test_visit_information_returns_nil_when_the_visit_has_no_row
     @mock.seed_text(:amhg_visit_information, "9999",
                     [ VISIT_INFO_HEADER, US ].join("\n"))
@@ -447,6 +456,12 @@ class BehavioralHealthTest < Minitest::Test
     assert tp[:dsm4]
   end
 
+  def test_treatment_plan_is_nil_when_the_row_echoes_only_the_ien
+    @mock.seed_text(:amhg_treatment_plan, "1", [ TP_HEADER + RS, "1^^^^^^^^^^^" + RS, US ].join("\n"))
+
+    assert_nil BH.treatment_plan(1)
+  end
+
   def test_treatment_plan_is_nil_when_the_ien_yields_no_row
     @mock.seed_text(:amhg_treatment_plan, "999", [ TP_HEADER + RS, US ].join("\n"))
 
@@ -604,6 +619,14 @@ class BehavioralHealthTest < Minitest::Test
   # AMHGDSF.m:106-108 — when field .26 is not "2" the routine still emits one
   # row carrying the substance value with blank drug columns, so an empty
   # result never means "not asked".
+  def test_substances_for_a_form_not_on_file_are_empty
+    @mock.seed_text(:amhg_suicide_form_substances, "1",
+                    [ "T00010BMXIEN^T00010Substance^T00050Drug^T00050DrugIfOther" + RS,
+                      "1^^^" + RS, US ].join("\n"))
+
+    assert_empty BH.suicide_form_substances(1)
+  end
+
   def test_substances_always_emit_at_least_one_row
     @mock.seed_text(:amhg_suicide_form_substances, "31",
                     [ "T00010BMXIEN^T00010Substance^T00050Drug^T00050DrugIfOther" + RS,
