@@ -323,7 +323,7 @@ class OversizedTextWritersTest < Minitest::Test
   def test_referral_add_answers_with_a_failure_hash_over_xwb
     skip_context_binding
     limit = use_xwb
-    result = RpmsRpc::Referral.add("8791", "1", XWB_TEXT)
+    result = RpmsRpc::Referral.add("8791", "1", XWB_TEXT, *Array.new(37, ""))
     assert_refused(result, limit, XWB_TEXT)
     assert_equal({ success: false, raw: nil }, result.slice(:success, :raw))
     assert_kind_of String, result[:error]
@@ -334,7 +334,7 @@ class OversizedTextWritersTest < Minitest::Test
   def test_referral_add_answers_with_a_failure_hash_over_bmx
     skip_context_binding
     limit = use_bmx
-    result = RpmsRpc::Referral.add("8791", "1", BMX_TEXT)
+    result = RpmsRpc::Referral.add("8791", "1", BMX_TEXT, *Array.new(37, ""))
     assert_refused(result, limit, BMX_TEXT)
     assert_equal({ success: false, raw: nil }, result.slice(:success, :raw))
     assert_kind_of String, result[:error]
@@ -386,7 +386,7 @@ class OversizedTextWritersTest < Minitest::Test
                                           end_time: "3261023.0930", length_minutes: 30, note: "ok")
     },
     "scheduling_cancel" => -> { RpmsRpc::Scheduling.cancel_appointment("55", reason: "3", note: "ok") },
-    "referral" => -> { RpmsRpc::Referral.add("8791", "1", "ok") },
+    "referral" => -> { RpmsRpc::Referral.add("8791", "1", "ok", *Array.new(37, "")) },
     "ddr_filer" => -> { RpmsRpc::DdrFileman.filer(mode: :add, rows: [ { file: "2", field: ".01", iens: "+1,", value: "ok" } ]) },
     "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") },
     "order_save" => lambda {

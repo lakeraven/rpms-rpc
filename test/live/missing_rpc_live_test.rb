@@ -97,7 +97,7 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Referral.patient_face_sheet" => [ :read, [ "BMC PATIENT FACE SHEET" ], -> { RpmsRpc::Referral.patient_face_sheet(DFN) } ],
     "Referral.patient_health_summary" => [ :read, [ "BMC PATIENT HEALTH SUMMARY" ], -> { RpmsRpc::Referral.patient_health_summary(DFN, RpmsRpc::Referral.health_summary_types.first.fetch(:ien)) } ],
     "Referral.health_summary_types" => [ :read, [ "BMC HEALTH SUMMARY TYPE" ], -> { RpmsRpc::Referral.health_summary_types } ],
-    "Referral.add" => [ :write, [ "BMC ADD REFERRAL" ], -> { RpmsRpc::Referral.add } ],
+    "Referral.add" => [ :write, [ "BMC ADD REFERRAL" ], -> { RpmsRpc::Referral.add(*Array.new(RpmsRpc::Referral::ADD_PARAMETERS, "")) } ],
     "Referral.update" => [ :write, [ "BMC UPDATE REFERRAL" ], -> { RpmsRpc::Referral.update("0") } ],
     "Referral.print" => [ :write, [ "BMC PRINT REFERRAL" ], -> { RpmsRpc::Referral.print("0") } ],
     "Referral.update_status" => [ :write, [ "BMC REFERRAL STATUS UPDATE" ], -> { RpmsRpc::Referral.update_status("0", "") } ],

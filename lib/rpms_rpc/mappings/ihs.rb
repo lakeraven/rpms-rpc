@@ -279,13 +279,12 @@ module RpmsRpc
       m.scalar :result
     end
 
-    # BMC GET PURPOSE OF REF API — referral purpose lookup.
-    # Common shape: IEN^NAME^CODE; extra pieces remain available through raw RPC calls.
+    # BMC GET PURPOSE OF REF API — GTREFTYP^BMCRPC3: one node of RCIS records,
+    # CONCEPT^DESCRIPTION^TERM joined by "~" (BMCRPC3.m:155-174);
+    # Referral#purposes splits it with RcisWire.records (#877).
     DataMapper.define(:bmc_purpose_of_referral_list) do |m|
       m.rpc "BMC GET PURPOSE OF REF API"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :code
+      m.text_blob :purposes
     end
 
     # BMC GET RCIS TEMPLATE DETAIL — template detail text/lines.
@@ -294,22 +293,19 @@ module RpmsRpc
       m.text_blob :detail
     end
 
-    # BMC GET RCIS TEMPLATE LIST — RCIS template lookup.
-    # Common shape: IEN^NAME^TYPE.
+    # BMC GET RCIS TEMPLATE LIST — GTTMPLST^BMCRPC3: "~`IEN^NAME~IEN^NAME..."
+    # in one scalar (BMCRPC3.m:10-19); Referral#rcis_templates splits it (#877).
     DataMapper.define(:bmc_rcis_template_list) do |m|
       m.rpc "BMC GET RCIS TEMPLATE LIST"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :type
+      m.text_blob :templates
     end
 
-    # BMC GET REFERENCE DATA — RCIS reference-data lookup.
-    # Common shape: IEN^NAME^CODE.
+    # BMC GET REFERENCE DATA — GETREFDT^BMCRPC1 via GTREFDT^BMCRPC5: five
+    # nodes, each "~`" and then records joined by "~" (BMCRPC5.m:211-259);
+    # Referral#reference_data names the sections (#877).
     DataMapper.define(:bmc_reference_data) do |m|
       m.rpc "BMC GET REFERENCE DATA"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :code
+      m.text_blob :reference_data
     end
 
     # BMC GET USERS/PROVIDERS — PROV^BMCRPC4(.Y,ISPROV): one node,
@@ -372,13 +368,12 @@ module RpmsRpc
       m.scalar :result
     end
 
-    # BMC SEARCH REFERRED TO — referred-to facility/provider lookup.
-    # Common shape: IEN^NAME^TYPE.
+    # BMC SEARCH REFERRED TO — SRRFRDTO^BMCRPC1(RSLT,SRHSTRNG,REFTYPE): one
+    # "~`" record per node, its pieces set by the referral type
+    # (BMCRPC1.m:154-221); Referral#search_referred_to names them (#877).
     DataMapper.define(:bmc_search_referred_to) do |m|
       m.rpc "BMC SEARCH REFERRED TO"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :type
+      m.text_blob :referred_to
     end
 
     # BMC UPDATE REFERRAL — updates an existing CHS/RCIS referral.

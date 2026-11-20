@@ -53,8 +53,14 @@ CAPTURE = {
     "add" => { about: "add: a referral for demo patient 990003 with every required field",
                run: run { Referral.add(*add_params("11/03/2026", "990003", FULL)) } },
     "add_missing" => { about: "add: only the date and patient", run: run { Referral.add(*add_params("11/03/2026", "990003")) } },
-    "add_short" => { about: "add: the patient and one more argument, as referral_test.rb's table calls it",
-                     run: run { Referral.add("990002", "44") } },
+    # Referral.add refuses this frame before sending it (#877), so it goes out
+    # raw, under BMCRPC as add binds, to keep the build's answer to it.
+    "add_short" => { about: "add: the patient and one more argument, a frame Referral.add now refuses, sent raw",
+                     run: run {
+                       RpmsRpc::ContextScope.scoped(RpmsRpc.client, Referral::CONTEXT) do
+                         RpmsRpc.client.call_rpc("BMC ADD REFERRAL", "990002", "44")
+                       end
+                     } },
     "update" => { about: "update referral 1 with one argument", run: run { Referral.update("1", "44") } },
     "update_status" => { about: "update_status of referral 1 to A1", run: run { Referral.update_status("1", "A1") } },
     "update_status_missing" => { about: "update_status of IEN 999999, which no referral has",
