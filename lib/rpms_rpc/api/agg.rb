@@ -689,7 +689,7 @@ module RpmsRpc
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise
     # when AGGRPC is already bound, so nesting these is free). A client that
-    # cannot scope contexts — a MockClient, any non-broker double — runs the
+    # cannot scope contexts (a stand-in that is not a broker client) runs the
     # block as-is.
     def in_context(client, &block)
       return block.call unless client.respond_to?(:with_context)
@@ -713,9 +713,9 @@ module RpmsRpc
       Array(lines).first.to_s.strip.to_i.positive?
     end
 
-    # Route through the GLOBAL ARRAY read when the client supports it (live
-    # CiaClient); fall back to plain call_rpc for a MockClient / non-CIA
-    # client that returns the seeded reply directly.
+    # Route through the GLOBAL ARRAY read when the client supports it
+    # (CiaClient); fall back to plain call_rpc for XwbClient and BmxClient,
+    # which return the reply directly.
     def call_array(client, rpc_name, *params)
       if client.respond_to?(:call_rpc_global_array)
         client.call_rpc_global_array(rpc_name, *params)

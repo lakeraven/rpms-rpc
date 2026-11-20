@@ -1345,9 +1345,7 @@ module RpmsRpc
     # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
     # routine entry points in FOIA-RPMS.
     #
-    # NOTE: these are exercised via MockClient because no live-dispatch proof
-    # exists for this RPC set yet (rpms-rpc#224) — NOT because the backend is
-    # blocked. openrpms#366 (the YDB releases lacking the #8994 registry) closed
+    # openrpms#366 (the YDB releases lacking the #8994 registry) closed
     # 2026-08-23: ^XWB is force-included in the export and its absence fails the
     # build.
 
@@ -1498,7 +1496,6 @@ module RpmsRpc
     # ARRAY of typed records, not caret-per-field), so these mappings carry
     # only the RPC name — RpmsRpc::Agg does the encode/parse and
     # CiaClient#call_rpc_global_array reads the reply to its $C(31) sentinel.
-    # The text_blob attribute lets MockClient.seed the raw reply verbatim.
     # Names/registration confirmed in the observed #8994 registry
     # (openrpms/data/observed/broker_8994.txt, per #203/#209).
 

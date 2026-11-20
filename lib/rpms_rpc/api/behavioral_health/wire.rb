@@ -61,8 +61,8 @@ module RpmsRpc
       # remains the correct read: it frames on the $C(31) sentinel rather
       # than relying on the terminator not colliding with the payload.
       # Route through it whenever the client offers it, and fall back to
-      # #call_rpc for MockClient and non-CIA clients that hand back the seeded
-      # reply whole. Same pattern as RpmsRpc::Agg#call_array (agg.rb:155).
+      # #call_rpc for the non-CIA clients (XwbClient, BmxClient), which hand
+      # back the reply whole. Same pattern as RpmsRpc::Agg#call_array.
       # A few entries take NO actual at all — CLN^AMHGTVF is CLN(RETVAL) with
       # no AMHSTR formal, so even an empty string is an extra actual and
       # YottaDB raises ACTLSTTOOLONG. Pass no pieces for those.

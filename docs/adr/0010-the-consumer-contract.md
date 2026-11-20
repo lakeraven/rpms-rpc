@@ -65,9 +65,12 @@ These are the consequences for any host, stated as the shape the gem is designed
 
 ### The in-memory fake
 
-`MockClient` / `RpmsRpc.mock!` is a fake of RPMS shipped as part of the gem.
-It is deprecated as a host test double: under host rule 3 a host fakes its own port, not RPMS.
-It is removed in a later release, once no host depends on it, and is not extended in the meantime.
+**Removed** (2026-11-20, [rpms-rpc#624](https://github.com/lakeraven/rpms-rpc/issues/624), which closes [rpms-rpc#362](https://github.com/lakeraven/rpms-rpc/issues/362)).
+`MockClient`, `MockFhirClient`, `RpmsRpc.mock!` and `RpmsRpc.mock_fhir!` were a fake of RPMS shipped as part of the gem.
+They were first deprecated as a host test double, then deleted, with the `DataMapper` formatting that seeded them, once the gem's own tests stopped using them.
+Under host rule 3 a host fakes its own port, not RPMS, and covers RPMS behaviour against a container of the pinned build.
+The gem's own tests replay replies recorded from that container, through the real broker clients.
+A host that still used the fake carries its own double of its adapter layer; no migration path is provided ([lakeraven-ehr#1207](https://github.com/lakeraven/lakeraven-ehr/issues/1207) tracks lakeraven-ehr's).
 
 ## Consequences
 

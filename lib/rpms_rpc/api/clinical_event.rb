@@ -316,14 +316,12 @@ module RpmsRpc
     end
 
     # Same question Compatibility asks the broker. A client that cannot
-    # answer (MockClient, or Client#served_rpcs) is not a miss: the RPC
-    # call still runs, and a server that does not serve it raises on that
-    # call. A client that answers and omits the name makes no call.
+    # answer (Client#served_rpcs raises for a broker without the question)
+    # is not a miss: the RPC call still runs, and a server that does not
+    # serve it raises on that call. A client that answers and omits the
+    # name makes no call.
     def rpc_served?(mapping)
-      client = RpmsRpc.client
-      return true unless client.respond_to?(:served_rpcs)
-
-      client.served_rpcs([ mapping.rpc_name ]).include?(mapping.rpc_name)
+      RpmsRpc.client.served_rpcs([ mapping.rpc_name ]).include?(mapping.rpc_name)
     rescue Error
       true
     end

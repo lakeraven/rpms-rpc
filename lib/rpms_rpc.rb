@@ -2,7 +2,7 @@
 
 # The gem's entry point: `require "rpms_rpc"` loads the public API.
 #
-# - core: configuration (`configure`, `client`, `mock!`, `reset!`), the wire
+# - core: configuration (`configure`, `client`, `with_client`, `reset!`), the wire
 #   lock and error sanitizing. It lives in its own file because a single
 #   broker client (`require "rpms_rpc/cia_client"`) needs it without the rest.
 # - the reference tables: security keys, the retry-safety classification
@@ -11,7 +11,7 @@
 # - the response mappings, and every symbolic API module under rpms_rpc/api/.
 #
 # Broker clients are not loaded here: pick one with RpmsRpc::BrokerFactory or
-# require it directly. MockClient loads on `RpmsRpc.mock!`.
+# require it directly.
 require_relative "rpms_rpc/version"
 require_relative "rpms_rpc/core"
 require_relative "rpms_rpc/compatibility"

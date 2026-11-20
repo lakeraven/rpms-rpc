@@ -19,8 +19,8 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 # RPCs the least-privilege run did not cover (PROGRAMMER_CLASSES), so a permission or context gap is
 # told apart from an RPC that is broken for everyone.
 #
-# Mock-driven unit tests do not count: MockClient answers any name it is seeded with, including
-# names no RPMS registers (#207, #255). Coverage here means "a real server answered".
+# Unit tests do not count, captured replies included: coverage here means "a real server answered"
+# in a live run.
 #
 # Lives under tools/ so it never ships in the gem (spec.files lists bin, data allowlists, lib, docs).
 module RpcCoverage
@@ -268,7 +268,7 @@ module RpcCoverage
       end
     end
     Dir[File.join(root, "lib/**/*.rb")].each do |f|
-      next if f.include?("/mappings/") || f.end_with?("/mock_client.rb")
+      next if f.include?("/mappings/")
 
       File.readlines(f).each_with_index do |l, i|
         code = l.sub(/\s#.*$/, "")

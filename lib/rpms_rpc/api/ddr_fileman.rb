@@ -407,9 +407,9 @@ module RpmsRpc
     end
 
     # Normalize a broker reply to an array of lines, the split #lister
-    # uses. Public for the same reason as #parse_lister_reply. MockClient
-    # returns an Array (or a single-line String); a live broker returns a
-    # CR+LF-joined stream. nil/empty → nil (no response at all).
+    # uses. Public for the same reason as #parse_lister_reply. A broker
+    # client returns an Array of lines, or a CR+LF-joined String stream;
+    # both become lines. nil/empty → nil (no response at all).
     def lines(response)
       return nil if response.nil?
 

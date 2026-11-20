@@ -30,9 +30,9 @@ class FhirClientDeprecationTest < Minitest::Test
   end
 
   def test_fhir_client_warns_once_per_call_and_still_answers
-    mock = RpmsRpc.mock_fhir!
+    configured = configure_fhir_client
     client, err = capture_io_and_value { RpmsRpc.fhir_client }
-    assert_same mock, client
+    assert_same configured, client
     assert_equal 1, err.scan("DEPRECATED").size
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc\.fhir_client /, err)
     assert_includes err, "#360"
@@ -57,13 +57,20 @@ class FhirClientDeprecationTest < Minitest::Test
   end
 
   def test_fhir_client_warning_points_at_the_callers_line
-    RpmsRpc.mock_fhir!
+    configure_fhir_client
     line = __LINE__ + 1
     _, err = capture_io { RpmsRpc.fhir_client }
     assert_match(/\A#{Regexp.escape(__FILE__)}:#{line}: warning: /, err)
   end
 
   private
+
+  # Any object stands for the host's FHIR client: the accessor hands back what was configured.
+  def configure_fhir_client
+    configured = Object.new
+    RpmsRpc.configure { |c| c.fhir_client = configured }
+    configured
+  end
 
   def capture_io_and_value
     value = nil

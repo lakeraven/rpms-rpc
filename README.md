@@ -30,7 +30,6 @@ This gem owns the RPMS integration boundary:
 - FileMan date conversions
 - HIPAA-aligned PHI sanitizer for log lines
 - **DataMapper** — declarative RPC-to-Ruby field mappings
-- **MockClient** — hermetic test double with seeded data (field, text_blob, scalar, collection)
 - **SecurityKeys** — symbolic names for the SECURITY KEYs a built image has; which keys a user holds is `Authentication.held_keys`, and what they allow is the host's decision (ADR 0010)
 
 What it does **not** include: ActiveRecord models, FHIR clients,
@@ -88,7 +87,7 @@ What the gate holds each release to is the contract in `lib/rpms_rpc/required_rp
 require "rpms_rpc"
 ```
 
-loads the public API: configuration (`RpmsRpc.configure`, `client`, `mock!`,
+loads the public API: configuration (`RpmsRpc.configure`, `client`, `with_client`,
 `reset!`), the response mappings, the security-key, role and capability tables,
 and every `RpmsRpc::<Api>` module under `lib/rpms_rpc/api/`. It does not open a
 socket or pick a broker. A script that needs only one broker client can require
@@ -233,8 +232,6 @@ BROKER_HOST=127.0.0.1 BROKER_PORT=9100 bundle exec rake wire:capture RELEASE=bce
 | `RpmsRpc::FilemanDateParser`  | FileMan ↔ Ruby Date/Time conversion              |
 | `RpmsRpc::PhiSanitizer`       | HIPAA-aligned log/error sanitizer                |
 | `RpmsRpc::DataMapper`          | Declarative RPC field/text_blob/scalar mappings  |
-| `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
-| `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
 
 ### Request size limits (#472)
@@ -364,7 +361,7 @@ Leave this off in production.
 
 ### Reply encoding
 
-Every reply `call_rpc` returns, on XWB, BMX, CIA and `MockClient`, is an
+Every reply `call_rpc` returns, on XWB, BMX and CIA, is an
 `RpmsRpc::Reply`: an `Array` of **UTF-8, `valid_encoding?`** Strings, so
 `first`, `map`, `join` and indexing work as before and joining a line with a
 UTF-8 literal no longer raises `Encoding::CompatibilityError`.
@@ -401,8 +398,8 @@ altered line.
   reply) carries `altered: true` only when it was altered, and has no `altered`
   key otherwise. A missing key there means "not altered", never "clean": the
   entry is unrecognised, and the reply is a conflict, whatever the key says.
-- A reply that arrives as one blob (a CIA `call_rpc_global_array` read, a bare
-  String seed in `MockClient`) is an `RpmsRpc::Reply::Text`: a valid-UTF-8
+- A reply that arrives as one blob (a CIA `call_rpc_global_array` read) is an
+  `RpmsRpc::Reply::Text`: a valid-UTF-8
   **String** that answers `altered?`. `RpmsRpc::Reply.altered?(x)` is the safe
   check for either kind.
 - A `Reply` and its lines are **frozen** and a `Reply` is built only through
@@ -458,7 +455,7 @@ rake rpc:coverage
   pinned registry and reach face, and treat a name registered nowhere (no `#8994` row on any captured
   build) as the only sign of an invented RPC. Every invented name found so far was client-side.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
-  Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
+  Unit tests do not count, captured replies included: only a live run shows that a server answered.
 - **Output:** the one-liner and per-status counts on stdout.
   `coverage/rpc/rpcs.tsv` has every registered RPC, one row each, with its status
   (`covered`, `live_error`, `declared_untested`, `not_declared`, `excluded:<reason>`).
@@ -723,7 +720,13 @@ bundle install
 bundle exec rake test
 ```
 
-The test suite is hermetic — no sockets, no live RPMS.
+The test suite is hermetic: no sockets and no running RPMS.
+Where a test needs what RPMS answers, it replays replies recorded from a throwaway container of the pinned build.
+Those replies live in `test/fixtures/captured_replies/`, one YAML file per RPC, each sealed by its SHA-256.
+`tools/capture_replies.rb` records them from a spec in `tools/captured_replies/`; never edit one by hand, record it again.
+The test reads them through the real `CiaClient` or `BmxClient` (`test/rpms_rpc/captured_replies.rb`), so a recorded reply is parsed exactly as a live one is.
+The gem ships no fake of RPMS (ADR 0010): a host tests its own logic against a double of its own adapter, and its RPMS behaviour against a container of the pinned build.
+Proof that each public method works on that build comes from the live specs below, run against that container.
 
 ### Test results, quickly
 
@@ -796,11 +799,8 @@ What each persona is refused outside its role is itself proven: `test/live/least
 When a release changes a persona's menus, that spec fails and its table moves with the build.
 
 - **Wire-format tests** construct packet bytes and assert their layout
-- **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
-- **MockClient tests** verify seeded data flows through the full fetch chain
-- **Gateway tests** (`test/rpms_rpc/gateways/`) exercise domain-specific RPC
-  patterns (patient sections, health summary, referral lifecycle) against
-  realistic mock data
+- **Captured-reply tests** replay what the pinned build sent through the real broker client and assert what a host receives
+- **Live specs** (`test/live/`) call each public method on a container of the pinned build, as the persona whose role it proves
 
 ### Releasing
 
@@ -817,33 +817,6 @@ A run during which a shipped file or the live suite changes is not recorded.
 A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
 
 The policy on top of that: a CIA summary is required (`<persona>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the pinned build (`build_source` is `pinned`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
-
-### MockClient usage
-
-```ruby
-require "rpms_rpc"
-
-RpmsRpc.mock! do |m|
-  # Field-based mapping (caret-delimited)
-  m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })
-
-  # Text blob mapping (raw text)
-  m.seed(:section_data, "1", "NAME: DOE,JOHN\nSEX: M\nDOB: 01/15/1980")
-
-  # Scalar mapping (single value)
-  m.seed(:section_save, "1", { success: true })
-
-  # Collection (search results with filtering)
-  m.seed_collection(:patient_list, [{ dfn: 1, name: "DOE,JOHN" }], filter_field: :name)
-end
-
-# Fetch through DataMapper — same API as production
-patient = RpmsRpc::DataMapper.patient_select.fetch_one("1")
-text = RpmsRpc::DataMapper.section_data.fetch_text("1")
-```
-
-`seed()` auto-detects the mapping type (field, text_blob, scalar) and
-stores data in the format that `fetch_*` expects.
 
 ## Contributing
 
