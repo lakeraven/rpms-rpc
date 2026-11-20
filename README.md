@@ -380,10 +380,10 @@ RpmsRpc::Reply.altered?(x)  # false for anything that is not an altered Reply
 
 **Charset: the wire carries stored bytes untranscoded** (rpms-rpc#476). A stored
 `0xB7` bullet (`#8994` XWB CREATE CONTEXT's description) arrives as that one byte
-over CIA and over BMX on YottaDB, not as the UTF-8 pair `C2 B7`; the captures are in
-`test/fixtures/wire_charset/`. One byte cannot tell Latin-1 from Windows-1252, so the
-gem declares no site charset: a reply is read as UTF-8, and a byte that is not is
-replaced and reported as altered. XWB on IRIS has not been read this way yet.
+over CIA and over BMX on YottaDB, and over XWB on IRIS (rpms-rpc#659), not as the
+UTF-8 pair `C2 B7`; the captures are in `test/fixtures/wire_charset/`. One byte cannot
+tell Latin-1 from Windows-1252, so the gem declares no site charset: a reply is read
+as UTF-8, and a byte that is not is replaced and reported as altered.
 
 Altered text must never read as verified identity: a host that matches on reply
 text (an allergen name, a patient name) must check `altered?` and refuse an
