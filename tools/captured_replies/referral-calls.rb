@@ -29,6 +29,10 @@ end
 
 FULL = { 2 => "N", 3 => "O", 6 => "CARDIOLOGY CONSULT", 7 => "20", 9 => "1", 33 => "183555005", 34 => "Burns referral" }.freeze
 
+UPDATE = { purpose: "FOLLOW-UP CARDIOLOGY", visit_number: "2", scheduling_notes: "Call before booking",
+           include_face_sheet: true, schedule_within_days: "30", expected_begin: Time.new(2026, 12, 1, 10, 30) }.freeze
+REVIEW = { status: "R", reviewed_by: "206", reviewed_at: Time.new(2026, 11, 19, 10, 30) }.freeze
+
 def run(&block) = -> { block.call rescue warn("#{$!.class}: #{$!.message[0, 120]}") }
 
 CAPTURE = {
@@ -61,14 +65,19 @@ CAPTURE = {
                          RpmsRpc.client.call_rpc("BMC ADD REFERRAL", "990002", "44")
                        end
                      } },
-    "update" => { about: "update referral 1 with one argument", run: run { Referral.update("1", "44") } },
+    "update" => { about: "update referral 1: purpose, visits, scheduler notes, the face sheet flag and an expected begin",
+                  run: run { Referral.update("1", **UPDATE) } },
+    "find_updated" => { about: "find referral 1 after update", run: run { Referral.find("1") } },
     "update_status" => { about: "update_status of referral 1 to A1", run: run { Referral.update_status("1", "A1") } },
     "update_status_missing" => { about: "update_status of IEN 999999, which no referral has",
                                  run: run { Referral.update_status("999999", "A1") } },
     "cancel" => { about: "cancel referral 2", run: run { Referral.cancel("2") } },
     "cancel_missing" => { about: "cancel IEN 999999, which no referral has", run: run { Referral.cancel("999999") } },
-    "update_consultation_status" => { about: "update_consultation_status of 7 to COMPLETE",
-                                      run: run { Referral.update_consultation_status("7", "COMPLETE") } },
+    "update_consultation_status" => { about: "update_consultation_status of referral 1 to R (REVIEWED) by 206 at 11/19/2026 10:30",
+                                      run: run { Referral.update_consultation_status("1", **REVIEW) } },
+    "find_reviewed" => { about: "find referral 1 after update_consultation_status", run: run { Referral.find("1") } },
+    "update_consultation_status_again" => { about: "update_consultation_status of referral 1 to R again",
+                                            run: run { Referral.update_consultation_status("1", **REVIEW) } },
     "purposes" => { about: "purposes", run: run { Referral.purposes } },
     "reference_data" => { about: "reference_data", run: run { Referral.reference_data } },
     "users_providers" => { about: "users_providers", run: run { Referral.users_providers } },
@@ -82,7 +91,9 @@ CAPTURE = {
                                   run: run { Referral.patient_health_summary("990001", "7") } },
     "health_summary_types" => { about: "health_summary_types", run: run { Referral.health_summary_types } },
     "check_year_site_param" => { about: "check_year_site_param", run: run { Referral.check_year_site_param } },
-    "add_c32_print_log" => { about: "add_c32_print_log for referral 1 by 206, a date with no time",
-                             run: run { Referral.add_c32_print_log("1", "206", "11/01/2026") } }
+    "add_c32_print_log" => { about: "add_c32_print_log for referral 1 by 206, printed 11/19/2026 10:30",
+                             run: run { Referral.add_c32_print_log("1", user_ien: "206", printed_at: Time.new(2026, 11, 19, 10, 30)) } },
+    "add_c32_print_log_now" => { about: "add_c32_print_log for referral 1 with no user and no time",
+                                 run: run { Referral.add_c32_print_log("1") } }
   }
 }.freeze
