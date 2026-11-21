@@ -157,8 +157,82 @@ module RpmsRpc
     end
     shape :add, resource: "referrals", verb: "POST", path: "/referrals"
 
-    def update(ien, *params)
-      bmc_scalar_result(:bmc_update_referral, ien, *params)
+    # UPDREFRL^BMCRPC2's formals after RSLT, REFIEN through DUPREF
+    # (BMCRPC2.m:168-174; on IRIS they are the routine's own 35 formals).
+    UPDATE_PARAMETERS = 35
+
+    # The fields update takes, by the 1-based position of their formal in
+    # UPDREFRL. Each name is the one find reads the same field back as,
+    # where it reads it.
+    UPDATE_FIELDS = {
+      type: 2,                          # TYPE, .04: C, I, O or N
+      visit_type: 3,                    # INOROUT, .14: I or O
+      icd_category_ien: 4,              # ICDCAT, .12
+      cpt_category_ien: 5,              # CPTCAT, .13
+      purpose: 6,                       # PURPOSE, 1201
+      priority_ien: 7,                  # PRIORITY, .32 (RCIS MEDICAL PRIORITIES)
+      referred_to_ien: 8,               # TYPEEXT: .07, .08 or .23 by type
+      visit_number: 9,                  # VISITS, 1111
+      scheduling_notes: 10,             # NOTESCHD, 1301
+      medical_history: 11,              # HXCMNTS, "~" between lines
+      include_consultation_report: 13,  # ICSRP, 411
+      include_face_sheet: 14,           # IFSHT, 405
+      include_health_summary: 15,       # IHLSM, 406
+      include_history_and_physical: 16, # IHSPH, 408
+      include_ekg: 17,                  # IEKG, 407
+      include_lab_report: 18,           # ILBRP, 412
+      include_pcc_visit_form: 19,       # IPCC, 401
+      include_prenatal_record: 20,      # IPRNL, 403
+      include_tubal_consent: 21,        # ITUBL, 404
+      include_clinic_notes: 22,         # ICLNT, 402
+      include_xray_report: 23,          # IXRYR, 409
+      include_xray_film: 24,            # IXRYF, 410
+      business_office_notes: 25,        # BCMNTS
+      other_type_ien: 26,               # OTHRTYP, .09
+      snomed_ct: 27,                    # SNMDCT, to the V REFERRAL
+      problem_ien: 28,                  # PROB, to the V REFERRAL
+      snomed_code: 29,                  # SNMDST, the 2200 multiple
+      case_notes: 30,                   # CN
+      provider_ien: 34                  # RQPR, .06
+    }.freeze
+
+    # The SCHED WI DAY formal (12): "DAYS^MM/DD/YYYY@HH:MM", the second piece
+    # the expected begin date of service (1106).
+    SCHEDULE_PARAMETER = 12
+
+    # The twelve INCLUDE flags, Y or N.
+    INCLUDE_FIELDS = UPDATE_FIELDS.keys.select { |name| name.start_with?("include_") }.freeze
+
+    # Save a referral through BMC UPDATE REFERRAL (UPDREFRL^BMCRPC2), the
+    # whole-form save of the RCIS referral screen. It sends all
+    # UPDATE_PARAMETERS of the routine's parameters, "" for a field not
+    # given (#877).
+    #
+    # A field not given is left as it is, except for these, which the
+    # routine files whatever it is sent:
+    # - each INCLUDE flag (include_*): true files Y, false files N, and one
+    #   not given is cleared ("YN"[""] is true in M);
+    # - the expected begin date (1106): filed from expected_begin, a Time,
+    #   and deleted when it is not given;
+    # - ADDITIONAL INFO (.34), set from the flags, and DATE LAST UPDATED (.27).
+    #
+    # A CLOSED referral (C1 or X) takes only its notes (medical_history,
+    # business_office_notes, case_notes). The routine's RCIS diagnosis
+    # parameters (31-33, EDITRD^BMCRPC5) are always sent empty, since no
+    # capture proves them yet, and so is DUPREF (35), which UPDREFRL does
+    # not read.
+    #
+    # Returns { success:, message:, raw: }: "~`1" when filed, "~`0^message"
+    # when refused. An unknown field, or a flag that is not true or false,
+    # raises ArgumentError before anything is sent.
+    def update(ien, expected_begin: nil, schedule_within_days: nil, **fields)
+      unknown = fields.keys - UPDATE_FIELDS.keys
+      raise ArgumentError, "Referral.update: unknown field(s) #{unknown.join(', ')}" unless unknown.empty?
+
+      params = [ ien.to_s ] + ([ "" ] * (UPDATE_PARAMETERS - 1))
+      fields.each { |name, value| params[UPDATE_FIELDS.fetch(name) - 1] = update_value(name, value) }
+      params[SCHEDULE_PARAMETER - 1] = schedule(schedule_within_days, expected_begin)
+      bmc_scalar_result(:bmc_update_referral, *params)
     end
     shape :update, resource: "referrals", verb: "PUT", path: "/referrals/{ien}"
 
@@ -194,10 +268,30 @@ module RpmsRpc
     end
     shape :cancel, resource: "referrals", verb: "POST", path: "/referrals/{ien}/cancel"
 
-    def update_consultation_status(consultation_ien, status, *params)
-      bmc_scalar_result(:bmc_consultation_status_update, consultation_ien.to_s, status.to_s, *params)
+    # CONSULTATION STATUS (1306) codes.
+    CONSULTATION_STATUSES = { "P" => "PENDING", "R" => "REVIEWED" }.freeze
+
+    # File who reviewed a referral's consultation, when, and its status
+    # (CONSULTATION_STATUSES), through BMC CONSULTATION STATUS UPDATE:
+    # UPCNRINF^BMCRPC3(RSLT,REFIEN,CONSULTBY,CONSULTDT,CONSULTSTATUS), which
+    # files 1308, 1307 and 1306 of the referral (BMCRPC3.m:190-217).
+    # reviewed_by is a NEW PERSON (#200) IEN; reviewed_at is a Time, sent as
+    # MM/DD/YYYY@HH:MM because the routine requires a time (DT^DILF "RT").
+    #
+    # Returns { success:, message:, raw: }. A referral already reviewed with
+    # that status is not filed again: the routine answers success with a
+    # message naming who reviewed it and when. A status that is not a code,
+    # or a reviewed_at that is not a Time, raises ArgumentError before
+    # anything is sent (#877).
+    def update_consultation_status(referral_ien, status:, reviewed_by:, reviewed_at:)
+      raise ArgumentError, "status must be one of #{CONSULTATION_STATUSES.keys.join(', ')}; got #{status.inspect}" unless CONSULTATION_STATUSES.key?(status.to_s)
+
+      result = bmc_scalar_result(:bmc_consultation_status_update, referral_ien.to_s, reviewed_by.to_s,
+                                 fileman_time(reviewed_at, "%m/%d/%Y@%H:%M"), status.to_s)
+      # "~`1^<patient> has already been reviewed by ..." is a message, not an IEN.
+      result[:success] && result[:ien] ? result.merge(ien: nil, message: result[:ien]) : result
     end
-    shape :update_consultation_status, resource: "referrals", verb: "PUT", path: "/referrals/consultations/{consultation_ien}/status"
+    shape :update_consultation_status, resource: "referrals", verb: "PUT", path: "/referrals/{referral_ien}/consultation-status"
 
     # The referral purposes, sorted by term: GTREFTYP^BMCRPC3 lists the EHR
     # REFERRAL TYPE subset as CONCEPT^DESCRIPTION^TERM records in one node
@@ -314,7 +408,20 @@ module RpmsRpc
       bmc_scalar_result(:bmc_check_year_site_param, *params)
     end
 
-    def add_c32_print_log(*params)
+    # Log a C32 print of a referral in its C32 PRINTED (#90001.6) multiple
+    # through BMC ADD C32 PRINT LOG: ADDC32LG^BMCRPC3(RSLT,REFIEN,USERIEN,
+    # RRINTDT) (BMCRPC3.m:58-71). user_ien defaults on the server to the
+    # signed-on user (DUZ). printed_at is a Time, sent as MM/DD/YYYY@HHMM;
+    # when it is not given the parameter is left off and the routine logs
+    # the print as now (an empty date is refused: BMCRPC3.m:64). A time in
+    # the future is logged as now too.
+    #
+    # Returns { success:, ien:, message:, raw: }; :ien is the new entry in
+    # the multiple (#877).
+    def add_c32_print_log(referral_ien, user_ien: nil, printed_at: nil)
+      params = [ referral_ien.to_s, user_ien.to_s ]
+      params << fileman_time(printed_at, "%m/%d/%Y@%H%M") if printed_at
+      params.pop while params.size > 1 && params.last.empty?
       bmc_scalar_result(:bmc_add_c32_print_log, *params)
     end
     shape :add_c32_print_log, resource: "referrals", verb: "POST", path: "/referrals/c32-print-log"
@@ -342,6 +449,29 @@ module RpmsRpc
     end
 
     private
+
+    # An update field as UPDREFRL takes it: an INCLUDE flag as Y or N.
+    def update_value(name, value)
+      return value.to_s unless INCLUDE_FIELDS.include?(name)
+      return "" if value.nil?
+      return value ? "Y" : "N" if [ true, false ].include?(value)
+
+      raise ArgumentError, "Referral.update: #{name} is true or false; got #{value.inspect}"
+    end
+
+    # SCHED WI DAY: the days, then the expected begin date with its time.
+    def schedule(days, expected_begin)
+      return days.to_s if expected_begin.nil?
+
+      "#{days}^#{fileman_time(expected_begin, '%m/%d/%Y@%H:%M')}"
+    end
+
+    # A Time in the external form a BMC routine parses with DT^DILF.
+    def fileman_time(value, format)
+      raise ArgumentError, "expected a Time; got #{value.inspect}" unless value.is_a?(Time) || value.is_a?(DateTime)
+
+      value.strftime(format)
+    end
 
     def failure
       { success: false, ien: nil, raw: nil }

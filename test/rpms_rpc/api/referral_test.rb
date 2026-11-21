@@ -172,6 +172,117 @@ def test_rcis_templates_splits_the_template_records
   assert_equal CapturedReplies.flow_calls(SLUG, "rcis_templates"), sent
 end
 
+# UPDREFRL^BMCRPC2 takes 35 formals; update sends every one, "" for a field
+# not given, and the build answers "~`1" (BMCRPC2.m:271). The flow after it
+# reads referral 1 back: each named field is filed where find reads it.
+UPDATE = { purpose: "FOLLOW-UP CARDIOLOGY", visit_number: "2", scheduling_notes: "Call before booking",
+           include_face_sheet: true, schedule_within_days: "30", expected_begin: Time.new(2026, 12, 1, 10, 30) }.freeze
+
+def test_update_sends_updrefrls_35_parameters_with_the_named_fields_in_place
+  replay("update")
+
+  result = RpmsRpc::Referral.update("1", **UPDATE)
+
+  assert result[:success]
+  assert_equal CapturedReplies.flow_calls(SLUG, "update"), sent
+  params = sent.first.last
+  assert_equal 35, params.size
+  assert_equal [ "1", "FOLLOW-UP CARDIOLOGY", "2", "Call before booking", "30^12/01/2026@10:30", "Y" ],
+               params.values_at(0, 5, 8, 9, 11, 13)
+end
+
+def test_find_after_update_reads_the_filed_fields_back
+  replay("find_updated")
+
+  record = RpmsRpc::Referral.find("1")
+
+  assert_equal "FOLLOW-UP CARDIOLOGY", record[:purpose]
+  assert_equal "2", record[:visit_number]
+  assert_equal "Call before booking", record[:scheduling_notes]
+  assert_equal "30", record[:schedule_within_days]
+  assert_equal "12/1/26 10:30 am", record[:appointment_date], "expected begin of service, 1106"
+  assert_equal "YES", record[:include_face_sheet]
+  assert_equal "", record[:include_ekg].to_s, "a flag not given is cleared"
+end
+
+def test_update_refuses_an_unknown_field_before_sending
+  err = assert_raises(ArgumentError) { RpmsRpc::Referral.update("1", diagnosis_code: "R69.") }
+
+  assert_match(/unknown field\(s\) diagnosis_code/, err.message)
+  assert_empty @client.calls
+end
+
+def test_update_refuses_a_flag_that_is_not_true_or_false
+  assert_raises(ArgumentError) { RpmsRpc::Referral.update("1", include_ekg: "Y") }
+  assert_raises(ArgumentError) { RpmsRpc::Referral.update("1", expected_begin: Date.new(2026, 12, 1)) }
+  assert_empty @client.calls
+end
+
+# UPCNRINF^BMCRPC3(RSLT,REFIEN,CONSULTBY,CONSULTDT,CONSULTSTATUS) files
+# 1308, 1307 and 1306 and answers "~`1^" (BMCRPC3.m:210-216).
+REVIEW = { status: "R", reviewed_by: "206", reviewed_at: Time.new(2026, 11, 19, 10, 30) }.freeze
+
+def test_update_consultation_status_files_the_reviewer_time_and_status
+  replay("update_consultation_status")
+
+  result = RpmsRpc::Referral.update_consultation_status("1", **REVIEW)
+
+  assert result[:success]
+  assert_nil result[:message]
+  assert_equal [ [ "BMC CONSULTATION STATUS UPDATE", [ "1", "206", "11/19/2026@10:30", "R" ] ] ], sent
+end
+
+def test_find_after_update_consultation_status_reads_the_review_back
+  replay("find_reviewed")
+
+  record = RpmsRpc::Referral.find("1")
+
+  assert_equal "REVIEWED", record[:consultation_status]
+  assert_equal "NOV 19, 2026@10:30", record[:consultation_date]
+  assert_equal "PROFILE,MD", record[:consulted_by]
+end
+
+# The same status again is not filed: "~`1^<patient> has already been
+# reviewed by ..." (BMCRPC3.m:202-206), a message and not an IEN.
+def test_update_consultation_status_already_reviewed_is_a_message
+  replay("update_consultation_status_again")
+
+  result = RpmsRpc::Referral.update_consultation_status("1", **REVIEW)
+
+  assert result[:success]
+  assert_nil result[:ien]
+  assert_equal "BRAVO,ALEX has already been reviewed by PROFILE,MD on NOV 19, 2026@10:30.", result[:message]
+end
+
+def test_update_consultation_status_refuses_a_status_that_is_not_a_code
+  assert_raises(ArgumentError) { RpmsRpc::Referral.update_consultation_status("1", **REVIEW, status: "COMPLETE") }
+  assert_raises(ArgumentError) { RpmsRpc::Referral.update_consultation_status("1", **REVIEW, reviewed_at: "11/19/2026") }
+  assert_empty @client.calls
+end
+
+# ADDC32LG^BMCRPC3 answers "~`1^" and the new C32 PRINTED entry (BMCRPC3.m:71).
+def test_add_c32_print_log_sends_the_time_the_routine_parses
+  replay("add_c32_print_log")
+
+  result = RpmsRpc::Referral.add_c32_print_log("1", user_ien: "206", printed_at: Time.new(2026, 11, 19, 10, 30))
+
+  assert result[:success]
+  assert_equal "1", result[:ien]
+  assert_equal [ [ "BMC ADD C32 PRINT LOG", [ "1", "206", "11/19/2026@1030" ] ] ], sent
+end
+
+# With no user and no time the routine uses DUZ and now; an empty date would
+# be refused, so the frame is the referral alone.
+def test_add_c32_print_log_without_a_time_leaves_the_parameters_off
+  replay("add_c32_print_log_now")
+
+  result = RpmsRpc::Referral.add_c32_print_log("1")
+
+  assert result[:success]
+  assert_equal "2", result[:ien]
+  assert_equal [ [ "BMC ADD C32 PRINT LOG", [ "1" ] ] ], sent
+end
+
 # UPDTSTRF^BMCRPC3 (BMCRPC3.m:176-187) answers "1" when it files.
 def test_update_referral_status_calls_bmc_status_rpc
   replay("update_status")
@@ -252,18 +363,17 @@ end
 
 # Each public method that reaches the wire, its arguments, and the capture
 # flow that answers it. A flow whose call the build answered with an M error
-# (update with one argument, update_consultation_status) still proves the
-# bind, and that the caller's option is handed back on a raise.
+# still proves the bind, and that the caller's option is handed back on a raise.
 BMC_CALLS = {
   for_patient: [ [ DFN ], "for_patient" ],
   pending: [ [ { from: Date.new(2026, 11, 1), to: Date.new(2026, 11, 30) } ], "pending" ],
   find: [ [ "1" ], "find" ],
   cancel: [ [ "2" ], "cancel" ],
   add: [ CapturedReplies.flow_calls(SLUG, "add").first.last, "add" ],
-  update: [ [ "1", "44" ], "update" ],
+  update: [ [ "1", UPDATE ], "update" ],
   print: [ [ "1" ], "print" ],
   update_status: [ [ "1", "A1" ], "update_status" ],
-  update_consultation_status: [ [ "7", "COMPLETE" ], "update_consultation_status" ],
+  update_consultation_status: [ [ "1", REVIEW ], "update_consultation_status" ],
   purposes: [ [], "purposes" ],
   reference_data: [ [], "reference_data" ],
   users_providers: [ [], "users_providers" ],
@@ -276,7 +386,7 @@ BMC_CALLS = {
   patient_health_summary: [ [ "990001", "7" ], "patient_health_summary" ],
   health_summary_types: [ [], "health_summary_types" ],
   check_year_site_param: [ [], "check_year_site_param" ],
-  add_c32_print_log: [ [ "1", "206", "11/01/2026" ], "add_c32_print_log" ]
+  add_c32_print_log: [ [ "1", { user_ien: "206", printed_at: Time.new(2026, 11, 19, 10, 30) } ], "add_c32_print_log" ]
 }.freeze
 
 def test_the_bind_table_names_every_public_method_that_reaches_the_wire

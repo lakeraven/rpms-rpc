@@ -101,9 +101,9 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Referral.update" => [ :write, [ "BMC UPDATE REFERRAL" ], -> { RpmsRpc::Referral.update("0") } ],
     "Referral.print" => [ :write, [ "BMC PRINT REFERRAL" ], -> { RpmsRpc::Referral.print("0") } ],
     "Referral.update_status" => [ :write, [ "BMC REFERRAL STATUS UPDATE" ], -> { RpmsRpc::Referral.update_status("0", "") } ],
-    "Referral.update_consultation_status" => [ :write, [ "BMC CONSULTATION STATUS UPDATE" ], -> { RpmsRpc::Referral.update_consultation_status("0", "") } ],
+    "Referral.update_consultation_status" => [ :write, [ "BMC CONSULTATION STATUS UPDATE" ], -> { RpmsRpc::Referral.update_consultation_status("0", status: "P", reviewed_by: "0", reviewed_at: Time.now) } ],
     "Referral.check_year_site_param" => [ :write, [ "BMC CHK YEAR SITE PARAM" ], -> { RpmsRpc::Referral.check_year_site_param } ],
-    "Referral.add_c32_print_log" => [ :write, [ "BMC ADD C32 PRINT LOG" ], -> { RpmsRpc::Referral.add_c32_print_log } ]
+    "Referral.add_c32_print_log" => [ :write, [ "BMC ADD C32 PRINT LOG" ], -> { RpmsRpc::Referral.add_c32_print_log("0") } ]
   }.freeze
 
   def test_an_rpc_the_build_does_not_register_raises_not_available
