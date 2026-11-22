@@ -253,12 +253,13 @@ class EncounterSaveTest < Minitest::Test
                   health_factors: [ { ien: HF_IEN }, { ien: 9 } ])
 
     pcc = save_call(client)[:params][0]
-    assert_equal (1..11).to_a, pcc.keys, "the list is numbered 1..n with no gaps"
+    assert_equal (1..12).to_a, pcc.keys, "6 header lines + 2 POV + 2 CPT + 2 HF, numbered 1..n with no gaps"
     assert_equal "POV+^#{ICD}^^^^1^^^#{SNOMED}^#{NARRATIVE}", pcc[7]
     assert_equal "POV+^#{ICD2}^^^^0^^^#{SNOMED2}^SYNTH hypertension", pcc[8], "a non-primary diagnosis is 0 in piece 6 (SET(.12,6,\"1:P;0:S\"))"
     assert_equal "CPT+^#{CPT}^^^^^1", pcc[9]
     assert_equal "CPT+^99213^^^^^2", pcc[10], "quantity rides piece 7 (CPT^BEHOENPC: SET(.16,7))"
-    assert_equal "HF+^9^^^^#{DUZ}", pcc[11]
+    assert_equal "HF+^#{HF_IEN}^^^^#{DUZ}", pcc[11]
+    assert_equal "HF+^9^^^^#{DUZ}", pcc[12]
     assert result[:success], result.inspect
     assert_equal [ 301, 302 ], result[:diagnoses].map { |d| d[:ien] }
     assert_equal [ PROBLEM, PROBLEM2 ], result[:diagnoses].map { |d| d[:problem_ien] }, "each diagnosis names its own problem"
