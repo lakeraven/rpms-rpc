@@ -11,10 +11,11 @@ require "rpms_rpc/fileman_date_parser"
 # on RPMS; stock ORQQPL stays read-only in the gem (rpms-rpc#527). Both RPCs
 # are in CIAV VUECENTRIC, the option CIA sign-on binds.
 #
-# The spec adds a problem, edits it, refuses an edit and a delete named with
-# another patient, then deletes it, and reads the PROBLEM (#9000011) entry back
-# with DDR after each step: what was filed, by whom, and what the delete
-# recorded.
+# The spec adds a problem, edits it, re-letters its status with the .12
+# internal letter and refuses a status BGOPROB does not know (#923), refuses
+# an edit and a delete named with another patient, then deletes it, and reads
+# the PROBLEM (#9000011) entry back with DDR after each step: what was filed,
+# by whom, and what the delete recorded.
 #
 # WRITES against a disposable local container only.
 class ProblemWriteLiveTest < LiveSpec::Test
@@ -56,9 +57,21 @@ class ProblemWriteLiveTest < LiveSpec::Test
     assert_equal "*#{edited_text}", row.dig(".05", :external).split("|").first, "the edit did not file the new narrative"
     assert_equal DFN.to_s, row.dig(".02", :internal), "an edit must not move the problem"
 
+    # The internal letter a caller reads back from .12 is mapped to the name
+    # PROB^BGOPROB3 matches; sent as "A" it files as E (#923). From I, only
+    # the mapping yields A.
+    relettered = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "A", description: edited_text))
+    assert_equal({ success: true, ien: ien, raw: ien.to_s }, relettered)
+    assert_equal "A", entry(ien).dig(".12", :internal), "status \"A\" must file as A (Chronic), not as the build's EPISODIC fallback (#923)"
+
+    guessed = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "ACTIVE-ISH", description: edited_text))
+    refute guessed[:success], "a status BGOPROB does not know must be refused, got #{guessed.inspect}"
+    assert_includes guessed[:error].to_s, "ACTIVE-ISH", "the refusal names the status"
+    assert_equal "A", entry(ien).dig(".12", :internal), "a refused status reached BGOPROB SET: PROBLEM #{ien} .12 changed"
+
     assert_equal :wrong_patient, RpmsRpc::Problem.update(OTHER_DFN, ien, problem)[:error]
     assert_equal :wrong_patient, RpmsRpc::Problem.delete(OTHER_DFN, ien, reason: "Entered in error")[:error]
-    assert_equal "I", entry(ien).dig(".12", :internal), "a refused edit or delete changed PROBLEM #{ien}"
+    assert_equal "A", entry(ien).dig(".12", :internal), "a refused edit or delete changed PROBLEM #{ien}"
 
     before = server_now
     deleted = RpmsRpc::Problem.delete(DFN, ien, reason: "Entered in error")
