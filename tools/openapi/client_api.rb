@@ -112,6 +112,12 @@ module OpenApi
     # The pinned catalog route is GET at the path inference derives. Other :read methods
     # whose names start with an action word keep the inferred verb.
     READ_ON_ACTION_PATH = "RpmsRpc::Scheduling.checkin_visit"
+    # Create-word methods whose inferred POST to the collection is already another method's.
+    # Encounter.save (BEHOENPC SAVE, rpms-rpc#921) files a whole PCC encounter, where
+    # Encounter.create gets or creates a bare visit; both infer POST /patients/{dfn}/encounters.
+    # The pinned route appends the segment, matching the declared shape. Keys only; may only grow
+    # with a clash the catalog would otherwise refuse.
+    PINNED_CREATE_SEGMENT = { "RpmsRpc::Encounter.save" => "pcc" }.freeze
 
     module_function
 
@@ -172,6 +178,9 @@ module OpenApi
       fallback = publish_post?(key, c, retry_table: retry_table)
       # Keep the inferred words, including a plain noun with no retry row, so two nouns cannot collide.
       a = read_on_action_path(publish(place(method, c, c[:rest]), fallback), key, fallback)
+      if (segment = PINNED_CREATE_SEGMENT[key]) && c[:kind] == "create"
+        a = a.merge(path: "#{a[:path]}/#{segment}", rule: "pinned-create-segment")
+      end
       return a unless c[:kind] == "query"
 
       sub = publish(place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"), fallback)

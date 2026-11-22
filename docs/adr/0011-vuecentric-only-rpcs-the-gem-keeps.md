@@ -37,7 +37,7 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 | `BEHOENCX GETPRV` | `RpmsRpc::Encounter` | A visit's providers by visit string; the visit-context calls above. | DDR LISTER on V PROVIDER (#9000010.06), unverified. |
 | `BEHOENCX GETVISIT` | `RpmsRpc::ClinicalReview`, `RpmsRpc::Encounter`, `RpmsRpc::Measurement` | As above. | As above. |
 | `BEHOENCX VISITLST` | `RpmsRpc::Encounter` | `VISITLST^BEHOENCX` lists the patient's visits with the IHS lock flag (`ISLOCKED^BEHOENCX`), the primary provider and a standalone flag, then appointments pending check-in (`SDA^VADPT`). `ORWCV VST` and `ORQQVS VISITS/APPTS` (`OR CPRS GUI CHART`) list visits and appointments without those fields. Not compared live. | `ORWCV VST` plus a DDR read of VISIT for the lock and provider, unverified. |
-| `BEHOENPC SAVE` | `RpmsRpc::Procedure` | Files the visit and its V files in one call. `ORWPCE SAVE` is registered to `SAVE^CIAVCXPC`, which the build does not carry (openrpms#1042). Decided for the psych CPT (#524). | None outside `CIAV VUECENTRIC`. |
+| `BEHOENPC SAVE` | `RpmsRpc::Encounter`, `RpmsRpc::Procedure` | Files the visit and its V files in one call. `ORWPCE SAVE` is registered to `SAVE^CIAVCXPC`, which the build does not carry (openrpms#1042). Decided for the psych CPT (#524). `Encounter.save` files a whole encounter through it (#921); each V POV is linked to the problem list by `PROBLST^BEHOENP2`. | None outside `CIAV VUECENTRIC`. |
 | `BEHOLRCV LIST` | `RpmsRpc::Lab` | The patient's lab orders over the site's cover-sheet range (`BEHOLRCV DATE RANGE`), as VueCentric's lab cover sheet lists them; it calls stock `LIST^ORQOR1`. | `ORQOR LIST` (`LIST^ORQOR1`, `OR CPRS GUI CHART`) with the range passed by the caller, unverified. |
 | `BEHOPGAP GETGOAL` | `RpmsRpc::PatientGoal` | A patient's goals (PATIENT GOALS, #9000093) with types and reviews, as VueCentric's Patient Goals component lists them; no stock route checked. | DDR LISTER on #9000093, unverified. |
 | `BEHOPTPC GETBDP` | `RpmsRpc::Patient` | Designated provider. `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill. | DDR read of IHS PATIENT (#9000001) .14. |
@@ -67,10 +67,10 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 | `BGOREF GETREA` | `RpmsRpc::ImmunizationRefusal` | Refusals; no stock route found. | None; primary care, planned for later. |
 | `BGOREF SET` | `RpmsRpc::ImmunizationRefusal` | As above. | As above. |
 | `BGOUTL CHKSEC` | `RpmsRpc::Authentication` | Key flags and per-user parameter settings with the granting user class, in one call; how the BGO components decide editing (`BGO DISABLE ... EDITING`). Keys alone have the stock `ORWU NPHASKEY` (`held_keys`). | `ORWU NPHASKEY` for keys; for the parameter and its class grant, none found. |
-| `BGOVCPT GET` | `RpmsRpc::Procedure` | The V CPT read VueCentric's procedure component uses. | DDR LISTER on V CPT (#9000010.18). |
+| `BGOVCPT GET` | `RpmsRpc::Encounter`, `RpmsRpc::Procedure` | The V CPT read VueCentric's procedure component uses. | DDR LISTER on V CPT (#9000010.18). |
 | `BGOVEXAM GET` | `RpmsRpc::ExamComponent` | The exams VueCentric lists for a patient (V EXAM), with the lock flag; no stock route checked. | DDR LISTER on V EXAM (#9000010.13), unverified. |
 | `BGOVEXAM SET` | `RpmsRpc::ExamComponent` | Exam entries; no stock route checked. | `BEHOENPC SAVE` also files exams (VueCentric-only); otherwise none. |
-| `BGOVHF GET` | `RpmsRpc::HealthFactor` | The health factors VueCentric lists for a patient (V HEALTH FACTORS), with category and lock flag. | DDR LISTER on V HEALTH FACTORS (#9000010.23), unverified. |
+| `BGOVHF GET` | `RpmsRpc::Encounter`, `RpmsRpc::HealthFactor` | The health factors VueCentric lists for a patient (V HEALTH FACTORS), with category and lock flag. | DDR LISTER on V HEALTH FACTORS (#9000010.23), unverified. |
 | `BGOVHF SET` | `RpmsRpc::HealthFactor` | Health factors; which store a BH screening belongs in is unconfirmed. | `AMHG SAVE SCREENING` for BH, probable. |
 | `BGOVIMM GET` | `RpmsRpc::Immunization` | Immunization reads; no stock route. | None; primary care, planned for later. |
 | `BGOVIMM GETVFC` | `RpmsRpc::Eligibility` | VFC eligibility; as above. | As above. |
@@ -81,7 +81,7 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 | `BGOVMSR SET` | `RpmsRpc::Measurement` | As above. | As above. |
 | `BGOVPED GET` | `RpmsRpc::PatientEducation` | Patient education entries (V PATIENT ED) with the topic name VueCentric shows; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16), unverified. |
 | `BGOVPED2 GETPVED` | `RpmsRpc::PatientEducation` | A visit's problem-linked education (V PATIENT ED field 1103), as the problem-list education pane lists it; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16) by visit, unverified. |
-| `BGOVPOV GET` | `RpmsRpc::Pov` | One visit's diagnoses with episodicity, modifiers, injury, primary/secondary and qualifiers. `ORWPCE PCE4NOTE` gives the visit's diagnoses without those. | DDR LISTER on V POV (#9000010.07). |
+| `BGOVPOV GET` | `RpmsRpc::Encounter`, `RpmsRpc::Pov` | One visit's diagnoses with episodicity, modifiers, injury, primary/secondary and qualifiers. `ORWPCE PCE4NOTE` gives the visit's diagnoses without those. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV RECENT` | `RpmsRpc::Pov` | `RECENT^BGOVPOV` lists V POVs by patient or by visit, with SNOMED CT, asthma control and the lock flag. `ORWPCE PCE4NOTE` gives one visit's diagnoses only. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV SET` | `RpmsRpc::Pov` | Visit diagnosis outside BH. | `AMHG SAVE POV` for BH; `BEHOENPC SAVE` (VueCentric-only) otherwise. |
 | `BGOVTM GET` | `RpmsRpc::Encounter` | A provider's activity and travel time on a visit (V ACTIVITY TIME); no stock route checked. | DDR LISTER on V ACTIVITY TIME (#9000010.19) by visit, unverified. |

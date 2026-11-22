@@ -193,6 +193,10 @@
       "BEHOENCX GETPRV",
       "BEHOENCX GETVISIT",
       "BEHOENCX VISITLST",
+      "BEHOENPC SAVE",
+      "BGOVCPT GET",
+      "BGOVHF GET",
+      "BGOVPOV GET",
       "BGOVTM GET",
       "ORWPT APPTLST"
     ],
@@ -1325,10 +1329,12 @@
       "methods": {
         "RpmsRpc::Encounter.create": "non_idempotent_write",
         "RpmsRpc::Encounter.open": "non_idempotent_write",
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::Scheduling.checkin_visit": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
+        "test/fixtures/captured_replies/encounter-save.yml",
         "test/fixtures/captured_replies/encounter.yml",
         "test/fixtures/captured_replies/scheduling-stock-rpcs.yml",
         "test/fixtures/wire_captures/behoencx-fetch.yml"
@@ -1336,9 +1342,12 @@
     },
     "BEHOENCX GETPRV": {
       "methods": {
-        "RpmsRpc::Encounter.providers": "read"
+        "RpmsRpc::Encounter.providers": "read",
+        "RpmsRpc::Encounter.save": "non_idempotent_write"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-save.yml"
+      ]
     },
     "BEHOENCX GETVISIT": {
       "methods": {
@@ -1365,9 +1374,11 @@
     },
     "BEHOENPC SAVE": {
       "methods": {
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::Procedure.add": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/encounter-save.yml",
         "test/fixtures/captured_replies/procedure-add.yml"
       ]
     },
@@ -1595,11 +1606,13 @@
     },
     "BGOVCPT GET": {
       "methods": {
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::Procedure.add": "non_idempotent_write",
         "RpmsRpc::Procedure.for_patient": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bgovcpt.yml",
+        "test/fixtures/captured_replies/encounter-save.yml",
         "test/fixtures/captured_replies/procedure-add.yml",
         "test/fixtures/captured_replies/retry-safety-reads.yml"
       ]
@@ -1618,9 +1631,12 @@
     },
     "BGOVHF GET": {
       "methods": {
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::HealthFactor.for_patient": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-save.yml"
+      ]
     },
     "BGOVHF SET": {
       "methods": {
@@ -1694,9 +1710,12 @@
     },
     "BGOVPOV GET": {
       "methods": {
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::Pov.for_visit": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/encounter-save.yml"
+      ]
     },
     "BGOVPOV RECENT": {
       "methods": {
