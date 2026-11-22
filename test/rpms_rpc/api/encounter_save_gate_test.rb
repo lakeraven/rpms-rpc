@@ -192,9 +192,18 @@ class EncounterSaveGateTest < EncounterSaveTest
   def test_gate_a_datetime_string_must_be_a_fileman_date_before_sending
     client = twin(before: empty_before, after: full_after)
 
-    [ "11/22/2026", "3261122.", "326112", "today" ].each do |bad|
+    [ "11/22/2026", "3261122.", "326112", "today", "3260230", "3261322", "3261122.2500", "3261122.1260" ].each do |bad|
       assert_equal :invalid, save(datetime: bad)[:error], bad
     end
     assert_empty client.calls
+  end
+
+  def test_gate_a_save_that_answered_0_with_no_visit_read_back_may_have_filed
+    twin(before: empty_before, after: full_after.merge("BEHOENCX FETCH" => fetch_not_found))
+
+    result = save
+
+    assert_equal :no_visit, result[:error]
+    assert result[:may_have_filed], "the server answered 0: something may have filed"
   end
 end

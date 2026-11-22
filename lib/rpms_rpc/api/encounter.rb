@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "date"
 require_relative "../shape"
 require_relative "../mappings"
 
@@ -373,8 +374,19 @@ module RpmsRpc
       case datetime
       when Time, DateTime then FilemanDateParser.format_datetime(datetime)
       when Date then FilemanDateParser.format_date(datetime)
-      when String then datetime.match?(/\A\d{7}(\.\d{1,6})?\z/) ? datetime : nil
+      when String then fileman_datetime?(datetime) ? datetime : nil
       end
+    end
+
+    # A FileMan date or date-time a calendar has: YYYMMDD[.HHMMSS], the year
+    # counted from 1700, a real month and day, and a clock time up to 24:00:00.
+    def fileman_datetime?(value)
+      md = value.match(/\A(\d{3})(\d{2})(\d{2})(?:\.(\d{1,6}))?\z/)
+      return false unless md && Date.valid_date?(md[1].to_i + 1700, md[2].to_i, md[3].to_i)
+      return true if md[4].nil?
+
+      hh, mm, ss = md[4].ljust(6, "0").scan(/\d\d/).map(&:to_i)
+      (hh < 24 && mm < 60 && ss < 60) || (hh == 24 && mm.zero? && ss.zero?)
     end
 
     def save_result(error:, raw: nil, not_filed: [], visit_ien: nil, diagnoses: [], procedures: [],
@@ -507,7 +519,7 @@ module RpmsRpc
 
     def read_back(raw, before, after, provider_duz, diagnoses, procedures, health_factors)
       visit = after[:visit]
-      return save_result(error: :no_visit, raw: raw, not_filed: [ { kind: :visit } ]) unless visit
+      return save_result(error: :no_visit, raw: raw, may_have_filed: true, not_filed: [ { kind: :visit } ]) unless visit
 
       # New V POVs pair with the diagnoses in the order sent: "+" adds rows
       # in list order (STORE^BEHOENPC), so IENs rise with it. They are not
