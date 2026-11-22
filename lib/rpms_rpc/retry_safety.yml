@@ -175,6 +175,7 @@
 "RpmsRpc::Encounter.for_patient": read
 "RpmsRpc::Encounter.open": non_idempotent_write
 "RpmsRpc::Encounter.providers": read
+"RpmsRpc::Encounter.save": non_idempotent_write
 "RpmsRpc::Encounter.visit_string": read
 "RpmsRpc::Encounter.visits": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write

@@ -237,6 +237,239 @@ module RpmsRpc
     end
     shape :create, resource: "encounters", verb: "POST", path: "/patients/{dfn}/encounters"
 
+    # File an encounter in one call through BEHOENPC SAVE (SAVE^BEHOENPC,
+    # rpms-rpc#921): the visit, its V POVs, V CPTs, V HEALTH FACTORs and the
+    # primary V PROVIDER, as VueCentric does. The PCC list is
+    #
+    #   HDR^0^^<loc>;<fm datetime>;<category>     VST^DT^<fm datetime>
+    #   VST^PT^<dfn>   VST^HL^<loc>   VST^VC^<category>   PRV^<duz>^^^^1
+    #   POV+^<icd>^^^^<1|0>^^^<snomed>^<narrative>   (1 primary, 0 secondary)
+    #   CPT+^<cpt>^^^^^<quantity>   HF+^<factor ien>^^^^<duz>
+    #
+    # then "0" and the location, the two formals the routine requires and
+    # does not use (BEHOENPC.m:6-10).
+    #
+    #   diagnoses:      [{ icd:, snomed:, narrative:, primary: }]
+    #   procedures:     [{ cpt:, quantity: 1 }]
+    #   health_factors: [{ ien: }]   (the HEALTH FACTOR #9999999.64 IEN)
+    #   datetime:       a Time/DateTime (formatted here) or a FileMan string
+    #
+    # Every diagnosis is linked to the problem list by the routine itself:
+    # POV^BEHOENPC calls $$PROBLST^BEHOENP2 unconditionally, which reuses the
+    # patient's undeleted problem for the SNOMED concept or files a new one,
+    # and stores it in the V POV's .16. The gem sends no problem-list RPC; it
+    # reports the problem each diagnosis was linked to. A diagnosis with no
+    # SNOMED concept is refused before sending: the routine subscripts on it
+    # (rpms-rpc#704). So is any value carrying ^ ; or |, which would shift a
+    # piece, the visit string or the "text|description" narrative.
+    #
+    # The save answers 0 and names nothing it filed, so the visit (BEHOENCX
+    # FETCH with CREATE=0, which can never add one), V POVs (BGOVPOV GET),
+    # V CPTs (BGOVCPT GET), V HEALTH FACTORs (BGOVHF GET) and V PROVIDERs
+    # (BEHOENCX GETPRV) are read before and after. Only a row that was not
+    # there before, on this visit, is this call's: "+" always adds a row, and
+    # a rerun on the same day files onto the visit already there.
+    #
+    # Returns { success:, raw:, error:, visit_ien:, diagnoses: [{ ien:, icd:,
+    # snomed:, problem_ien: }], procedures: [{ ien:, cpt: }], health_factors:
+    # [{ ien:, factor_ien: }], provider: { duz:, primary: }, not_filed: [...] }.
+    # success is the visit and every requested entry read back. error is
+    # :missing_snomed or :delimiter (nothing sent), :invalid (a blank
+    # required argument, nothing sent), :no_reply, :refused (the server's
+    # -N^text row, in raw; nothing is read back), :unexpected_reply,
+    # :no_visit, :partial (some entry not read back, or a diagnosis read
+    # back with no problem link; what did file is still reported) or
+    # :read_back_failed.
+    def save(dfn, location_ien:, datetime:, service_category:, provider_duz:,
+             diagnoses: [], procedures: [], health_factors: [])
+      diagnoses = Array(diagnoses)
+      procedures = Array(procedures)
+      health_factors = Array(health_factors)
+      fm_datetime = save_datetime(datetime)
+      at_fault = delimiter_entries(dfn, location_ien, fm_datetime, service_category, provider_duz,
+                                   diagnoses, procedures, health_factors)
+      return save_result(error: :delimiter, not_filed: at_fault) unless at_fault.empty?
+
+      unless [ dfn, location_ien, provider_duz ].all? { |id| id.to_s.strip.match?(/\A[1-9]\d*\z/) } &&
+             !service_category.to_s.strip.empty? && fm_datetime
+        return save_result(error: :invalid)
+      end
+
+      missing = diagnoses.select { |d| d[:snomed].to_s.strip.empty? }
+      return save_result(error: :missing_snomed, not_filed: missing.map { |d| diagnosis_entry(d) }) unless missing.empty?
+
+      vstr = "#{location_ien};#{fm_datetime};#{service_category}"
+      pcc = save_list(dfn, location_ien, fm_datetime, service_category, provider_duz,
+                      diagnoses, procedures, health_factors)
+      mapping = DataMapper.encounter_save
+      client = RpmsRpc.client
+      mapping.in_context(client) do
+        before = save_snapshot(dfn, vstr)
+        raw = save_reply(client.call_rpc(mapping.rpc_name, pcc, "0", location_ien.to_s))
+        next save_result(error: :no_reply) if raw.nil?
+        next save_result(error: :refused, raw: raw) if DataMapper.error_row?(raw)
+        next save_result(error: :unexpected_reply, raw: raw) unless raw == "0"
+
+        after = save_snapshot(dfn, vstr)
+        read_back(raw, before, after, provider_duz, diagnoses, procedures, health_factors)
+      end
+    rescue Client::FrameTooLongError => e
+      save_result(error: e.message)
+    rescue Client::RpcError => e
+      save_result(error: :read_back_failed, raw: RpmsRpc.sanitize_error(e.message))
+    end
+    shape :save, resource: "encounters", verb: "POST", path: "/patients/{dfn}/encounters/pcc"
+
+    private
+
+    def save_datetime(datetime)
+      case datetime
+      when Time, DateTime then FilemanDateParser.format_datetime(datetime)
+      when Date then FilemanDateParser.format_date(datetime)
+      when String then datetime.strip.empty? ? nil : datetime
+      end
+    end
+
+    def save_result(error:, raw: nil, not_filed: [], visit_ien: nil, diagnoses: [], procedures: [],
+                    health_factors: [], provider: nil)
+      { success: false, raw: raw, error: error, visit_ien: visit_ien, diagnoses: diagnoses,
+        procedures: procedures, health_factors: health_factors, provider: provider, not_filed: not_filed }
+    end
+
+    def diagnosis_entry(diagnosis)
+      { kind: :diagnosis, icd: diagnosis[:icd], snomed: diagnosis[:snomed] }
+    end
+
+    SAVE_DELIMITER = /[\^;|]/
+    private_constant :SAVE_DELIMITER
+
+    # The entries whose values carry a delimiter, each named as not_filed
+    # names it; the visit's own arguments are named as kind: :visit.
+    def delimiter_entries(dfn, location_ien, fm_datetime, service_category, provider_duz,
+                          diagnoses, procedures, health_factors)
+      bad = ->(*values) { values.any? { |v| v.to_s.match?(SAVE_DELIMITER) } }
+      entries = []
+      { dfn: dfn, location_ien: location_ien, datetime: fm_datetime, service_category: service_category,
+        provider_duz: provider_duz }.each { |field, value| entries << { kind: :visit, field: field } if bad.call(value) }
+      diagnoses.each { |d| entries << diagnosis_entry(d) if bad.call(d[:icd], d[:snomed], d[:narrative]) }
+      procedures.each { |p| entries << { kind: :procedure, cpt: p[:cpt] } if bad.call(p[:cpt], p[:quantity]) }
+      health_factors.each { |h| entries << { kind: :health_factor, factor_ien: h[:ien] } if bad.call(h[:ien]) }
+      entries
+    end
+
+    def save_list(dfn, location_ien, fm_datetime, service_category, provider_duz,
+                  diagnoses, procedures, health_factors)
+      lines = [
+        "HDR^0^^#{location_ien};#{fm_datetime};#{service_category}",
+        "VST^DT^#{fm_datetime}",
+        "VST^PT^#{dfn}",
+        "VST^HL^#{location_ien}",
+        "VST^VC^#{service_category}",
+        "PRV^#{provider_duz}^^^^1"
+      ]
+      diagnoses.each do |d|
+        lines << "POV+^#{d[:icd]}^^^^#{d[:primary] ? 1 : 0}^^^#{d[:snomed].to_s.strip}^#{d[:narrative]}"
+      end
+      procedures.each { |p| lines << "CPT+^#{p[:cpt]}^^^^^#{(p[:quantity] || 1).to_i}" }
+      health_factors.each { |h| lines << "HF+^#{h[:ien]}^^^^#{provider_duz}" }
+      lines.each_with_index.to_h { |line, i| [ i + 1, line ] }
+    end
+
+    # The save's reply as one line: a scalar, or the first line of a list.
+    def save_reply(reply)
+      return nil if reply.nil?
+
+      line = reply.is_a?(Array) ? reply.map(&:to_s).reject(&:empty?).first : reply.to_s
+      return nil if line.nil?
+
+      line = DataMapper.strip_recordset_separators(line).strip
+      return line if reply.is_a?(String) || reply.size == 1 || DataMapper.error_row?(line)
+
+      reply.map(&:to_s).join("\n")
+    end
+
+    # What the visit named by vstr holds, read through the gem's readers. A
+    # FETCH with CREATE=0 never adds a visit.
+    def save_snapshot(dfn, vstr)
+      fetched = DataMapper.encounter_fetch.fetch_one(dfn.to_s, vstr, "", "0")
+      visit = fetched && fetched[:visit_ien].to_i.positive? ? fetched[:visit_ien].to_i : nil
+      {
+        visit: visit,
+        povs: visit ? DataMapper.visit_povs.fetch_many!("#{visit}^^") : [],
+        cpts: DataMapper.procedure_list.fetch_many!(dfn.to_s),
+        hfs: DataMapper.patient_health_factors.fetch_many!("#{dfn}^^"),
+        providers: visit ? providers(dfn, visit) : []
+      }
+    end
+
+    # The rows on the visit that the save added.
+    def new_rows(before, after, key)
+      seen = before[key].map { |row| row[:ien].to_i }
+      after[key].select { |row| row[:visit_ien].to_i == after[:visit] && !seen.include?(row[:ien].to_i) }
+    end
+
+    def read_back(raw, before, after, provider_duz, diagnoses, procedures, health_factors)
+      visit = after[:visit]
+      return save_result(error: :no_visit, raw: raw, not_filed: [ { kind: :visit } ]) unless visit
+
+      # New V POVs pair with the diagnoses in the order sent: "+" adds rows
+      # in list order (STORE^BEHOENPC), so IENs rise with it. They are not
+      # matched by code: POV^BEHOENPC files the ICD its SNOMED concept maps
+      # to, which may differ from the ICD sent, and BGOVPOV GET's row carries
+      # the concept's description, not its ID, on the pinned build.
+      not_filed = []
+      new_povs = new_rows(before, after, :povs).sort_by { |row| row[:ien].to_i }
+      filed_diagnoses = diagnoses.each_with_index.filter_map do |d, i|
+        row = new_povs[i]
+        unless row
+          not_filed << diagnosis_entry(d)
+          next
+        end
+        problem = row[:problem_ien].to_s.match?(/\A[1-9]\d*\z/) ? row[:problem_ien].to_i : nil
+        not_filed << { kind: :problem, icd: d[:icd], snomed: d[:snomed] } unless problem
+        { ien: row[:ien].to_i, icd: row[:icd_code], snomed: d[:snomed], problem_ien: problem }
+      end
+
+      cpt_missing = []
+      filed_procedures = match_rows(new_rows(before, after, :cpts), procedures, cpt_missing) do |row, p|
+        row[:cpt_code].to_s == p[:cpt].to_s
+      end.map { |row, p| { ien: row[:ien].to_i, cpt: p[:cpt] } }
+      not_filed.concat(cpt_missing.map { |e| { kind: :procedure, cpt: e[:request][:cpt] } })
+
+      hf_missing = []
+      filed_factors = match_rows(new_rows(before, after, :hfs), health_factors, hf_missing) do |row, h|
+        row[:factor_ien].to_i == h[:ien].to_i
+      end.map { |row, h| { ien: row[:ien].to_i, factor_ien: h[:ien] } }
+      not_filed.concat(hf_missing.map { |e| { kind: :health_factor, factor_ien: e[:request][:ien] } })
+
+      primary = after[:providers].find { |row| row[:duz].to_i == provider_duz.to_i && row[:primary] }
+      provider = primary ? { duz: provider_duz.to_i, primary: true } : nil
+      not_filed << { kind: :provider, duz: provider_duz } unless provider
+
+      result = save_result(error: not_filed.empty? ? nil : :partial, raw: raw, not_filed: not_filed, visit_ien: visit,
+                           diagnoses: filed_diagnoses, procedures: filed_procedures,
+                           health_factors: filed_factors, provider: provider)
+      result.merge(success: not_filed.empty?)
+    end
+
+    # Pairs each request with the first unclaimed row the block accepts, in
+    # request order. A request with no row goes to `missing` as
+    # { kind: :unmatched, request: }.
+    def match_rows(rows, requests, missing)
+      available = rows.dup
+      requests.filter_map do |request|
+        index = available.index { |row| yield(row, request) }
+        if index
+          [ available.delete_at(index), request ]
+        else
+          missing << { kind: :unmatched, request: request }
+          nil
+        end
+      end
+    end
+
+    public
+
     # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX (BEHOENCX.m:107),
     # or the EXTENDED form "LOC;FM_DATETIME;SVC_CAT;VISITIEN" when visit_ien
     # is given: VSTR2VIS then takes that IEN and skips the FNDVIS search.
