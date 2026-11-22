@@ -81,10 +81,21 @@ module RpmsRpc
     # pointer, or whose .02 is not the patient, is a failure (:not_filed),
     # with the IEN the build gave.
     #
+    # status: (add and update) is one of the names BGOPROB SET files --
+    # Chronic, Inactive, Sub-acute, Episodic, Social/Environmental,
+    # Routine/Admin, Admin -- or the .12 letter it files as (A, I, S, E, O,
+    # R), in any case; the exact name is what is sent. Any other value,
+    # including D or Deleted (Problem.delete deletes), is refused before
+    # anything is sent, because BGOPROB would file it as EPISODIC (#923).
+    # Omitted, nil or "" leaves the build's own default (BGOPROB3.m:113-114).
+    #
     # Returns { success:, ien:, raw: }, plus error: on a refusal.
     def add(dfn, problem)
       raise ArgumentError, "problem must be a Hash" unless problem.is_a?(Hash)
       return failure if invalid_id?(dfn)
+
+      problem, refused = with_status_name(problem)
+      return refused if refused
 
       in_context { write(dfn, nil, problem) }
     end
@@ -98,6 +109,9 @@ module RpmsRpc
     def update(dfn, ien, changes)
       raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
       return failure if invalid_id?(dfn) || invalid_id?(ien)
+
+      changes, refused = with_status_name(changes)
+      return refused if refused
 
       in_context do
         refused = refuse_unless_patients(dfn, ien)
@@ -434,6 +448,35 @@ module RpmsRpc
     end
 
     def in_context(&) = ContextScope.scoped(RpmsRpc.client, CONTEXT, &)
+
+    # The status names PROB^BGOPROB3 files (BGOPROB3.m:115), keyed by the
+    # lower-cased name and by the .12 internal letter each files as. Any other
+    # value BGOPROB would file as E (EPISODIC) without saying so (#923), so it
+    # is refused here. D (deleted) is not among them: Problem.delete deletes.
+    STATUS_NAMES = {
+      "chronic" => "Chronic", "a" => "Chronic",
+      "inactive" => "Inactive", "i" => "Inactive",
+      "sub-acute" => "Sub-acute", "s" => "Sub-acute",
+      "episodic" => "Episodic", "e" => "Episodic",
+      "social/environmental" => "Social/Environmental", "o" => "Social/Environmental",
+      "routine/admin" => "Routine/Admin", "r" => "Routine/Admin",
+      "admin" => "Admin"
+    }.freeze
+    private_constant :STATUS_NAMES
+
+    # [fields with status: as the exact name BGOPROB matches, nil], or
+    # [fields, refusal] for a status it does not take. An omitted, nil or
+    # empty status is left for the build's own default (BGOPROB3.m:113-114).
+    def with_status_name(fields)
+      status = fields[:status]
+      return [ fields, nil ] if status.nil? || status == ""
+
+      name = status.is_a?(String) && !status.include?("^") && STATUS_NAMES[status.downcase]
+      return [ fields.merge(status: name), nil ] if name
+
+      [ fields, failure.merge(error: "status \"#{status}\" is not one BGOPROB SET files " \
+                                     "(#{STATUS_NAMES.values.uniq.join(', ')}, or A, I, S, E, O, R)") ]
+    end
 
     def build_p_line(fields)
       ([ "P" ] + PROB_FIELDS.map { |k| fields[k].to_s }).join("^")
