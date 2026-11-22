@@ -28,16 +28,15 @@ require "rpms_rpc/fileman_date_parser"
 # when it is empty (rpms-rpc#704). On the pinned build 35489007 (Depressive
 # disorder) maps to F32.9 on both engines.
 #
-# The issue's acceptance (rpms-rpc#921) says a save creates no problem-list
-# entry: rook's parity harness seeds visits with purposes of visit and must
-# not add problems it did not ask for, because a problem changes CRS
-# denominators. PROBLEM (#9000011) is therefore read before and after. Note
-# what the routine says: POV^BEHOENPC calls $$PROBLST^BEHOENP2(SNO,FIVE)
-# unconditionally, and PROBLST files a PROBLEM entry when the patient has no
-# undeleted one with that concept (^AUPNPROB("APCT",DFN,SNO)), then links the
-# visit to it. If this assertion fails on the pinned build, that is the
-# finding, not a flaw in the spec: the route creates problems, and the
-# decision belongs to the owner.
+# POV^BEHOENPC also calls $$PROBLST^BEHOENP2(SNO,FIVE) unconditionally
+# (BEHOENPC.m:163 on bcer-9.0-20261119-f67498c-ydb): it reuses the patient's
+# undeleted PROBLEM (#9000011) entry with that concept (^AUPNPROB("APCT",
+# DFN,SNO)) or files a new one, links the visit to it, and stores it in the
+# V POV's .16. The owner accepted this (rpms-rpc#921, 2026-11-22): the
+# wrapper reports each diagnosis's problem rather than avoiding the link.
+# So the first save, on a patient with no problem for the concept, files a
+# problem the result names, carrying the concept in 80001; a second save of
+# the same concept names that same problem and files no other.
 #
 # WRITES against a disposable local container only.
 class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
@@ -61,7 +60,7 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
   HF_TABLE = "9999999.64"
   CLINIC_FILE = "44"
 
-  def test_one_call_files_a_visit_with_its_pov_cpt_health_factor_and_provider_and_no_problem
+  def test_one_call_files_a_visit_with_its_pov_cpt_health_factor_and_provider_linked_to_a_new_problem
     assert_synthetic_patient!(DFN)
     loc = clinic_ien!
     hf = first_health_factor!
@@ -71,6 +70,9 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     at = Time.new(now.year, now.month, now.day, now.hour, now.min, 0)
 
     problems_before = problems_of(DFN)
+    held = problems_before.select { |_ien, snomed, deleted| snomed == SNOMED && deleted.empty? }
+    flunk "DFN #{DFN} already holds an undeleted problem for concept #{SNOMED} (#{held.inspect}): this scenario needs a " \
+          "fresh disposable container, so that the save's new problem can be witnessed" unless held.empty?
     povs_before = iens(POV_FILE)
 
     result = RpmsRpc::Encounter.save(
@@ -133,14 +135,46 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     stamped = RpmsRpc::FilemanDateParser.parse_datetime(prv[4])
     assert stamped && stamped >= now, "V PROVIDER #{duz} on visit #{visit} was not stored by this call (1218 #{prv[4].inspect}, call at #{now})"
 
-    # And no problem-list entry is created (rpms-rpc#921 "Done when").
+    # The diagnosis is linked to the problem list: the patient held no problem
+    # for the concept, so PROBLST^BEHOENP2 filed one. The result names it, it
+    # is this patient's, undeleted, carries the concept (80001), and the
+    # V POV's .16 points at it (rpms-rpc#921 "Done when", scenario 1).
+    problem_ien = result[:diagnoses].first[:problem_ien].to_s
+    assert_match(/\A[1-9]\d*\z/, problem_ien, "the result names no problem for the diagnosis: #{result[:diagnoses].inspect}")
+    refute_includes problems_before.map(&:first), problem_ien, "PROBLEM #{problem_ien} was on file before this call"
+    problem = fields_of(PROBLEM_FILE, problem_ien, ".02;80001;2.02")
+    assert_equal DFN.to_s, problem[".02"], "PROBLEM #{problem_ien} is not DFN #{DFN}'s"
+    assert_equal SNOMED, problem["80001"], "PROBLEM #{problem_ien} does not carry concept #{SNOMED}"
+    assert_equal "", problem["2.02"], "PROBLEM #{problem_ien} is deleted"
+    pov16 = fields_of(POV_FILE, pov_ien, ".16")
+    assert_equal problem_ien, pov16[".16"], "V POV #{pov_ien} .16 does not point at the problem the result names"
     problems_after = problems_of(DFN)
-    added = problems_after - problems_before
-    assert_empty added,
-                 "Encounter.save added PROBLEM entries for DFN #{DFN}: #{added.inspect} " \
-                 "(PROBLST^BEHOENP2 files one when the patient has no undeleted problem with concept #{SNOMED})"
+    assert_equal problems_before.size + 1, problems_after.size,
+                 "exactly one problem is filed for the one diagnosis: before #{problems_before.inspect}, after #{problems_after.inspect}"
 
-    puts "\n#{role}: Encounter.save filed visit #{visit} on DFN #{DFN} with V POV #{pov_ien}, V CPT #{cpt_ien}, V HF #{hf_ien} and V PROVIDER #{duz}; problems unchanged (#{problems_after.size})"
+    # Scenario 2 (rpms-rpc#921 "Done when"): the patient now holds an undeleted
+    # problem for the concept, so a second save of the same diagnosis reuses
+    # it: PROBLST^BEHOENP2 answers the existing problem, the new V POV's .16
+    # points at it, and no other problem is filed. Done here, after the first
+    # save, because Minitest runs methods in random order and the first
+    # scenario needs the concept absent.
+    povs_before_reuse = iens(POV_FILE)
+    reuse = RpmsRpc::Encounter.save(
+      DFN,
+      location_ien: loc, datetime: at, service_category: CATEGORY, provider_duz: duz,
+      diagnoses: [ { icd: ICD, snomed: SNOMED, narrative: "SYNTH LIVE REUSE #{role} #{Time.now.utc.strftime('%H%M%S')}", primary: true } ]
+    )
+    assert reuse[:success], "the second Encounter.save answered #{reuse.inspect}"
+    reuse_pov = reuse[:diagnoses].first[:ien].to_s
+    refute_includes povs_before_reuse, reuse_pov, "V POV #{reuse_pov} was on file before the second save (\"+\" always adds a row)"
+    refute_equal pov_ien, reuse_pov, "the second save must file its own V POV"
+    assert_equal problem_ien, reuse[:diagnoses].first[:problem_ien].to_s,
+                 "the second save names the problem already held for concept #{SNOMED}: #{reuse[:diagnoses].inspect}"
+    assert_equal problem_ien, fields_of(POV_FILE, reuse_pov, ".16")[".16"], "V POV #{reuse_pov} .16 does not point at the existing problem"
+    assert_equal problems_after, problems_of(DFN), "a diagnosis whose concept is already on the problem list filed another problem"
+
+    puts "\n#{role}: Encounter.save filed visit #{visit} on DFN #{DFN} with V POV #{pov_ien} (problem #{problem_ien}, new), " \
+         "V CPT #{cpt_ien}, V HF #{hf_ien} and V PROVIDER #{duz}; a second save filed V POV #{reuse_pov} against the same problem"
   end
 
   def test_a_diagnosis_without_a_snomed_concept_is_refused_and_nothing_is_filed

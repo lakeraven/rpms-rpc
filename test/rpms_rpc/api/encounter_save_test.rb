@@ -40,11 +40,18 @@ require_relative "../captured_replies"
 # visit AND every requested entry read back as a row that was not there
 # before; anything less is a failure that lists what was and was not filed.
 #
+# POV^BEHOENPC also links every diagnosis to the problem list: it calls
+# PROBLST^BEHOENP2 unconditionally, which reuses the patient's undeleted
+# PROBLEM (#9000011) entry for the concept or files a new one, and stores it
+# in the V POV's .16 (owner decision on rpms-rpc#921: accepted and reported,
+# not avoided). So each diagnosis read back carries :problem_ien, the .16
+# BGOVPOV GET answers in piece 24, and a V POV with no problem is a partial
+# save. The gem itself never sends a problem-list RPC (BGOPROB*, ORQQPL*)
+# from this method; the server does the linking.
+#
 # The broker here is a fake twin: it answers reads from a "before" state until
 # BEHOENPC SAVE is called and from an "after" state afterwards, so the test
-# pins outcomes, not the order of reads. The gem never sends a problem-list
-# RPC (BGOPROB*, ORQQPL*) from this method; what the server does inside
-# PROBLST^BEHOENP2 is the live spec's to witness.
+# pins outcomes, not the order of reads.
 class EncounterSaveTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
 
@@ -64,6 +71,8 @@ class EncounterSaveTest < Minitest::Test
   SNOMED2 = "38341003"
   CPT = "A0021"
   HF_IEN = 7
+  PROBLEM = 77 # the PROBLEM (#9000011) entry the diagnosis is linked to
+  PROBLEM2 = 78
 
   PROBLEM_RPC = /\A(BGOPROB|ORQQPL)/
 
@@ -123,8 +132,10 @@ class EncounterSaveTest < Minitest::Test
   def fetch_not_found = [ "EXAMPLE CLINIC^EXC^^#{DUZ}^PROVIDER,EXAMPLE^^^^" ]
 
   # BGOVPOV GET row (BGOVPOV.m, 29 pieces; mapping :visit_povs): piece 1 IEN,
-  # 5 ICD, 16 P/S, 18 visit IEN, 21 SNOMED, 22 provider text.
-  def pov_row(ien:, icd:, snomed:, visit: VISIT, primary: "P", text: NARRATIVE)
+  # 5 ICD, 16 P/S, 18 visit IEN, 21 SNOMED, 22 provider text, 24 the PROBLEM
+  # (#9000011) the V POV's .16 points at — the one POV^BEHOENPC got from
+  # PROBLST^BEHOENP2 (reused, or newly filed) and stored with SET(.16,12).
+  def pov_row(ien:, icd:, snomed:, visit: VISIT, primary: "P", text: NARRATIVE, problem: PROBLEM)
     pieces = Array.new(29, "")
     pieces[0] = ien.to_s
     pieces[1] = "11/22/2026"
@@ -138,6 +149,7 @@ class EncounterSaveTest < Minitest::Test
     pieces[18] = "0"
     pieces[20] = snomed.to_s
     pieces[21] = text
+    pieces[23] = problem.to_s
     pieces[25] = "Example diagnosis"
     pieces[26] = "503126"
     pieces.join("^")
@@ -231,7 +243,7 @@ class EncounterSaveTest < Minitest::Test
   def test_save_orders_every_pov_then_every_cpt_then_every_hf_and_marks_secondary_diagnoses_0
     after = full_after
     after["BGOVPOV GET"] = [ pov_row(ien: 301, icd: ICD, snomed: SNOMED),
-                             pov_row(ien: 302, icd: ICD2, snomed: SNOMED2, primary: "S", text: "SYNTH hypertension") ]
+                             pov_row(ien: 302, icd: ICD2, snomed: SNOMED2, primary: "S", text: "SYNTH hypertension", problem: PROBLEM2) ]
     after["BGOVCPT GET"] = [ cpt_row(ien: 11), cpt_row(ien: 12, cpt: "99213", quantity: 2) ]
     after["BGOVHF GET"] = [ hf_row(ien: 41), hf_row(ien: 42, factor: 9) ]
     client = twin(before: empty_before, after: after)
@@ -249,6 +261,7 @@ class EncounterSaveTest < Minitest::Test
     assert_equal "HF+^9^^^^#{DUZ}", pcc[11]
     assert result[:success], result.inspect
     assert_equal [ 301, 302 ], result[:diagnoses].map { |d| d[:ien] }
+    assert_equal [ PROBLEM, PROBLEM2 ], result[:diagnoses].map { |d| d[:problem_ien] }, "each diagnosis names its own problem"
     assert_equal [ 11, 12 ], result[:procedures].map { |p| p[:ien] }
     assert_equal [ 41, 42 ], result[:health_factors].map { |h| h[:ien] }
   end
@@ -423,7 +436,9 @@ class EncounterSaveTest < Minitest::Test
     assert_nil result[:error]
     assert_equal "0", result[:raw]
     assert_equal VISIT, result[:visit_ien]
-    assert_equal [ { ien: 301, icd: ICD, snomed: SNOMED } ], result[:diagnoses].map { |d| d.slice(:ien, :icd, :snomed) }
+    assert_equal [ { ien: 301, icd: ICD, snomed: SNOMED, problem_ien: PROBLEM } ],
+                 result[:diagnoses].map { |d| d.slice(:ien, :icd, :snomed, :problem_ien) },
+                 "each diagnosis names the PROBLEM its V POV .16 points at (BGOVPOV GET piece 24)"
     assert_equal [ { ien: 11, cpt: CPT } ], result[:procedures].map { |p| p.slice(:ien, :cpt) }
     assert_equal [ { ien: 41, factor_ien: HF_IEN } ], result[:health_factors].map { |h| h.slice(:ien, :factor_ien) }
     assert_equal({ duz: DUZ, primary: true }, result[:provider].slice(:duz, :primary))
@@ -480,6 +495,27 @@ class EncounterSaveTest < Minitest::Test
     assert_equal [ { kind: :diagnosis, icd: ICD, snomed: SNOMED } ],
                  result[:not_filed].map { |e| e.slice(:kind, :icd, :snomed) }
     assert_equal [], result[:diagnoses]
+    assert_no_problem_rpc(client)
+  end
+
+  # POV^BEHOENPC always puts PROBLST^BEHOENP2's answer in piece 12 and files
+  # it as the V POV's .16; PROBLST answers "" only when its UPDATE^DIE failed.
+  # A V POV read back with no problem is therefore something that went wrong
+  # on the server, not a diagnosis without a problem, and the save is partial.
+  def test_a_pov_read_back_with_no_problem_link_is_a_partial_failure_naming_the_diagnosis
+    after = full_after
+    after["BGOVPOV GET"] = [ pov_row(ien: 301, icd: ICD, snomed: SNOMED, problem: "") ]
+    client = twin(before: empty_before, after: after)
+
+    result = save
+
+    refute result[:success], "a diagnosis whose V POV names no problem is not a complete save: #{result.inspect}"
+    assert_equal :partial, result[:error]
+    assert_equal VISIT, result[:visit_ien]
+    assert_equal [ { ien: 301, problem_ien: nil } ], result[:diagnoses].map { |d| d.slice(:ien, :problem_ien) },
+                 "the V POV that did file is reported, with no problem"
+    assert_equal [ { kind: :problem, icd: ICD, snomed: SNOMED } ], result[:not_filed].map { |e| e.slice(:kind, :icd, :snomed) },
+                 "what was not filed is the problem link, named by its diagnosis"
     assert_no_problem_rpc(client)
   end
 
