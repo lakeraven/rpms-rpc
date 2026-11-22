@@ -381,30 +381,74 @@ class EncounterSaveTest < Minitest::Test
 
   # --- the reply -------------------------------------------------------------
 
-  def test_a_server_error_row_is_a_refused_failure_carrying_the_row_and_nothing_is_read_back
-    client = twin(before: empty_before, after: full_after,
-                  save: "-1^The data associated with this visit may no longer be modified.")
+  # SAVE^BEHOENPC loops `Q:'IDX!DATA`: an error on line k answers -N^text and
+  # leaves lines before k filed. So a refusal is read back like a 0: the
+  # result carries the row as :refused, and names what did file. When the
+  # refusal came before anything filed (here FNDVIS^BEHOENCX could not
+  # resolve a visit, so STORE set DATA and quit), the after-state shows no
+  # visit and nothing is attributed to the call.
+  def test_a_server_error_row_is_a_refused_failure_carrying_the_row_and_what_filed_is_read_back
+    client = twin(before: empty_before, after: empty_before,
+                  save: "-1^Visit could not be created")
 
     result = save
 
     refute result[:success]
     assert_equal :refused, result[:error]
-    assert_equal "-1^The data associated with this visit may no longer be modified.", result[:raw]
+    assert_equal "-1^Visit could not be created", result[:raw]
     assert_nil result[:visit_ien]
-    assert_equal client.rpcs.size - 1, client.rpcs.index("BEHOENPC SAVE"),
-                 "after a refusal nothing is read back: #{client.rpcs.inspect}"
+    assert_equal [ [], [], [] ], result.values_at(:diagnoses, :procedures, :health_factors)
+    assert_nil result[:provider]
+    kinds = result[:not_filed].map { |e| e[:kind] }
+    %i[visit diagnosis procedure health_factor provider].each { |kind| assert_includes kinds, kind, result[:not_filed].inspect }
+    assert result[:may_have_filed], "the save was sent, so the caller is told it may have filed"
+    after_save = client.rpcs.drop(client.rpcs.index("BEHOENPC SAVE") + 1)
+    assert_includes after_save, "BEHOENCX FETCH", "a refusal is read back, since earlier lines may have filed: #{client.rpcs.inspect}"
+    client.sent("BEHOENCX FETCH").each { |call| assert_equal "0", call[:params][3].to_s, "FETCH is always CREATE=0: #{call.inspect}" }
     assert_no_problem_rpc(client)
   end
 
   def test_a_server_error_row_as_a_list_reply_is_the_same_refusal
-    client = twin(before: empty_before, after: full_after, save: [ "-1003^Visit entry does not exist" ])
+    client = twin(before: empty_before, after: empty_before, save: [ "-1003^Visit entry does not exist" ])
 
     result = save
 
     refute result[:success]
     assert_equal :refused, result[:error]
     assert_equal "-1003^Visit entry does not exist", result[:raw]
-    assert_equal client.rpcs.index("BEHOENPC SAVE"), client.rpcs.size - 1, "nothing is read back after a refusal"
+    assert_nil result[:visit_ien]
+    after_save = client.rpcs.drop(client.rpcs.index("BEHOENPC SAVE") + 1)
+    assert_includes after_save, "BEHOENCX FETCH", "a list-shaped refusal is read back like a string one"
+    assert_no_problem_rpc(client)
+  end
+
+  # A refusal on a later line: the visit, the provider and the first POV (with
+  # its problem) were filed before the CPT line failed; the HF line never ran.
+  # The result is still :refused with the row, and lists what filed and what
+  # did not (#921: "a partial save is a failure listing what was and was not
+  # filed", also when the server said -N^text).
+  def test_a_mid_list_refusal_reports_what_filed_before_the_failing_line
+    after = full_after
+    after["BGOVCPT GET"] = no_rows
+    after["BGOVHF GET"] = no_rows
+    client = twin(before: empty_before, after: after, save: "-1^The value is not valid for CPT")
+
+    result = save
+
+    refute result[:success]
+    assert_equal :refused, result[:error]
+    assert_equal "-1^The value is not valid for CPT", result[:raw]
+    assert_equal VISIT, result[:visit_ien], "the visit filed before the failing line is named"
+    assert_equal [ { ien: 301, icd: ICD, snomed: SNOMED, problem_ien: PROBLEM } ],
+                 result[:diagnoses].map { |d| d.slice(:ien, :icd, :snomed, :problem_ien) }, "the POV filed before the failing line is named"
+    assert_equal({ duz: DUZ, primary: true }, result[:provider].slice(:duz, :primary))
+    assert_equal [], result[:procedures]
+    assert_equal [], result[:health_factors]
+    assert_equal [ { kind: :procedure, cpt: CPT }, { kind: :health_factor, factor_ien: HF_IEN } ],
+                 result[:not_filed].map { |e| e.slice(:kind, :cpt, :factor_ien) }
+    assert result[:may_have_filed]
+    client.sent("BEHOENCX FETCH").each { |call| assert_equal "0", call[:params][3].to_s, "FETCH is always CREATE=0: #{call.inspect}" }
+    assert_no_problem_rpc(client)
   end
 
   def test_a_nil_reply_is_a_failure_not_a_success
