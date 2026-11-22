@@ -289,11 +289,22 @@ module RpmsRpc
     # the documented keys with the values it needs), :delimiter or
     # :missing_snomed (nothing sent); :snapshot_failed (the read before the
     # save failed, nothing sent); :no_reply, :refused (the server's -N^text
-    # row, in raw; nothing is read back) or :unexpected_reply; :no_visit,
+    # row, in raw; what filed before the failing line is read back and
+    # reported) or :unexpected_reply; :no_visit,
     # :partial (some entry not read back, or a diagnosis read back with no
     # problem link; what did file is still reported), :ambiguous, or
     # :read_back_failed (the save was sent and the read after it failed;
-    # read_back_error says why). may_have_filed is true whenever BEHOENPC
+    # read_back_error says why), or :save_failed (the save was sent and no
+    # reply came back: a dropped connection, a timeout or an M error).
+    #
+    # A SNOMED concept that maps to more than one ICD files one V POV per
+    # code (ADDICD^BEHOENP2), all with the diagnosis's narrative and problem;
+    # the extra ones are reported under the diagnosis as additional: [{ ien:,
+    # icd: }]. A health factor IEN the build has no entry for is filed as a
+    # dangling pointer; it is reported in not_filed (reason:
+    # :unknown_health_factor), never as filed. Sending the primary provider on
+    # an existing visit makes any other primary provider on it secondary
+    # (STORE^BEHOENPC sets .04 to P on the one sent). may_have_filed is true whenever BEHOENPC
     # SAVE was sent, including when the connection failed during it: the
     # caller must not assume nothing was filed.
     def save(dfn, location_ien:, datetime:, service_category:, provider_duz:,
@@ -326,6 +337,7 @@ module RpmsRpc
       mapping = DataMapper.encounter_save
       client = RpmsRpc.client
       sent = false
+      replied = false
       raw = nil
       mapping.in_context(client) do
         before = begin
@@ -335,8 +347,11 @@ module RpmsRpc
         end
         sent = true
         raw = save_reply(client.call_rpc(mapping.rpc_name, pcc, "0", location_ien.to_s))
+        replied = true
         next save_result(error: :no_reply, may_have_filed: true) if raw.nil?
-        next save_result(error: :refused, raw: raw, may_have_filed: true) if DataMapper.error_row?(raw)
+        if DataMapper.error_row?(raw)
+          next refused(raw, save_snapshot(dfn, vstr), before, provider_duz, diagnoses, procedures, health_factors)
+        end
         next save_result(error: :unexpected_reply, raw: raw, may_have_filed: true) unless raw == "0"
 
         after = save_snapshot(dfn, vstr)
@@ -347,7 +362,7 @@ module RpmsRpc
     rescue RpmsRpc::Error => e
       raise unless sent
 
-      save_result(error: :read_back_failed, raw: raw, may_have_filed: true,
+      save_result(error: replied ? :read_back_failed : :save_failed, raw: raw, may_have_filed: true,
                   read_back_error: RpmsRpc.sanitize_error("#{e.class.name.split('::').last}: #{e.message}"))
     end
     shape :save, resource: "encounters", verb: "POST", path: "/patients/{dfn}/encounters/pcc"
@@ -358,7 +373,7 @@ module RpmsRpc
       case datetime
       when Time, DateTime then FilemanDateParser.format_datetime(datetime)
       when Date then FilemanDateParser.format_date(datetime)
-      when String then datetime.strip.empty? ? nil : datetime
+      when String then datetime.match?(/\A\d{7}(\.\d{1,6})?\z/) ? datetime : nil
       end
     end
 
@@ -482,9 +497,12 @@ module RpmsRpc
     end
 
     # The rows on the visit that the save added.
+    # A V CPT is keyed by IEN and code: BGOVCPT GET also lists V DENTAL, V
+    # PROCEDURE and V TRANSACTION rows, whose IENs are another file's.
     def new_rows(before, after, key)
-      seen = before[key].map { |row| row[:ien].to_i }
-      after[key].select { |row| row[:visit_ien].to_i == after[:visit] && !seen.include?(row[:ien].to_i) }
+      id = key == :cpts ? ->(row) { [ row[:ien].to_i, row[:cpt_code].to_s ] } : ->(row) { row[:ien].to_i }
+      seen = before[key].map(&id)
+      after[key].select { |row| row[:visit_ien].to_i == after[:visit] && !seen.include?(id.(row)) }
     end
 
     def read_back(raw, before, after, provider_duz, diagnoses, procedures, health_factors)
@@ -499,17 +517,24 @@ module RpmsRpc
       not_filed = []
       unattributed = []
 
-      pov_rows = new_rows(before, after, :povs).sort_by { |row| row[:ien].to_i }
+      # A diagnosis's rows: its V POV and, for a concept that maps to more
+      # than one ICD, the extra V POVs ADDICD^BEHOENP2 files right after it
+      # with the same narrative and problem.
+      pov_groups = pov_groups(new_rows(before, after, :povs))
       pov_missing = []
-      filed_diagnoses = match_rows(pov_rows, diagnoses, pov_missing) do |row, d|
-        row[:provider_text].to_s.strip == d[:narrative].to_s.strip
-      end.map do |row, d|
+      filed_diagnoses = match_rows(pov_groups, diagnoses, pov_missing) do |group, d|
+        group.first[:provider_text].to_s.strip == d[:narrative].to_s.strip
+      end.map do |group, d|
+        row = group.first
         problem = row[:problem_ien].to_s.match?(POSITIVE_INTEGER) ? row[:problem_ien].to_i : nil
         not_filed << { kind: :problem, icd: d[:icd], snomed: d[:snomed] } unless problem
-        { ien: row[:ien].to_i, icd: row[:icd_code], snomed: d[:snomed], problem_ien: problem }
+        { ien: row[:ien].to_i, icd: row[:icd_code], snomed: d[:snomed], problem_ien: problem,
+          additional: group.drop(1).map { |extra| { ien: extra[:ien].to_i, icd: extra[:icd_code] } } }
       end
       not_filed.unshift(*pov_missing.map { |e| diagnosis_entry(e[:request]) })
-      unattributed.concat(leftover(pov_rows, filed_diagnoses, :diagnosis))
+      claimed = filed_diagnoses.flat_map { |d| [ d[:ien], *d[:additional].map { |a| a[:ien] } ] }
+      unattributed.concat(pov_groups.flatten.reject { |row| claimed.include?(row[:ien].to_i) }
+                                    .map { |row| { kind: :diagnosis, ien: row[:ien].to_i } })
 
       cpt_rows = new_rows(before, after, :cpts)
       cpt_missing = []
@@ -521,11 +546,14 @@ module RpmsRpc
 
       hf_rows = new_rows(before, after, :hfs)
       hf_missing = []
-      filed_factors = match_rows(hf_rows, health_factors, hf_missing) do |row, h|
+      matched_factors = match_rows(hf_rows, health_factors, hf_missing) do |row, h|
         row[:factor_ien].to_i == h[:ien].to_i
-      end.map { |row, h| { ien: row[:ien].to_i, factor_ien: h[:ien] } }
+      end
+      dangling, named = matched_factors.partition { |row, _h| row[:factor].to_s.strip.empty? }
+      filed_factors = named.map { |row, h| { ien: row[:ien].to_i, factor_ien: h[:ien] } }
+      not_filed.concat(dangling.map { |row, h| { kind: :health_factor, factor_ien: h[:ien], ien: row[:ien].to_i, reason: :unknown_health_factor } })
       not_filed.concat(hf_missing.map { |e| { kind: :health_factor, factor_ien: e[:request][:ien] } })
-      unattributed.concat(leftover(hf_rows, filed_factors, :health_factor))
+      unattributed.concat(leftover(hf_rows, matched_factors.map { |row, _h| { ien: row[:ien].to_i } }, :health_factor))
 
       primary_of = ->(rows) { rows.any? { |row| row[:duz].to_i == provider_duz.to_i && row[:primary] } }
       provider = primary_of.(after[:providers]) ? { duz: provider_duz.to_i, primary: true, pre_existing: primary_of.(before[:providers]) } : nil
@@ -538,6 +566,34 @@ module RpmsRpc
                            diagnoses: filed_diagnoses, procedures: filed_procedures,
                            health_factors: filed_factors, provider: provider, unattributed: unattributed)
       result.merge(success: error.nil?)
+    end
+
+    # A -N^text reply. SAVE^BEHOENPC stops at the line that failed and keeps
+    # the lines before it (the visit, the provider, earlier entries), so what
+    # did file is read back and reported; the error stays :refused.
+    def refused(raw, after, before, provider_duz, diagnoses, procedures, health_factors)
+      unless after[:visit]
+        not_filed = [ { kind: :visit } ] + diagnoses.map { |d| diagnosis_entry(d) } +
+                    procedures.map { |p| { kind: :procedure, cpt: p[:cpt] } } +
+                    health_factors.map { |h| { kind: :health_factor, factor_ien: h[:ien] } } +
+                    [ { kind: :provider, duz: provider_duz } ]
+        return save_result(error: :refused, raw: raw, may_have_filed: true, not_filed: not_filed)
+      end
+
+      read_back(raw, before, after, provider_duz, diagnoses, procedures, health_factors)
+        .merge(success: false, error: :refused, raw: raw)
+    end
+
+    # New V POVs in IEN order, a row with the same narrative and problem as
+    # the row before it joining that row's group (ADDICD^BEHOENP2's extra
+    # codes for one concept).
+    def pov_groups(rows)
+      rows.sort_by { |row| row[:ien].to_i }.each_with_object([]) do |row, groups|
+        last = groups.last&.first
+        same = last && !row[:problem_ien].to_s.empty? && row[:problem_ien].to_s == last[:problem_ien].to_s &&
+               row[:provider_text].to_s.strip == last[:provider_text].to_s.strip
+        same ? groups.last << row : groups << [ row ]
+      end
     end
 
     # New rows on the visit that no request claimed.

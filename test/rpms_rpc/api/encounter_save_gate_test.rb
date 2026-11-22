@@ -84,7 +84,8 @@ class EncounterSaveGateTest < EncounterSaveTest
 
     refute result[:success]
     assert result[:may_have_filed]
-    assert_equal :read_back_failed, result[:error]
+    assert_equal :save_failed, result[:error], "no reply came back from the save itself"
+    assert_nil result[:raw]
   end
 
   def test_gate_a_connection_failure_before_the_save_raises_and_nothing_is_sent
@@ -144,5 +145,56 @@ class EncounterSaveGateTest < EncounterSaveTest
 
     assert result[:success], result.inspect
     assert result[:provider][:pre_existing]
+  end
+
+  # A concept that maps to two ICDs (e.g. 301011002 -> B96.20;N39.0 on the
+  # pinned build) files a second V POV with the same narrative and problem
+  # (ADDICD^BEHOENP2). It belongs to the diagnosis, not to nobody.
+  def test_gate_a_concepts_extra_icd_row_is_reported_under_its_diagnosis
+    after = full_after.merge("BGOVPOV GET" => [ pov_row(ien: 301, icd: "B96.20", snomed: "", problem: 77),
+                                               pov_row(ien: 302, icd: "N39.0", snomed: "", primary: "S", problem: 77) ])
+    twin(before: empty_before, after: after)
+
+    result = save
+
+    assert result[:success], result.inspect
+    assert_equal [ { ien: 302, icd: "N39.0" } ], result[:diagnoses].first[:additional]
+    assert_equal [], result[:unattributed]
+  end
+
+  def test_gate_two_diagnoses_with_one_narrative_keep_their_own_rows
+    narrative = "SYNTH same narrative"
+    after = full_after.merge("BGOVPOV GET" => [ pov_row(ien: 301, icd: ICD, snomed: "", text: narrative, problem: 77),
+                                               pov_row(ien: 302, icd: "Z00.0", snomed: "", text: narrative, problem: 77),
+                                               pov_row(ien: 303, icd: ICD2, snomed: "", text: narrative, problem: 78) ])
+    twin(before: empty_before, after: after)
+
+    result = save(diagnoses: [ diagnosis(narrative: narrative), diagnosis(icd: ICD2, snomed: SNOMED2, narrative: narrative, primary: false) ])
+
+    assert result[:success], result.inspect
+    assert_equal [ [ 301, 77, [ 302 ] ], [ 303, 78, [] ] ],
+                 result[:diagnoses].map { |d| [ d[:ien], d[:problem_ien], d[:additional].map { |a| a[:ien] } ] }
+  end
+
+  def test_gate_a_health_factor_the_build_has_no_entry_for_is_never_reported_filed
+    after = full_after.merge("BGOVHF GET" => [ "^^11/22/2026^^^#{VISIT}^41^#{HF_IEN}^^0^^^^" ])
+    twin(before: empty_before, after: after)
+
+    result = save
+
+    refute result[:success]
+    assert_equal :partial, result[:error]
+    assert_equal [], result[:health_factors]
+    assert_equal [ { kind: :health_factor, factor_ien: HF_IEN, ien: 41, reason: :unknown_health_factor } ],
+                 result[:not_filed].select { |e| e[:kind] == :health_factor }
+  end
+
+  def test_gate_a_datetime_string_must_be_a_fileman_date_before_sending
+    client = twin(before: empty_before, after: full_after)
+
+    [ "11/22/2026", "3261122.", "326112", "today" ].each do |bad|
+      assert_equal :invalid, save(datetime: bad)[:error], bad
+    end
+    assert_empty client.calls
   end
 end
