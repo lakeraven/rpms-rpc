@@ -471,10 +471,10 @@ module RpmsRpc
       status = fields[:status]
       return [ fields, nil ] if status.nil? || status == ""
 
-      name = status.is_a?(String) && !status.include?("^") && STATUS_NAMES[status.downcase]
+      name = status.is_a?(String) && status.valid_encoding? && !status.include?("^") && STATUS_NAMES[status.downcase]
       return [ fields.merge(status: name), nil ] if name
 
-      [ fields, failure.merge(error: "status \"#{status}\" is not one BGOPROB SET files " \
+      [ fields, failure.merge(error: "status \"#{status.is_a?(String) ? status.scrub : status}\" is not one BGOPROB SET files " \
                                      "(#{STATUS_NAMES.values.uniq.join(', ')}, or A, I, S, E, O, R)") ]
     end
 
