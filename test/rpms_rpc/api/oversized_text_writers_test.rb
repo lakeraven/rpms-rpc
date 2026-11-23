@@ -98,8 +98,9 @@ class OversizedTextWritersTest < Minitest::Test
   def skip_problem_ownership_read
     skip_context_binding
     # A singleton stub, removed after, so the private module method is not left public.
-    RpmsRpc::Problem.define_singleton_method(:refuse_unless_patients) { |_dfn, _ien| nil }
-    @restore << -> { RpmsRpc::Problem.singleton_class.remove_method(:refuse_unless_patients) }
+    # The patient check answers the problem as this patient's, status A.
+    RpmsRpc::Problem.define_singleton_method(:patients_problem) { |dfn, _ien| [ { ".02" => dfn.to_s, ".12" => "A" }, nil ] }
+    @restore << -> { RpmsRpc::Problem.singleton_class.remove_method(:patients_problem) }
   end
 
   def assert_refused(result, limit, text)
@@ -124,7 +125,7 @@ class OversizedTextWritersTest < Minitest::Test
       skip_context_binding
       limit = send(user)
       text = long_for(limit)
-      result = RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: text)
+      result = RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: text, modifiers: { problem_ien: "77" })
       assert_refused(result, limit, text)
       assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
     end
@@ -376,7 +377,7 @@ class OversizedTextWritersTest < Minitest::Test
     },
     "allergy_no_known" => -> { RpmsRpc::Allergy.no_known_allergies("8791") },
     "progress_note" => -> { RpmsRpc::ProgressNote.update_text("5001", "ok") },
-    "pov" => -> { RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: "ok") },
+    "pov" => -> { RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: "ok", modifiers: { problem_ien: "77" }) },
     "procedure" => -> { RpmsRpc::Procedure.add("8791", "2090060", "99213") },
     "problem_delete" => -> { RpmsRpc::Problem.delete("8791", "77", reason: "ok") },
     "problem_add" => -> { RpmsRpc::Problem.add("8791", { icd_code: "250.00", location_ien: "1", description: "ok" }) },

@@ -60,7 +60,7 @@ class BgoWriteRebindTest < Minitest::Test
     client = script("BGOVPOV SET" => "9001")
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, "I10",
-      narrative: "Essential hypertension", modifiers: { primary: true })
+      narrative: "Essential hypertension", modifiers: { primary: true, problem_ien: "77" })
 
     call = client.calls.find { |c| c[:rpc] == "BGOVPOV SET" }
     refute_nil call, "Pov.add must call BGOVPOV SET (SET^BGOVPOV — BGOVPOV.m:291), " \
@@ -80,7 +80,7 @@ class BgoWriteRebindTest < Minitest::Test
     client = script("BGOVPOV SET" => "9001")
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, "S93.4", narrative: "Ankle sprain",
-      modifiers: { injury_cause: "W01.0" })
+      modifiers: { injury_cause: "W01.0", problem_ien: "77" })
 
     call = client.calls.last
     assert_equal "W01.0", call[:params][2].split("^", -1)[0],
@@ -91,7 +91,7 @@ class BgoWriteRebindTest < Minitest::Test
     # CHKVISIT^BGOUTL: ERR(1002) no visit / ERR(1003) bad visit (BGOUTL.m:283-284)
     script("BGOVPOV SET" => "-1003^Visit entry does not exist")
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, "I10", narrative: "HTN")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, "I10", narrative: "HTN", modifiers: { problem_ien: "77" })
     refute result[:success]
     assert_nil result[:ien]
   end

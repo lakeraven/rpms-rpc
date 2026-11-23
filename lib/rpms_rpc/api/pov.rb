@@ -49,7 +49,14 @@ module RpmsRpc
     end
     shape :for_visit, resource: "purposes-of-visit", verb: "GET", path: "/visits/{visit_ien}/purposes-of-visit"
 
-    # Add a POV to an open visit.
+    # File a visit diagnosis from a problem-list entry (BGOVPOV SET). The
+    # problem is required: GETDATA^BGOVPOV2 walks ^AUPNPROB(PROB,13,...) with
+    # the problem sent, and with none the build errors with a null subscript
+    # (rpms-rpc#922). A call without modifiers[:problem_ien] is refused with
+    # the failure hash, naming it, before anything is sent. A visit diagnosis
+    # with no problem goes through Encounter.save (BEHOENPC SAVE). On the
+    # pinned build the diagnosis also needs its SNOMED concept (:snomed_ct):
+    # without one SET2^BGOVPOV2 refuses the ICD code (-1092).
     #
     # INP layout (BGOVPOV.m:285-286; parsed :298-303): VPOV IEN[1]^
     # Visit IEN[2]^Problem IEN[3]^Patient IEN[4]^Prov Text[5]^
@@ -63,6 +70,9 @@ module RpmsRpc
     # (13), :fracture (14), :injury_cause (INJ piece 1).
     def add(dfn, visit_ien, diagnosis_code, narrative:, modifiers: {})
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(diagnosis_code)
+      if invalid_id?(modifiers[:problem_ien])
+        return failure.merge(error: "modifiers[:problem_ien] is required: BGOVPOV SET files a diagnosis from a problem-list entry")
+      end
 
       diagnosis_role =
         if modifiers[:primary] then "P"
