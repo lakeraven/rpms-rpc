@@ -142,6 +142,15 @@
 "RpmsRpc::Coverage.for_patient": read
 "RpmsRpc::Coverage.insurers": read
 "RpmsRpc::Coverage.on_file": read
+"RpmsRpc::Crs.community_taxonomy": read
+"RpmsRpc::Crs.indicators": read
+"RpmsRpc::Crs.queue_national_gpra": non_idempotent_write
+"RpmsRpc::Crs.queue_patient_lists": non_idempotent_write
+"RpmsRpc::Crs.report_output": read
+"RpmsRpc::Crs.report_status": non_idempotent_write
+"RpmsRpc::Crs.site_parameters": read
+"RpmsRpc::Crs.taxonomies": read
+"RpmsRpc::Crs.wait_for_report": non_idempotent_write
 "RpmsRpc::DdrFileman.filer": non_idempotent_write
 "RpmsRpc::DdrFileman.filer_params": read
 "RpmsRpc::DdrFileman.gets_entry": read

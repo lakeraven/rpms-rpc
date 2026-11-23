@@ -162,6 +162,16 @@
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
+    "RpmsRpc::Crs": [
+      "BGPG 25 CHECK REPORT STATUS",
+      "BGPG 25 CHK COMM TAX NTL",
+      "BGPG 25 GET NATIONAL GPRA",
+      "BGPG 25 GET SITE PARAMETERS",
+      "BGPG 25 GET TAXONOMY",
+      "BGPG 25 GPRA INDICATORS",
+      "BGPG 25 NATIONAL GPRA LISTS",
+      "BGPG 25 NATIONAL GPRA RPT NTL"
+    ],
     "RpmsRpc::DdrFileman": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
@@ -1746,6 +1756,71 @@
         "RpmsRpc::ClinicalReview.record": "non_idempotent_write"
       },
       "replies": []
+    },
+    "BGPG 25 CHECK REPORT STATUS": {
+      "methods": {
+        "RpmsRpc::Crs.report_status": "non_idempotent_write",
+        "RpmsRpc::Crs.wait_for_report": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 CHK COMM TAX NTL": {
+      "methods": {
+        "RpmsRpc::Crs.community_taxonomy": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 GET NATIONAL GPRA": {
+      "methods": {
+        "RpmsRpc::Crs.report_output": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 GET SITE PARAMETERS": {
+      "methods": {
+        "RpmsRpc::Crs.site_parameters": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 GET TAXONOMY": {
+      "methods": {
+        "RpmsRpc::Crs.taxonomies": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 GPRA INDICATORS": {
+      "methods": {
+        "RpmsRpc::Crs.indicators": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 NATIONAL GPRA LISTS": {
+      "methods": {
+        "RpmsRpc::Crs.queue_patient_lists": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
+    },
+    "BGPG 25 NATIONAL GPRA RPT NTL": {
+      "methods": {
+        "RpmsRpc::Crs.queue_national_gpra": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgpg-crs.yml"
+      ]
     },
     "BGU MAILMAN MESSAGE": {
       "methods": {
