@@ -692,10 +692,10 @@ captures:
   rpc: BGPG 25 CHECK REPORT STATUS
   inputs:
   - '4'
-  context: 'the operator''s CRS reports (the two just queued are still running, and
-    read ERRORED: JOBPAR^%ZOSV does not recognise a yottadb process, openrpms#1305),
-    then the output of the first completed patient-list report: synthetic patients
-    under Diabetes Prevalence'
+  context: 'the operator''s CRS reports (of the two just queued, the one whose job
+    is running reads ERRORED, because JOBPAR^%ZOSV does not recognise a yottadb process
+    (openrpms#1305), and the other RUNNING), then the output of the first completed
+    patient-list report: synthetic patients under Diabetes Prevalence'
   raw_return: "5\0T00007BMXIEN^T00060Name^T00030User^T00030Start Time^T00030End Time^T00030Type
     of Report^T00020Report Status^T00020Type of Output^T00250Export File(s)^T00020Start
     Time Internal^T00020End Time Internal\x1E7^SYNTH NPL CAPTURE^MANAGER,SYSTEM^11/23/2026
@@ -715,10 +715,10 @@ captures:
   rpc: BGPG 25 GET NATIONAL GPRA
   inputs:
   - '5'
-  context: 'the operator''s CRS reports (the two just queued are still running, and
-    read ERRORED: JOBPAR^%ZOSV does not recognise a yottadb process, openrpms#1305),
-    then the output of the first completed patient-list report: synthetic patients
-    under Diabetes Prevalence'
+  context: 'the operator''s CRS reports (of the two just queued, the one whose job
+    is running reads ERRORED, because JOBPAR^%ZOSV does not recognise a yottadb process
+    (openrpms#1305), and the other RUNNING), then the output of the first completed
+    patient-list report: synthetic patients under Diabetes Prevalence'
   raw_return: "6\0T00250DATA\x1E\x1E\x1E\x1E\x1E\x1E                             Data
     Sensitivity Label                             \x1E\x1ESensitivity Level (Circle
     one):  Sensitive Private Classified\x1EType of data contained on this media:  Controlled

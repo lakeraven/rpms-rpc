@@ -136,7 +136,9 @@ module RpmsRpc
     #   the signed-on division (DUZ(2))
     # @return [Array<Hash>] one { ien:, location:, home_location:,
     #   community_taxonomy:, eiss: } per BGP SITE PARAMETERS entry, each pointer
-    #   { ien:, name: } or nil when unset; [] when the division has no entry
+    #   { ien:, name: } or nil when unset; [] when the division has no entry.
+    #   eiss: is the 1/0 SP^BGPXGU computes from .08 *MFI SITE?, not .04
+    #   INCLUDE DATA IN WEB EISS? (whose Y/N the report entry needs)
     def site_parameters(location: nil)
       site = location.nil? ? "" : positive_ien!(location, "location")
       table(DataMapper.crs_site_parameters, site).map do |row|

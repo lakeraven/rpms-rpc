@@ -21,8 +21,10 @@ require "rpms_rpc/api/crs"
 # taxonomy ien that is not on file: the patient-list refusal is the bare row 0
 # (NPL^BGPXGR answers +$G(BGPERR)), the National GPRA refusal keeps its
 # reason. The completed-list flow reads the operator's reports and the output
-# of the first completed patient-list report. The reports this run queued
-# are listed ERRORED while they run (openrpms#1305).
+# of the first completed patient-list report. Of the two this run queued, the
+# one whose TaskMan job was running reads ERRORED (JOBPAR^%ZOSV does not
+# recognise a yottadb process, openrpms#1305) and the one not yet started
+# reads RUNNING.
 CAPTURE = {
   rpc: "BGPG 25 GET SITE PARAMETERS", entry_point: "SP^BGPXGU",
   signed_on_as: "SYS123 (the build's operator, MANAGER,SYSTEM; DUZ 4), the one account that can run BGPGRPC",
@@ -74,9 +76,10 @@ CAPTURE = {
       end
     },
     "completed_patient_list" => {
-      about: "the operator's CRS reports (the two just queued are still running, and read ERRORED: JOBPAR^%ZOSV " \
-             "does not recognise a yottadb process, openrpms#1305), then the output of the first completed " \
-             "patient-list report: synthetic patients under Diabetes Prevalence",
+      about: "the operator's CRS reports (of the two just queued, the one whose job is running reads ERRORED, " \
+             "because JOBPAR^%ZOSV does not recognise a yottadb process (openrpms#1305), and the other RUNNING), " \
+             "then the output of the first completed patient-list report: synthetic patients under Diabetes " \
+             "Prevalence",
       run: lambda {
         done = RpmsRpc::Crs.report_status.find { |r| r[:status] == "COMPLETED" && r[:type] == "CRS 25 NPL" }
         abort "no completed CRS 25 NPL report on the container; run one before capturing" if done.nil?
