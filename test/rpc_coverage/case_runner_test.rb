@@ -34,7 +34,7 @@ class CaseRunnerTest < Minitest::Test
   end
 
   def row(id, rpc, expect: "answered", params: [], **extra)
-    { "id" => id, "rpc" => rpc, "context" => "CIAV VUECENTRIC", "persona" => "programmer",
+    { "id" => id, "rpc" => rpc, "context" => "CIAV VUECENTRIC", "role" => "operator",
       "params" => params, "expect" => expect }.merge(extra.transform_keys(&:to_s))
   end
 
@@ -114,6 +114,14 @@ class CaseRunnerTest < Minitest::Test
     assert(problems.any? { |p| p.include?("expect \"maybe\"") })
     assert(problems.any? { |p| p.include?("not lower-case-hyphenated") })
     assert(problems.any? { |p| p.include?("unknown keys extra") })
+  end
+
+  # A case names the test role its leg signs on as; the labels of before roles are not roles.
+  def test_a_case_names_a_test_role
+    assert_empty Cases.problems([ row("a", "X", role: "provider") ])
+    assert_equal [ "a: role \"least_privilege\" is not a test role (#{RpmsRpc::TestRoles.names.join(', ')})" ],
+                 Cases.problems([ row("a", "X", role: "least_privilege") ])
+    assert_includes Cases.problems([ row("a", "X").merge("persona" => "programmer").except("role") ]), "a: missing role"
   end
 
   def test_a_case_from_a_client_trace_names_its_scenario_and_trace

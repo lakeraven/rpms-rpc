@@ -2,12 +2,14 @@
 
 require "minitest/autorun"
 require "json"
+require "tmpdir"
+require "fileutils"
 require "rpms_rpc"
 require_relative "../../tools/rpc_inventory/rpc_inventory"
 
 # tools/rpc_inventory, behind `rake rpc:inventory`. The fixtures are real assets of lakeraven/openrpms as published
 # for bcer-9.0-20261116-2a9b3fe on both engines, byte for byte: <tag>-rpcs.json (gzipped with `gzip -9 -n`),
-# <tag>-rpms-rpc-live.json, <tag>-harness.json and both <tag>-conformance-<persona>.jsonl. rpms-rpc's side is this
+# <tag>-rpms-rpc-live.json, <tag>-harness.json and both <tag>-conformance-<label>.jsonl (-programmer and -least_privilege: they were gated before roles). rpms-rpc's side is this
 # checkout, read the way rake rpc:api_coverage reads it.
 class RpcInventoryTest < Minitest::Test
   I = RpcInventory
@@ -52,6 +54,24 @@ class RpcInventoryTest < Minitest::Test
     assert_equal %w[read get wrapper], r.values_at("read_write", "operation", "operation_source")
     refute_empty r["live_tests"]
     assert_equal "least_privilege=answered;programmer=answered", r["wire_cases_iris"]
+  end
+
+  # A release gated since roles carries -conformance-operator and -provider; with both sets on it (a release
+  # gated before roles, then gated again), the roles' records are the ones read. The records are the fixture's
+  # own, under the names the gate writes now.
+  def test_a_release_gated_since_roles_shows_each_leg_by_its_role
+    Dir.mktmpdir("rpc-inventory-roles") do |dir|
+      Dir[File.join(DIR, "#{IRIS}-*")].each { |f| FileUtils.cp(f, dir) }
+      { "programmer" => "operator", "least_privilege" => "provider" }.each do |legacy, role|
+        FileUtils.cp(File.join(DIR, "#{IRIS}-conformance-#{legacy}.jsonl"), File.join(dir, "#{IRIS}-conformance-#{role}.jsonl"))
+      end
+      release = I.load_release(dir, IRIS)
+      assert_equal %w[operator provider], release.cases.keys
+      assert_equal "operator=answered;provider=answered", I.wire_cells(release)["ORWU USERINFO"]
+      FileUtils.rm(Dir[File.join(dir, "#{IRIS}-conformance-*.jsonl")])
+      assert_nil I.case_labels(dir, IRIS)
+      assert_empty I.load_release(dir, IRIS).cases
+    end
   end
 
   # A known row on YottaDB: ORWRP REPORT TEXT passed on IRIS and failed on YottaDB in the same build's live run.

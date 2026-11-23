@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
 # Run openrpms' wire-level conformance cases against ONE live CIA broker (openrpms#834):
-# `rake rpc:cases`. The cases are data (see case_runner.rb); this signs on, reads the persona from
-# who signed on (#397), runs the rows written for that persona and writes one verdict per case.
+# `rake rpc:cases`. The cases are data (see case_runner.rb); this signs on as a test role, refuses
+# an account that is not the role's or whose XUPROGMODE disagrees with its row, runs the rows
+# written for that role and writes one verdict per case.
 #
-# Env: CASES (path to cases.jsonl), BROKER_HOST (default 127.0.0.1), BROKER_PORT, RPMS_ACCESS,
-#      RPMS_VERIFY, PERSONA (optional expectation: least_privilege or programmer), CASE_TIMEOUT (45 s),
+# Env: CASES (path to cases.jsonl), BROKER_HOST (default 127.0.0.1), BROKER_PORT,
+#      ROLE (the test role, README, Test roles), RPMS_ACCESS, RPMS_VERIFY (optional: the pair, when the
+#      target's differs from the role's published one; ROLE=operator needs RPMS_VERIFY), CASE_TIMEOUT (45 s),
 #      OUT (optional: write the verdicts there, one JSON object per line)
-# Exit: 0 = every case of the persona gave its expected verdict; 1 = anything else.
+# Exit: 0 = every case of the role gave its expected verdict; 1 = anything else.
 # The access and verify codes are read from the environment and never written.
 require "json"
 
@@ -17,11 +19,14 @@ require "rpms_rpc/cia_client"
 require_relative "case_runner"
 
 cases_path = ENV.fetch("CASES")
-expected = RpcCoverage.expected_persona(ENV["PERSONA"])
+begin
+  role = RpcCoverage.run_role(ENV)
+  access, verify = RpcCoverage.sign_on_pair(role, ENV)
+rescue RpcCoverage::Error => e
+  abort("!! #{e.message}")
+end
 host = ENV.fetch("BROKER_HOST", "127.0.0.1")
 port = Integer(ENV.fetch("BROKER_PORT"))
-access = ENV.fetch("RPMS_ACCESS")
-verify = ENV.fetch("RPMS_VERIFY")
 out = ENV["OUT"].to_s
 
 rows = RpcCoverage::Cases.load(cases_path)
@@ -45,15 +50,14 @@ end
 
 client = connect.call
 progmode = RpcCoverage.holds_progmode?(client.call_rpc_lines("ORWU HASKEY", "XUPROGMODE"))
-persona = RpcCoverage.persona_of(holds_progmode: progmode)
-if (problem = RpcCoverage.persona_problem(expected, persona))
+if (problem = RpcCoverage.signed_on_problem(role, user: client.signon_user, holds_progmode: progmode))
   abort("!! #{problem}")
 end
-mine = rows.select { |r| r["persona"] == persona }
-abort("!! #{cases_path} has no case for persona #{persona}") if mine.empty?
+mine = rows.select { |r| r["role"] == role.name.to_s }
+abort("!! #{cases_path} has no case for role #{role.name}") if mine.empty?
 duz = client.duz.to_s
-puts "cases: #{cases_path} (#{mine.size} for #{persona}, #{rows.size - mine.size} for other personas)"
-puts "signed on: DUZ=#{duz} persona=#{persona} (XUPROGMODE #{progmode ? 'held' : 'not held'})"
+puts "cases: #{cases_path} (#{mine.size} for #{role.name}, #{rows.size - mine.size} for other roles)"
+puts "signed on: DUZ=#{duz} role=#{role.name} (#{role.account}; XUPROGMODE #{progmode ? 'held' : 'not held'})"
 
 runner = RpcCoverage::Cases::Runner.new(mine, duz: duz, connect: connect,
                                               timeout: Integer(ENV.fetch("CASE_TIMEOUT", "45")))
