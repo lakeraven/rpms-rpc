@@ -33,14 +33,15 @@ module RpmsRpc
     #                              onset_date:, stage:, revisit:, cause:,
     #                              injury_date:, external_cause:, place_of_injury:,
     #                              primary_or_secondary:, provider_name:, visit_ien:,
-    #                              visit_locked:, asthma_control:, snomed_ct:,
+    #                              visit_locked:, asthma_control:, snomed_description:,
     #                              provider_text:, qualifiers:, problem_ien:,
     #                              e_code:, icd_name:, icd_ien:, normal_abnormal:,
-    #                              laterality: }, ...]
+    #                              laterality:, fracture: }, ...]
     #
     # ien is the V POV (#9000010.07) IEN; the dates are Dates; qualifiers
-    # and laterality are the "|"-joined pieces as sent. A -n^text reply
-    # raises Client::RpcError.
+    # and fracture are the "|"-joined pieces as sent. snomed_description is
+    # the SNOMED concept's description: the row does not carry its concept
+    # ID (rpms-rpc#927). A -n^text reply raises Client::RpcError.
     def for_visit(visit_ien)
       return [] if invalid_id?(visit_ien)
 
