@@ -3,6 +3,7 @@
 require "date"
 require_relative "../client"
 require_relative "../context_scope"
+require_relative "../mappings"
 require_relative "../fileman_date_parser"
 require_relative "../shape"
 
@@ -50,21 +51,17 @@ module RpmsRpc
   # report_status lists the signed-on user's entries; wait_for_report polls it
   # until the report completes, errors, disappears or the caller's timeout
   # passes. report_output reads the finished report's lines.
+  #
+  # ## The RPC names
+  #
+  # The RPC names and their option come from the crs_* DataMapper mappings
+  # (mappings/ihs.rb), the one place they are written down.
   module Crs
     extend self
     extend Shape::Declarable
 
-    # The one option the BGPG 25 RPCs are registered under.
-    CONTEXT = "BGPGRPC"
-
-    SITE_PARAMETERS_RPC = "BGPG 25 GET SITE PARAMETERS"
-    COMMUNITY_TAXONOMY_RPC = "BGPG 25 CHK COMM TAX NTL"
-    TAXONOMIES_RPC = "BGPG 25 GET TAXONOMY"
-    INDICATORS_RPC = "BGPG 25 GPRA INDICATORS"
-    NATIONAL_GPRA_RPC = "BGPG 25 NATIONAL GPRA RPT NTL"
-    PATIENT_LISTS_RPC = "BGPG 25 NATIONAL GPRA LISTS"
-    REPORT_STATUS_RPC = "BGPG 25 CHECK REPORT STATUS"
-    REPORT_OUTPUT_RPC = "BGPG 25 GET NATIONAL GPRA"
+    # The one option the BGPG 25 RPCs are registered under (the crs_* mappings').
+    CONTEXT = DataMapper.crs_site_parameters.bound_context
 
     # The package namespace GETTAX^BGPXGT looks up in ^DIC(9.4,"C"): CRS.
     PACKAGE = "BGP"
@@ -84,6 +81,13 @@ module RpmsRpc
     COMPLETED = "COMPLETED"
     ERRORED = "ERRORED"
 
+    # The report name is the .01 of BGP 25 GUI REPORT OUTPUT (#90569.19), whose
+    # input transform is K:$L(X)>60!($L(X)<3)!'(X'?1P.E) X: 3 to 60
+    # characters, the first not punctuation (M's P class, which includes the
+    # space). Confirmed through DDR VALIDATOR on the pinned build.
+    NAME_LENGTH = (3..60)
+    M_PUNCTUATION = /\A[ -\/:-@\[-`{-~]/
+
     DELIMITERS = /[|~^]/
     RECORD_SEP = "\x1e" # $C(30), after every node
     ARRAY_END = "\x1f"  # $C(31), the end node
@@ -96,7 +100,8 @@ module RpmsRpc
     class Error < RpmsRpc::Error; end
     # CRS trapped an M error (the MError table, or an ERROR| row).
     class ServerError < Error; end
-    # The reply was not the table the RPC answers (no typed header, no reply).
+    # The reply was not the table the RPC answers (no reply, no typed header,
+    # or a row whose piece count is not the header's column count).
     class ReplyError < Error; end
     # CRS refused to queue the report (0 or 0^reason).
     class QueueRefusedError < Error; end
@@ -106,14 +111,25 @@ module RpmsRpc
     # Not a broker timeout: the broker answered every poll.
     class TimeoutError < Error; end
 
-    # BGPG 25 GET SITE PARAMETERS (SP^BGPXGU). location: a LOCATION (#4) ien,
-    # or nil for the signed-on division (DUZ(2)). One hash per BGP SITE
-    # PARAMETERS entry: { ien:, location:, home_location:, community_taxonomy:,
-    # eiss: }, each pointer { ien:, name: } or nil when unset. [] when the
-    # division has no entry.
+    # The process's monotonic clock, and a real sleep.
+    class Clock
+      def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      def pause(seconds) = sleep(seconds)
+    end
+    CLOCK = Clock.new
+    private_constant :Clock, :CLOCK
+
+    # BGPG 25 GET SITE PARAMETERS (SP^BGPXGU).
+    #
+    # @param location [Integer, String, nil] a LOCATION (#4) ien, or nil for
+    #   the signed-on division (DUZ(2))
+    # @return [Array<Hash>] one { ien:, location:, home_location:,
+    #   community_taxonomy:, eiss: } per BGP SITE PARAMETERS entry, each pointer
+    #   { ien:, name: } or nil when unset; [] when the division has no entry
     def site_parameters(location: nil)
       site = location.nil? ? "" : positive_ien!(location, "location")
-      table(SITE_PARAMETERS_RPC, site).map do |row|
+      table(DataMapper.crs_site_parameters, site).map do |row|
         { ien: row[0].to_i, location: pointer(row[1]), home_location: pointer(row[2]),
           community_taxonomy: pointer(row[3]), eiss: row[4].to_s == "1" }
       end
@@ -122,100 +138,119 @@ module RpmsRpc
 
     # BGPG 25 CHK COMM TAX NTL (COMCHK^BGPXGUA): the warnings CRS raises about
     # a community taxonomy, one per community that is in the taxonomy but not
-    # in the standard community table. It does not list the communities; a
-    # clean taxonomy answers no warnings. taxonomy: a TAXONOMY ien (a positive
-    # integer; COMCHK traps on anything else, so it is refused before sending).
-    # Returns { taxonomy_ien:, warnings: [String] }.
+    # in the standard community table. It does not list the communities.
+    #
+    # No warnings is not verification that the taxonomy exists: COMCHK answers
+    # the bare header for a taxonomy ien that is not on file, exactly as it
+    # does for a clean taxonomy. Take the ien from site_parameters.
+    #
+    # @param taxonomy [Integer, String] a TAXONOMY ien, a positive integer
+    #   (COMCHK traps on anything else, so it is refused before sending)
+    # @return [Hash] { taxonomy_ien:, warnings: [String] }
     def community_taxonomy(taxonomy)
       ien = positive_ien!(taxonomy, "community taxonomy")
-      warnings = table(COMMUNITY_TAXONOMY_RPC, ien).map(&:first)
+      warnings = table(DataMapper.crs_community_taxonomy_check, ien).map(&:first)
       { taxonomy_ien: ien.to_i, warnings: warnings }
     end
     shape :community_taxonomy, resource: "crs", verb: "GET", path: "/crs/community-taxonomies/{taxonomy}"
 
     # BGPG 25 GET TAXONOMY (GETTAX^BGPXGT, package BGP): the CRS taxonomies and
-    # their state. One hash per taxonomy: { name:, read_only:, kind: ("Tax",
-    # "Med" or "Lab"), file: (the file number as a String) }. Community
-    # taxonomies are not package taxonomies and are not listed.
+    # their state. Community taxonomies are not package taxonomies and are not
+    # listed.
+    #
+    # @return [Array<Hash>] one { name:, read_only:, kind: ("Tax", "Med" or
+    #   "Lab"), file: (the file number as a String) } per taxonomy
     def taxonomies
-      table(TAXONOMIES_RPC, PACKAGE).map do |row|
-        text = row.join("^")
+      mapping = DataMapper.crs_taxonomies
+      table(mapping, PACKAGE).map do |(text)|
         m = text.match(TAXONOMY_ROW)
-        raise ReplyError, "#{TAXONOMIES_RPC}: a row is not NAME(state/kind/file)" if m.nil?
+        raise ReplyError, "#{mapping.rpc_name}: a row is not NAME(state/kind/file)" if m.nil?
 
         { name: m[:name], read_only: m[:state] == "Read Only", kind: m[:kind], file: m[:file] }
       end
     end
     shape :taxonomies, resource: "crs", verb: "GET", path: "/crs/taxonomies"
 
-    # BGPG 25 GPRA INDICATORS (GI^BGPXGT, report type 1): the National GPRA
-    # measures, [{ ien:, name: }] (BGP 25 INDICATORS iens).
+    # BGPG 25 GPRA INDICATORS (GI^BGPXGT, report type 1).
+    #
+    # @return [Array<Hash>] the National GPRA measures, { ien:, name: } (BGP 25
+    #   INDICATORS iens)
     def indicators
-      table(INDICATORS_RPC, NATIONAL_GPRA).map { |row| { ien: row[0].to_i, name: row[1].to_s } }
+      table(DataMapper.crs_indicators, NATIONAL_GPRA).map { |row| { ien: row[0].to_i, name: row[1].to_s } }
     end
     shape :indicators, resource: "crs", verb: "GET", path: "/crs/indicators"
 
     # BGPG 25 NATIONAL GPRA RPT NTL (NTL^BGPXGR -> EP^BGPXGNTL): queue the
-    # National GPRA report for the current CRS year.
+    # National GPRA report for the current CRS year. A write: the request is
+    # filed and a TaskMan task queued.
     #
-    #   community_taxonomy: the community TAXONOMY ien
-    #   name:               the report's name (.01 of BGP 25 GUI REPORT OUTPUT)
-    #   export_to_area:     true to write the Area export file
-    #   output:             :printed (default), :delimited or :both
-    #   run_at:             a Time to start at; nil starts now
-    #
-    # Returns { report_ien:, raw: }. Raises QueueRefusedError naming CRS's
-    # reason when it answers 0^reason. A write: the request is filed and a
-    # TaskMan task queued.
+    # @param community_taxonomy [Integer, String] the community TAXONOMY ien
+    # @param name [String] the report's name, the .01 of BGP 25 GUI REPORT
+    #   OUTPUT: 3 to 60 characters, not starting with punctuation or a space
+    # @param export_to_area [Boolean] true to write the Area export file
+    # @param output [Symbol] :printed (default), :delimited or :both
+    # @param run_at [Time, nil] when TaskMan starts it; nil starts now. It is
+    #   formatted from the Time's own clock fields, and TaskMan reads it in the
+    #   server's local time, so pass a Time in the server's zone.
+    # @return [Hash] { report_ien:, raw: }
+    # @raise [QueueRefusedError] naming CRS's reason when it answers 0^reason
     def queue_national_gpra(community_taxonomy:, name:, export_to_area: false, output: :printed, run_at: nil)
+      raise ArgumentError, "export_to_area must be true or false (got #{export_to_area.inspect})" unless [ true, false ].include?(export_to_area)
+
       pieces = [ positive_ien!(community_taxonomy, "community taxonomy"), export_to_area ? "1" : "0", output!(output), "",
                  run_time(run_at), "", "", "", name!(name), "" ]
-      queued(NATIONAL_GPRA_RPC, name, table(NATIONAL_GPRA_RPC, pieces.join("|")))
+      queue(DataMapper.crs_national_gpra_queue, name, pieces.join("|"))
     end
     shape :queue_national_gpra, resource: "crs", verb: "POST", path: "/crs/reports/national-gpra"
 
     # BGPG 25 NATIONAL GPRA LISTS (NPL^BGPXGR -> EP^BGPXGNPL): queue National
-    # GPRA patient lists.
+    # GPRA patient lists. A write, like queue_national_gpra.
     #
-    #   community_taxonomy: the community TAXONOMY ien
-    #   name:               the report's name
-    #   lists:              { measure ien => [patient list iens] } (BGP 25
-    #                       INDICATORS => BGP 25 NATIONAL PATIENT LISTS)
-    #   period:             { ends: Date } for the year ending that day, or
-    #                       { year:, quarter: 1..4 } for a report year
-    #   baseline_year:      the baseline year (Integer, e.g. 2010)
-    #   population:         :aian, :non_aian or :all
-    #   provider:           a provider (NEW PERSON) ien to list only that
-    #                       provider's patients; nil lists all patients
-    #   output:             :printed (default), :delimited or :both
-    #   run_at:             a Time to start at; nil starts now
-    #
-    # Returns { report_ien:, raw: }. NPL answers only the number of its
-    # refusal, so a refusal raises QueueRefusedError without CRS's reason.
+    # @param community_taxonomy [Integer, String] the community TAXONOMY ien
+    # @param name [String] the report's name (see queue_national_gpra)
+    # @param lists [Hash{Integer=>Array<Integer>}] measure ien => an Array of
+    #   patient list iens (BGP 25 INDICATORS => BGP 25 NATIONAL PATIENT LISTS);
+    #   each measure once
+    # @param period [Hash] { ends: Date } for the year ending that day, or
+    #   { year:, quarter: 1..4 } for a report year
+    # @param baseline_year [Integer] the baseline year (e.g. 2010); not later
+    #   than the period's year
+    # @param population [Symbol] :aian, :non_aian or :all
+    # @param provider [Integer, String, nil] a provider (NEW PERSON) ien to list
+    #   only that provider's patients; nil lists all patients
+    # @param output [Symbol] :printed (default), :delimited or :both
+    # @param run_at [Time, nil] as queue_national_gpra's
+    # @return [Hash] { report_ien:, raw: }
+    # @raise [QueueRefusedError] NPL answers only the number of its refusal, so
+    #   the error carries no reason from CRS
     def queue_patient_lists(community_taxonomy:, name:, lists:, period:, baseline_year:, population:, provider: nil,
                             output: :printed, run_at: nil)
-      year, quarter = period!(period)
+      year_piece, quarter, period_year = period!(period)
+      baseline = fm_year(baseline_year, "baseline year")
+      raise ArgumentError, "baseline year #{baseline_year} is later than the report period's year #{period_year}" if baseline_year > period_year
+
       who = provider.nil? ? "~" : "#{positive_ien!(provider, 'provider')}~"
-      pieces = [ positive_ien!(community_taxonomy, "community taxonomy"), year, who, output!(output), run_time(run_at),
-                 quarter, provider.nil? ? "A" : "P", "", fm_year(baseline_year, "baseline year"),
+      pieces = [ positive_ien!(community_taxonomy, "community taxonomy"), year_piece, who, output!(output), run_time(run_at),
+                 quarter, provider.nil? ? "A" : "P", "", baseline,
                  POPULATIONS.fetch(population) { raise ArgumentError, "population must be one of #{POPULATIONS.keys.inspect}" },
                  name!(name), "", *lists!(lists) ]
-      queued(PATIENT_LISTS_RPC, name, table(PATIENT_LISTS_RPC, pieces.join("|")))
+      queue(DataMapper.crs_patient_lists_queue, name, pieces.join("|"))
     end
     shape :queue_patient_lists, resource: "crs", verb: "POST", path: "/crs/reports/national-gpra-patient-lists"
 
     # BGPG 25 CHECK REPORT STATUS (CHK^BGPXGU): the signed-on user's CRS
-    # reports. One hash per report: { ien:, name:, user:, type:, status:
-    # ("QUEUED", "RUNNING", "COMPLETED" or "ERRORED"), output_type:,
-    # export_files:, started_at:, ended_at: } (Times, nil when unset).
+    # reports. A write: CHK^BGPXGU deletes a report with no end time whose
+    # start is more than seven days old while it lists.
     #
-    # A write: CHK^BGPXGU deletes a report with no end time whose start is more
-    # than seven days old while it lists.
+    # @return [Array<Hash>] one { ien:, name:, user:, type:, status: ("QUEUED",
+    #   "RUNNING", "COMPLETED" or "ERRORED"), output_type:, export_files:,
+    #   started_at:, ended_at: } per report (Times, nil when unset)
     def report_status
+      mapping = DataMapper.crs_report_status
       duz = RpmsRpc.client.duz.to_s
-      raise Error, "#{REPORT_STATUS_RPC} lists the signed-on user's reports; the session has no DUZ" unless duz.match?(/\A[1-9]\d*\z/)
+      raise Error, "#{mapping.rpc_name} lists the signed-on user's reports; the session has no DUZ" unless duz.match?(/\A[1-9]\d*\z/)
 
-      table(REPORT_STATUS_RPC, duz).map do |row|
+      table(mapping, duz).map do |row|
         { ien: row[0].to_i, name: row[1].to_s, user: row[2].to_s, type: row[5].to_s, status: row[6].to_s,
           output_type: row[7].to_s, export_files: row[8].to_s, started_at: fm_time(row[9]), ended_at: fm_time(row[10]) }
       end
@@ -223,53 +258,69 @@ module RpmsRpc
     shape :report_status, resource: "crs", verb: "POST", path: "/crs/reports/status-check"
 
     # BGPG 25 GET NATIONAL GPRA (ONTL^BGPXGR): the lines of a report's output,
-    # in order, "\f" where the print formatter broke a page. [] when nothing is
-    # filed for the report (not yet run, or no such report).
+    # in order, "\f" where the print formatter broke a page.
+    #
+    # A header-only reply is returned as [] whether the report is still
+    # running, never ran or is not on file: an empty list says nothing about
+    # the report. Call this after wait_for_report returns COMPLETED.
+    #
+    # @param report_ien [Integer, String] the report (BGP 25 GUI REPORT OUTPUT ien)
+    # @return [Array<String>]
     def report_output(report_ien)
-      table(REPORT_OUTPUT_RPC, positive_ien!(report_ien, "report"), keep_blank: true).map { |row| row.join("^") }
+      table(DataMapper.crs_report_output, positive_ien!(report_ien, "report"), keep_blank: true).map(&:first)
     end
     shape :report_output, resource: "crs", verb: "GET", path: "/crs/reports/{report_ien}/output"
 
     # Poll report_status every `interval` seconds until the report is
-    # COMPLETED (its row is returned). Raises ReportFailedError when it is
-    # ERRORED or no longer among the user's reports, and TimeoutError naming
-    # the report and its last status when `timeout` seconds pass first.
-    # report_ien: the ien, or the hash a queue method returned.
+    # COMPLETED. The last wait is cut short at the deadline, where the report
+    # is polled once more before TimeoutError is raised, so the call never
+    # runs past `timeout` by more than one poll.
+    #
+    # @param report_ien [Integer, String, Hash] the ien, or the hash a queue
+    #   method returned
+    # @param timeout [Numeric] seconds, required and positive
+    # @param interval [Numeric] seconds between polls
+    # @return [Hash] the report's report_status row
+    # @raise [ReportFailedError] the report ERRORED or is no longer listed
+    # @raise [TimeoutError] naming the report and its last status
     def wait_for_report(report_ien, timeout:, interval: 5)
       ien = positive_ien!(report_ien.is_a?(Hash) ? report_ien[:report_ien] : report_ien, "report").to_i
       raise ArgumentError, "timeout must be a positive number of seconds" unless timeout.is_a?(Numeric) && timeout.positive?
       raise ArgumentError, "interval must be a non-negative number of seconds" unless interval.is_a?(Numeric) && !interval.negative?
 
-      deadline = monotonic + timeout
+      deadline = clock.now + timeout
       loop do
         row = report_status.find { |r| r[:ien] == ien }
         raise ReportFailedError, "CRS report #{ien} is not among the signed-on user's reports" if row.nil?
         return row if row[:status] == COMPLETED
         raise ReportFailedError, "CRS report #{ien} (#{row[:name]}) #{row[:status]}" if row[:status] == ERRORED
 
-        if monotonic >= deadline
-          raise TimeoutError, "CRS report #{ien} (#{row[:name]}) was still #{row[:status]} after #{timeout}s"
-        end
+        now = clock.now
+        raise TimeoutError, "CRS report #{ien} (#{row[:name]}) was still #{row[:status]} after #{timeout}s" if now >= deadline
 
-        sleep(interval) if interval.positive?
+        wait = [ interval, deadline - now ].min
+        clock.pause(wait) if wait.positive?
       end
     end
     shape :wait_for_report, resource: "crs", verb: "POST", path: "/crs/reports/{report_ien}/completion"
 
     private
 
-    # The rows of an RPC's table, each split on "^", under BGPGRPC. Blank rows
-    # are dropped unless keep_blank (report output keeps its blank lines).
-    def table(rpc_name, param, keep_blank: false)
-      raw = ContextScope.scoped(RpmsRpc.client, CONTEXT) do
-        client = RpmsRpc.client
+    # The rows of a mapping's table, under its option (BGPGRPC). A table of
+    # more than one column is split on "^" and each row must carry exactly the
+    # header's column count; a one-column table's row is kept whole (a report
+    # line or a queue reply may itself contain "^"). Blank rows are dropped
+    # unless keep_blank (report output keeps its blank lines).
+    def table(mapping, param, keep_blank: false)
+      client = RpmsRpc.client
+      raw = mapping.in_context(client) do
         if client.respond_to?(:call_rpc_global_array)
-          client.call_rpc_global_array(rpc_name, param)
+          client.call_rpc_global_array(mapping.rpc_name, param)
         else
-          client.call_rpc(rpc_name, param)
+          client.call_rpc(mapping.rpc_name, param)
         end
       end
-      parse_table(rpc_name, raw, keep_blank: keep_blank)
+      parse_table(mapping.rpc_name, raw, keep_blank: keep_blank)
     end
 
     def parse_table(rpc_name, raw, keep_blank:)
@@ -280,12 +331,20 @@ module RpmsRpc
       raise ReplyError, "#{rpc_name}: the reply has no typed table header" unless header?(header)
 
       rows = keep_blank ? nodes : nodes.reject(&:empty?)
-      if header.match?(MERROR_HEADER)
-        raise ServerError, "#{rpc_name}: CRS trapped an M error: #{rows.join(' ')}"
-      end
+      raise ServerError, "#{rpc_name}: CRS trapped an M error: #{rows.join(' ')}" if header.match?(MERROR_HEADER)
       raise ServerError, "#{rpc_name}: CRS trapped an M error: #{rows.first}" if rows.first.to_s.match?(ERROR_ROW)
 
-      rows.map { |row| row.split("^", -1) }
+      columns = header.split("^", -1).size
+      return rows.map { |row| [ row ] } if columns == 1
+
+      rows.each_with_index.map do |row, index|
+        pieces = row.split("^", -1)
+        if pieces.size != columns
+          raise ReplyError, "#{rpc_name}: row #{index + 1} has #{pieces.size} pieces, the header #{columns} columns"
+        end
+
+        pieces
+      end
     end
 
     # The nodes of a reply: a CIA blob (sequence, ack, nodes each ending in
@@ -314,9 +373,10 @@ module RpmsRpc
       !pieces.empty? && pieces.all? { |piece| piece.match?(HEADER_PIECE) }
     end
 
-    # The report ien a queue RPC answered, or the refusal it gave.
-    def queued(rpc_name, name, rows)
-      raw = rows.first&.join("^")
+    # Send a queue RPC; the report ien it answered, or the refusal it gave.
+    def queue(mapping, name, param)
+      rpc_name = mapping.rpc_name
+      raw = table(mapping, param).first&.first
       raise ReplyError, "#{rpc_name}: no report ien in the reply" if raw.nil?
 
       ien = raw.split("~", 2).first
@@ -351,11 +411,14 @@ module RpmsRpc
       raise ArgumentError, "#{what} must be a positive integer ien (got #{value.inspect})"
     end
 
+    # The BGP 25 GUI REPORT OUTPUT .01 input transform, and the wire's delimiters.
     def name!(name)
       text = name.to_s
       raise ArgumentError, "the report name must not be blank" if text.strip.empty?
       raise ArgumentError, "the report name must not contain |, ~ or ^ (got #{text.inspect})" if text.match?(DELIMITERS)
-      raise ArgumentError, "the report name must not contain control characters" if text.match?(/[[:cntrl:]]/)
+      raise ArgumentError, "the report name must be printable ASCII (got #{text.inspect})" unless text.match?(/\A[ -~]+\z/)
+      raise ArgumentError, "the report name must be #{NAME_LENGTH} characters (got #{text.length})" unless NAME_LENGTH.cover?(text.length)
+      raise ArgumentError, "the report name must not start with punctuation or a space (got #{text.inspect})" if text.match?(M_PUNCTUATION)
 
       text
     end
@@ -371,7 +434,7 @@ module RpmsRpc
       FilemanDateParser.to_fileman(run_at)
     end
 
-    # [period piece, quarter piece] for NPL pieces 2 and 6.
+    # [period piece, quarter piece, the period's year] for NPL pieces 2 and 6.
     def period!(period)
       raise ArgumentError, "period must be { ends: Date } or { year:, quarter: 1..4 }" unless period.is_a?(Hash)
 
@@ -379,12 +442,12 @@ module RpmsRpc
         ends = period[:ends]
         raise ArgumentError, "period ends: must be a Date (got #{ends.inspect})" unless ends.is_a?(Date)
 
-        [ FilemanDateParser.to_fileman(ends.is_a?(DateTime) ? ends.to_date : ends), "5" ]
+        [ FilemanDateParser.to_fileman(ends.is_a?(DateTime) ? ends.to_date : ends), "5", ends.year ]
       elsif period.key?(:year)
         quarter = period[:quarter]
         raise ArgumentError, "period quarter must be 1..4; a user-defined period is { ends: Date }" unless QUARTERS.include?(quarter)
 
-        [ fm_year(period[:year], "report year"), quarter.to_s ]
+        [ fm_year(period[:year], "report year"), quarter.to_s, period[:year] ]
       else
         raise ArgumentError, "period must be { ends: Date } or { year:, quarter: 1..4 }"
       end
@@ -401,14 +464,21 @@ module RpmsRpc
     def lists!(lists)
       raise ArgumentError, "lists must be { measure ien => [list iens] } with at least one measure" unless lists.is_a?(Hash) && !lists.empty?
 
-      lists.map do |measure, list_iens|
-        iens = Array(list_iens)
-        raise ArgumentError, "measure #{measure.inspect} names no patient list" if iens.empty?
+      measures = lists.map do |measure, list_iens|
+        raise ArgumentError, "measure #{measure.inspect}: the patient lists must be an Array (got #{list_iens.inspect})" unless list_iens.is_a?(Array)
+        raise ArgumentError, "measure #{measure.inspect} names no patient list" if list_iens.empty?
 
-        [ positive_ien!(measure, "measure"), *iens.map { |list| positive_ien!(list, "patient list") } ].join("~")
+        [ positive_ien!(measure, "measure"), *list_iens.map { |list| positive_ien!(list, "patient list") } ]
       end
+      repeated = measures.map(&:first).tally.select { |_ien, count| count > 1 }.keys
+      raise ArgumentError, "measure #{repeated.join(', ')} is given more than once" unless repeated.empty?
+
+      measures.map { |pieces| pieces.join("~") }
     end
 
-    def monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    # The clock wait_for_report reads and waits on: CLOCK, unless @clock holds
+    # another object with #now (seconds, monotonic) and #pause(seconds), which
+    # is how a test drives the wait without sleeping.
+    def clock = @clock || CLOCK
   end
 end
