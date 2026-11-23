@@ -4,6 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/encounter"
+require "rpms_rpc/api/pov"
 require "rpms_rpc/fileman_date_parser"
 
 # Encounter.save files an encounter through BEHOENPC SAVE (SAVE^BEHOENPC): a
@@ -111,6 +112,12 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     assert_equal visit, pov[".03"], "V POV #{pov_ien} is not on visit #{visit}"
     assert_equal "#{PREFERRED_TERM} | #{narrative}", pov[".04"], "V POV #{pov_ien} does not carry the narrative sent"
     assert_equal SNOMED, pov["1101"], "V POV #{pov_ien} is not SNOMED concept #{SNOMED}"
+
+    # BGOVPOV GET carries the concept's description in piece 21, not its ID
+    # (rpms-rpc#927): Pov.for_visit names it snomed_description.
+    got = RpmsRpc::Pov.for_visit(visit).find { |row| row[:ien].to_s == pov_ien }
+    refute_nil got, "Pov.for_visit(#{visit}) does not list V POV #{pov_ien}"
+    assert_equal PREFERRED_TERM, got[:snomed_description], "BGOVPOV GET piece 21 for V POV #{pov_ien}"
 
     assert_equal 1, result[:procedures].size, result[:procedures].inspect
     cpt_ien = result[:procedures].first[:ien].to_s

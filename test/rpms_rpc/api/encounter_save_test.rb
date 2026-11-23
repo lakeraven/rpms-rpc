@@ -141,7 +141,8 @@ class EncounterSaveTest < Minitest::Test
   def fetch_not_found = [ "EXAMPLE CLINIC^EXC^^#{DUZ}^PROVIDER,EXAMPLE^^^^" ]
 
   # BGOVPOV GET row (BGOVPOV.m, 29 pieces; mapping :visit_povs): piece 1 IEN,
-  # 5 ICD, 16 P/S, 18 visit IEN, 21 SNOMED, 22 provider text, 24 the PROBLEM
+  # 5 ICD, 16 P/S, 18 visit IEN, 21 the SNOMED concept's description (not
+  # its ID, rpms-rpc#927), 22 provider text, 24 the PROBLEM
   # (#9000011) the V POV's .16 points at — the one POV^BEHOENPC got from
   # PROBLST^BEHOENP2 (reused, or newly filed) and stored with SET(.16,12).
   def pov_row(ien:, icd:, snomed:, visit: VISIT, primary: "P", text: NARRATIVE, problem: PROBLEM)
@@ -156,7 +157,7 @@ class EncounterSaveTest < Minitest::Test
     pieces[16] = "PROVIDER,EXAMPLE"
     pieces[17] = visit.to_s
     pieces[18] = "0"
-    pieces[20] = snomed.to_s
+    pieces[20] = "Example concept #{snomed}"
     pieces[21] = text
     pieces[23] = problem.to_s
     pieces[25] = "Example diagnosis"
