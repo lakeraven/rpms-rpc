@@ -149,6 +149,16 @@ class LiveSpecGuardTest < Minitest::Test
     def teardown = nil
     def test_passes = assert(true)
   end
+
+  # A spec that proves a scenario and sends one call, recorded as the harness records it.
+  class ProvingProbe < LiveSpec::Test
+    runs_as :provider
+    proves "S-CHT-01.1"
+    def setup = LiveSpec::CallLog.start
+    def teardown = LiveSpec.calls["#{self.class}##{name}"] = LiveSpec::CallLog.stop
+    def test_opens_a_chart = LiveSpec::CallLog.around("ORWPT SELECT") { "5\x00ok" }
+  end
+  Minitest::Runnable.runnables.delete(ProvingProbe)
   # Specimens, run by hand below; never by the runner itself.
   Minitest::Runnable.runnables.delete(Probe)
   Minitest::Runnable.runnables.delete(XwbProbe)
@@ -483,6 +493,43 @@ class LiveSpecGuardTest < Minitest::Test
       refute data["pending"]
       assert_equal 1, data["runs"]
     end
+  end
+
+  # rpms-rpc#818: the summary lists each spec run, the scenarios it proves and the calls it sent.
+  def test_the_summary_records_each_spec_with_its_scenarios_and_calls
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => "f00d")
+      mark_pending_in(tmpdir, env: env, run_id: "f00d")
+      summarize(ProvingProbe.new(:test_opens_a_chart).run, env: env, expected_runs: 1)
+      data = JSON.parse(File.read(Dir[File.join(tmpdir, "*.json")].first))
+      assert_equal [ { "spec" => "LiveSpecGuardTest::ProvingProbe#test_opens_a_chart", "proves" => [ "S-CHT-01.1" ],
+                       "result" => "pass", "calls" => [ { "rpc" => "ORWPT SELECT", "outcome" => "answered" } ] } ], data["specs"]
+    end
+  end
+
+  # A run whose account's XUPROGMODE disagreed with its role's row proves no scenario: it records no spec.
+  def test_a_run_refused_for_its_xuprogmode_records_no_spec
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => "beef")
+      mark_pending_in(tmpdir, env: env, run_id: "beef")
+      LiveSpec.forget_xuprogmode_verdicts!
+      LiveSpec.xuprogmode_verdict(LiveSpec::ROLES.fetch(:provider)) { [ "XUPROGMODE" ] }
+      summarize(ProvingProbe.new(:test_opens_a_chart).run, env: env, expected_runs: 1)
+      assert_equal [], JSON.parse(File.read(Dir[File.join(tmpdir, "*.json")].first))["specs"]
+    ensure
+      LiveSpec.forget_xuprogmode_verdicts!
+    end
+  end
+
+  def test_proves_takes_scenario_ids_only
+    klass = Class.new(LiveSpec::Test)
+    assert_equal [], klass.proves
+    klass.proves "S-SCH-01.1", "S-SCH-01.1", "S-SCH-01.10"
+    assert_equal %w[S-SCH-01.1 S-SCH-01.10], klass.proves
+    assert_raises(ArgumentError) { klass.proves "S-SCH-01" }
+    assert_raises(ArgumentError) { klass.proves "SCH-01.1" }
+  ensure
+    Minitest::Runnable.runnables.delete(klass)
   end
 
   def test_a_complete_live_run_is_recorded

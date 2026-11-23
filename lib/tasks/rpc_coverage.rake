@@ -2,7 +2,10 @@
 
 # RPC coverage against ONE backend's registry (rpms-rpc#270).
 #
-#   rake rpc:coverage   offline: the release under test's registry x live evidence -> one number
+#   rake rpc:coverage   offline. The headline: the pilot scenarios (data/rpc_coverage/pilot.yml) whose calls are all
+#                       proven live as the role that plays them, from the live specs' summaries (`proves` declarations,
+#                       coverage/live/<role>.json or LIVE_SUMMARY_DIR; #818), and the registered RPCs a role's live spec
+#                       got an answer to. Below it, the release under test's registry x rake rpc:live evidence -> one number
 #   rake rpc:coverage_html  the same report in SimpleCov's HTML interface, one file per package
 #   rake rpc:exclusions prints the exclusions the release under test computes: the unreachable ones (no
 #                       routine, no entry point, inactive, no context, out of order) from its reach classes
@@ -63,6 +66,17 @@ rpc_inputs = lambda do |task|
   { release: inv, registry: registry, packages: packages, reviewed: reviewed, computed: computed,
     exclusions: computed.exclusions, problems: RpcCoverage.reviewed_problems(reviewed) }
 end
+  # The pilot scenarios' report from the live specs' summaries: LIVE_SUMMARY_DIR (any depth, so a directory of CI
+  # artifacts works), else coverage/live, against data/rpc_coverage/pilot.yml and the specs' `proves` lines.
+  rpc_scenarios = lambda do
+    require File.join(rpc_root, "tools/rpc_coverage/scenarios.rb")
+    require File.join(rpc_root, "test/live/live_env.rb")
+    dir = File.expand_path(RpmsRpc::LiveSummary.dir(ENV), rpc_root)
+    RpcCoverage::Scenarios.report(pilot: RpcCoverage::Scenarios.load_pilot(File.join(rpc_root, "data/rpc_coverage/pilot.yml")),
+                                  plan: LiveSpec.scenario_plan(root: rpc_root),
+                                  summaries: RpcCoverage::Scenarios.load_summaries(dir))
+  end
+
   # Every role's evidence for the backend (RpcCoverage.coverage_inputs), or abort naming what writes it.
   rpc_evidence = lambda do |backend|
     dir = rpc_evidence_dir.call
@@ -81,12 +95,25 @@ end
 
     cfg = rpc_config.call
     backend = ENV["RPC_BACKEND"] || cfg.fetch("backend")
-    live = rpc_evidence.call(backend)
-    evidence = live[:evidence]
-
     inputs = rpc_inputs.call("coverage")
     registry = inputs[:registry]
     exclusions = inputs[:exclusions]
+
+    # The headline: the pilot scenarios, as the roles that play them, from the live specs' summaries (#818).
+    out = File.join(rpc_root, "coverage/rpc")
+    FileUtils.mkdir_p(out)
+    scenarios = rpc_scenarios.call
+    counts = RpcCoverage::Scenarios.rpc_counts(scenarios, registry.names)
+    puts scenarios.lines
+    puts "registered RPCs a role's live spec got an answer to: #{counts[:roles]} of #{counts[:registered]} on #{registry.tag} " \
+         "(answered only as the operator, counted nowhere: #{counts[:operator_only]})"
+    File.write(File.join(out, "scenarios.json"), JSON.pretty_generate(scenarios.to_h.merge(rpcs: counts)) + "\n")
+    puts "per-scenario status: coverage/rpc/scenarios.json"
+    puts
+    puts "the read catalogue (rake rpc:live):"
+
+    live = rpc_evidence.call(backend)
+    evidence = live[:evidence]
     problems = RpcCoverage.registry_problems(registry) + inputs[:problems] +
                RpcCoverage.exclusion_problems(exclusions, registry, evidence: evidence) + live[:problems]
     report = RpcCoverage.compute(registry: registry, declared: RpcCoverage.declared_names(rpc_root),
@@ -95,8 +122,6 @@ end
     problems += RpcCoverage.gate_problems(report, max_unregistered: cfg["max_unregistered"])
     notes = RpcCoverage.coverage_notes(report, minimum_percent: cfg["minimum_percent"])
 
-    out = File.join(rpc_root, "coverage/rpc")
-    FileUtils.mkdir_p(out)
     File.write(File.join(out, "rpcs.tsv"), report.tsv)
     File.write(File.join(out, "summary.json"), JSON.pretty_generate(report.to_h.merge(problems: problems, notes: notes)) + "\n")
 

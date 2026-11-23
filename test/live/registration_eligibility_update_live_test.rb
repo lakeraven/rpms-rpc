@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 # on every run after it on the same container (rpms-rpc#701).
 class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-07.1"
   writes!
 
   DFN = 990_052 # BRAVO,REESE, a synthetic panel patient; unused by other live specs

@@ -13,6 +13,7 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
   include FreeSsn
 
   runs_as :front_desk_clerk
+  proves "S-REG-02.6", "S-REG-02.8"
   writes!
 
   # A synthetic name on a 1902 birth date no patient has: AG's duplicate

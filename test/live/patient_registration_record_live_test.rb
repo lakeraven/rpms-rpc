@@ -18,6 +18,7 @@ class PatientRegistrationRecordLiveTest < LiveSpec::Test
   include FreeSsn
 
   runs_as :front_desk_clerk
+  proves "S-REG-20.1", "S-REG-20.7", "S-REG-20.10", "S-REG-21.4", "S-REG-21.5"
   writes!
 
   IHS_PATIENT_FILE = "9000001"

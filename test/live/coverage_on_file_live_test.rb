@@ -15,6 +15,7 @@ require "rpms_rpc/api/coverage"
 # Runs as the front desk clerk (PROFILE,REG): every call is in AGGRPC.
 class CoverageOnFileLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-03.1"
   writes!
 
   DFN = 990_049 # ZEPHYR,QUINN on the pinned build; unused by other live specs

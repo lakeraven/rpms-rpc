@@ -25,6 +25,7 @@ require "securerandom"
 # WRITES against a disposable local container only.
 class ServerClockWritesLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-13.1", "S-REG-13.3", "S-REG-21.7"
   writes!
 
   REG_DFN = 990_021   # a synthetic seed patient no other live spec writes to

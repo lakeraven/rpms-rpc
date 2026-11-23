@@ -12,6 +12,7 @@ require "securerandom"
 # RPC, so discard the container afterwards.
 class RegistrationHrnSourceLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-02.9"
   writes!
 
   # A synthetic name on a 1903 birth date no patient has: AG's duplicate

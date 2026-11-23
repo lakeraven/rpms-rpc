@@ -12,6 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 # the gem's own read, and the spec removes what it adds.
 class RegistrationAdvanceDirectivesLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-17.1", "S-REG-17.2", "S-REG-17.3", "S-REG-17.4", "S-REG-17.5", "S-REG-17.6", "S-REG-17.7", "S-REG-17.8"
   writes!
 
   DFN = 990_046 # VANTAGE,TAYLOR, a synthetic seed patient no other live spec writes to

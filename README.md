@@ -426,7 +426,24 @@ longer turned into spaces.
 
 ## RPC coverage against a backend (the headline number)
 
-The coverage number is measured against **one backend's registry**, not against allowlists
+The headline is **per pilot scenario, as the role that plays it** (#818).
+A live spec declares the openrpms-ux scenarios it proves beside its role (`proves "S-REG-02.6"`), and `rake test:live` records, in each role's summary (`coverage/live/<role>.json`), every spec it ran with its result and the RPCs it sent, each answered, refused or an error.
+`rake rpc:coverage` reads those summaries (`LIVE_SUMMARY_DIR=` points at another directory, such as downloaded CI artifacts, at any depth) against the pilot stories in `data/rpc_coverage/pilot.yml` (registration, scheduling and the chart, each with the role STORIES.md gives its persona):
+
+```sh
+LIVE_SUMMARY_DIR=tmp/live-artifacts rake rpc:coverage
+# pilot scenarios whose calls are all proven live as their role: 3 of 3 (the scenarios live specs declare, in 10 pilot stories)
+#   S-REG-02.6   front_desk_clerk  proven  1 spec(s) passed; 4 call(s), all proven
+# registered RPCs a role's live spec got an answer to: ... (answered only as the operator, counted nowhere: ...)
+```
+
+- A scenario is **proven** when every spec that declares it ran as its role, passed, and sent at least one RPC.
+  It is **short** otherwise, and says why: no spec declares it as that role, no run as that role, a spec failed, or a spec was skipped by its tracked issue (`needs "<option>", tracked:`: the role's row does not hold the option).
+- The operator's summary is never read for a scenario: XUPROGMODE answers under every option.
+  A run whose account's XUPROGMODE disagrees with its role's row records no spec, so it counts toward nothing.
+- `coverage/rpc/scenarios.json` holds every row with its specs and calls.
+
+Below that, the coverage number is measured against **one backend's registry**, not against allowlists
 (#270):
 
 ```sh
@@ -799,6 +816,7 @@ A live spec signs on as a test role, the way an app's tests sign on as an Admin 
 - **Programmer**: an account holding XUPROGMODE. The broker answers a programmer under every option, so a programmer's run proves nothing about permissions. Only the operator is one.
 
 A spec declares its role (`runs_as :scheduler`), and a run signs on as one role (`ROLE=scheduler`) and runs only the specs that declare it; the run's summary says how many spec classes ran as that role and how many belong to another.
+A spec also declares the openrpms-ux scenarios it proves (`proves "S-SCH-09.1"`), only when its tests exercise the scenario's Given, When and Then as that role; `rake rpc:coverage` reports the pilot ones (above, RPC coverage).
 A spec that declares no role fails, and so does one run by hand as a role it does not declare.
 `PERSONA` is retired: a run that still sets it fails, naming the `ROLE` to set.
 `bundle exec rake test:live_roles` lists every spec under the role that runs it.

@@ -28,6 +28,9 @@ module LiveSpec
   # options and XUPROGMODE are its row in RpmsRpc::TestRoles, and nowhere else.
   ROLES = RpmsRpc::TestRoles
 
+  # An openrpms-ux scenario id, as a spec's `proves` names it: S-SCH-01.1.
+  SCENARIO_ID = /\AS-[A-Z]+-\d+\.\d+\z/
+
   module_function
 
   # The role ROLE names, or nil.
@@ -77,10 +80,27 @@ module LiveSpec
 
   def forget_xuprogmode_verdicts! = (@xuprogmode_verdicts = {})
 
+  # Whether this process refused ROLE because its account's XUPROGMODE disagreed with the row.
+  def xuprogmode_refused?(role) = !(@xuprogmode_verdicts || {})[role.to_s.strip.to_sym].nil?
+
   # The roles each spec file declares, read from its `runs_as` lines, so the
   # runner can say which role runs what without loading a spec.
   def declared_roles(path)
     File.read(path).scan(/^\s*runs_as\s+(.+)$/).flat_map { |(args)| args.scan(/:([a-z_]+)/).flatten.map(&:to_sym) }.uniq
+  end
+
+  # The scenarios each spec file declares, read from its `proves` lines, so
+  # `rake rpc:coverage` can list them without loading a spec.
+  def declared_scenarios(path)
+    File.read(path).scan(/^\s*proves\s+(.+)$/).flat_map { |(args)| args.scan(/"(S-[A-Z]+-\d+\.\d+)"/).flatten }.uniq
+  end
+
+  # { spec file => { roles:, scenarios: } } for every spec of any protocol that declares a scenario.
+  def scenario_plan(root: File.expand_path("../..", __dir__))
+    SPEC_GLOBS.values.flat_map { |glob| Dir[File.join(root, glob)] }.sort.filter_map do |f|
+      scenarios = declared_scenarios(f)
+      [ f.delete_prefix("#{root}/"), { roles: declared_roles(f), scenarios: scenarios } ] unless scenarios.empty?
+    end.to_h
   end
 
   # { role => [spec files] } for a protocol's specs, in table order.

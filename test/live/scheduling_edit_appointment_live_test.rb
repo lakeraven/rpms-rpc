@@ -11,6 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 # FILER, read back from FileMan.
 class SchedulingEditAppointmentLiveTest < LiveSpec::Test
   runs_as :scheduler
+  proves "S-SCH-09.1", "S-SCH-09.3", "S-SCH-09.4"
   writes!
 
   PATIENT = 3
