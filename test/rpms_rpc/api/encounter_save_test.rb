@@ -83,6 +83,14 @@ class EncounterSaveTest < Minitest::Test
   # Array of lines for a list. Records every call. No with_context, so
   # ContextScope.scoped runs the block as-is, like any plain stub.
   class FakeTwin
+    # The build's answer to the HEALTH FACTORS read the save makes before
+    # sending (rpms-rpc#928): HEALTH FACTOR 25 on file, as CiaClient#call_rpc
+    # reads the captured reply (health-factor-entry.yml). A state may
+    # override it.
+    HEALTH_FACTOR_ON_FILE = CapturedReplies::ReplayCiaClient
+                            .new("DDR GETS ENTRY DATA" => [ CapturedReplies.raw("health-factor-entry", "on_file") ])
+                            .call_rpc("DDR GETS ENTRY DATA", {})
+
     attr_reader :calls
 
     def initialize(before: {}, after: {}, save: "0")
@@ -103,6 +111,7 @@ class EncounterSaveTest < Minitest::Test
       end
 
       state = @saved ? @after : @before
+      return HEALTH_FACTOR_ON_FILE if rpc_name == "DDR GETS ENTRY DATA" && !state.key?(rpc_name)
       raise "FakeTwin: no reply for #{rpc_name} #{@saved ? 'after' : 'before'} the save" unless state.key?(rpc_name)
 
       reply = state[rpc_name]
