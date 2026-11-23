@@ -26,8 +26,9 @@ module RpmsRpc
   #
   # The rows are what bcer-9.0-20261119-f67498c-ydb seeds (its personas.json),
   # with the options each role is answered in as observed by the refusal spec
-  # on that release. When the release adds a `role` field to personas.json,
-  # these rows can be read from it instead.
+  # on that release. A pending row is instead what its openrpms issue seeds,
+  # until a release carries it. When the release adds a `role` field to
+  # personas.json, these rows can be read from it instead.
   module TestRoles
     # ROLE names no test role.
     class UnknownRole < RpmsRpc::Error; end
@@ -35,9 +36,15 @@ module RpmsRpc
     # contexts: the broker options (context options) the role's RPCs may run
     # under, whether a secondary menu or reached through its primary menu.
     # A holder of XUPROGMODE is answered under every option, so its list is empty.
-    Role = Data.define(:name, :persona, :account, :access, :verify, :esig, :contexts, :keys, :xuprogmode) do
+    # pending: the openrpms issue that seeds the role's account, while no
+    # release carries it yet. Until then the account is on no build, so the
+    # role holds nothing there and a spec that `needs` an option skips by its
+    # tracked issue; nil once a release carries it.
+    Role = Data.define(:name, :persona, :account, :access, :verify, :esig, :contexts, :keys, :xuprogmode, :pending) do
+      def initialize(pending: nil, **fields) = super
+
       # Whether the broker answers this role's RPCs under the option.
-      def holds?(option) = xuprogmode || contexts.include?(option.to_s)
+      def holds?(option) = pending.nil? && (xuprogmode || contexts.include?(option.to_s))
 
       # [access, verify]; verify is nil for a role whose code is not published.
       def pair = [ access, verify ]
@@ -67,6 +74,18 @@ module RpmsRpc
       Role.new(name: :scheduler, persona: "scheduler", account: "PROFILE,SCHED",
                access: "PSCH123", verify: "PSCH123!!", esig: nil,
                contexts: REGISTRATION_CONTEXTS, keys: %w[SDZMENU SDZREGMENU].freeze, xuprogmode: false),
+      # The behavioral health provider, a licensed clinical social worker, the
+      # BH clinic's provider: the Behavioral Health System's primary menu
+      # AMHMENU, its keys AMHZMENU and AMHZ DATA ENTRY, and the BH GUI's context
+      # AMHGRPC; openrpms#1299 moves behavioral health off the provider. No release
+      # carries the account yet, so the row is pending; when one does, drop
+      # pending, add the role to role_refusal_live_test.rb, and take AMHZMENU
+      # off the provider's row.
+      Role.new(name: :bh_provider, persona: "bh_provider", account: "PROFILE,BH",
+               access: "PBH123", verify: "PBH123!!", esig: "123456",
+               contexts: [ "CIAV VUECENTRIC", "BMXRPC", "AMHGRPC" ].freeze,
+               keys: [ "PROVIDER", "AMHZMENU", "AMHZ DATA ENTRY" ].freeze, xuprogmode: false,
+               pending: "openrpms#1299"),
       # Roll-and-scroll only: no CIAV VUECENTRIC, so no broker signs it on.
       Role.new(name: :billing_technician, persona: "billing_technician", account: "PROFILE,BILL",
                access: "PBIL123", verify: "PBIL123!!", esig: nil,

@@ -9,9 +9,9 @@ require "rpms_rpc/api/behavioral_health/wellness"
 # RpmsRpc::BehavioralHealth.save_health_factors over AMHG SAVE HEALTH FACTORS (HF^AMHGSVF).
 # WRITES on a disposable container only; synthetic patient DFN 990037.
 class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
-  runs_as :provider
-  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   DFN = 990_037

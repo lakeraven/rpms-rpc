@@ -9,9 +9,9 @@ require "rpms_rpc/api/ddr_fileman"
 # RpmsRpc::BehavioralHealth.save_progress_note over AMHG SAVE PROGRESS NOTES
 # (PN^AMHGSVF, rpms-rpc#539). WRITES on a disposable container only.
 class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
-  runs_as :provider
-  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   DFN = 990_033

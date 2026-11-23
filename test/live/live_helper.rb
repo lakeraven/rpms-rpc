@@ -149,7 +149,13 @@ module LiveSpec
         flunk "live spec writes, refused: #{reason}"
       end
       if (need = self.class.needs) && !role_row.holds?(need[:option])
-        skip_tracked(need[:tracked], "#{role} (#{role_row.account}) is not given #{need[:option]}, which this spec's RPCs run under")
+        why =
+          if role_row.pending
+            "no openrpms release carries #{role}'s account (#{role_row.account}) yet, so it is given no #{need[:option]}"
+          else
+            "#{role} (#{role_row.account}) is not given #{need[:option]}, which this spec's RPCs run under"
+          end
+        skip_tracked(need[:tracked], why)
       end
       @client = sign_on
       check_xuprogmode!
