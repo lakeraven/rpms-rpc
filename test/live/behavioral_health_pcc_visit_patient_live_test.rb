@@ -35,8 +35,9 @@ require "rpms_rpc/fileman_date_parser"
 # server links the record to his visit and files her V POV on it, and the
 # re-save deletes his V POVs.
 class BehavioralHealthPccVisitPatientLiveTest < LiveSpec::Test
-  runs_as :provider
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   PATIENT = 990_017 # QUEBEC,SAGE, the panel patient SEEDBH files BH records for

@@ -25,7 +25,7 @@ module RpmsRpc
     # in test/live/live_env.rb, which the gem does not load). Each spec runs as
     # the role whose work it proves (#452), so the report runs the live suite
     # once per role (#815); a hermetic test fails when the two lists disagree.
-    LIVE_ROLES = %w[provider nurse medical_assistant front_desk_clerk registration_supervisor scheduler operator].freeze
+    LIVE_ROLES = %w[provider nurse medical_assistant front_desk_clerk registration_supervisor scheduler bh_provider operator].freeze
 
     # A role's sign-on key in the report's environment: PROVIDER_ACCESS,
     # OPERATOR_VERIFY, PROVIDER_ESIG. Each overrides its row's published value

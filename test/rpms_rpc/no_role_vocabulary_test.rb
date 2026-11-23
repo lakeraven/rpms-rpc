@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require_relative "../../lib/rpms_rpc"
+require_relative "../../lib/rpms_rpc/test_roles"
 
 class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
   # The gem reports which keys a user holds; roles and capabilities are the
@@ -71,10 +72,31 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
     assert vocabulary?(snippet), "permission-table copy must be flagged as role vocabulary"
   end
 
+  # The live harness's test roles (TestRoles, #452) are the accounts a live
+  # spec signs on as, named for the openrpms-ux persona each plays; the gem
+  # grants nothing by them. These two files name them, so each role's name,
+  # and only that, is not read as vocabulary there; every other pattern still
+  # applies to them.
+  TEST_ROLE_FILES = %w[lib/rpms_rpc/test_roles.rb lib/rpms_rpc/daily_report.rb].freeze
+
+  def without_test_role_names(source)
+    RpmsRpc::TestRoles.names.reduce(source) { |text, name| text.gsub(/\b#{name}\b/, "test_role") }
+  end
+
+  def test_a_test_role_name_is_read_as_vocabulary_outside_the_role_table
+    assert vocabulary?("ROLE = :bh_provider"), "a role name elsewhere in lib/ is still vocabulary"
+    refute vocabulary?(without_test_role_names("ROLE = :bh_provider")), "the role table may name its test role"
+    assert vocabulary?(without_test_role_names("can_approve_chs?")), "the role table is still scanned for everything else"
+  end
+
   def test_lib_carries_no_role_or_capability_vocabulary
     root = File.expand_path("../..", __dir__)
     violations = Dir.glob(File.join(root, "lib", "**", "*")).sort.select { |abs| File.file?(abs) }
-                    .select { |abs| vocabulary?(read_source_utf8(abs)) }
+                    .select do |abs|
+                      source = read_source_utf8(abs)
+                      source = without_test_role_names(source) if TEST_ROLE_FILES.include?(abs.delete_prefix("#{root}/"))
+                      vocabulary?(source)
+                    end
                     .map { |abs| abs.delete_prefix("#{root}/") }
 
     assert_empty violations, "role/capability vocabulary found under lib/: #{violations.join(', ')}"

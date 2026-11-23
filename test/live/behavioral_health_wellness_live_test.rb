@@ -15,9 +15,9 @@ end
 # RpmsRpc::BehavioralHealth::Wellness — AMHG SAVE SCREENING and AMHG SAVE
 # MEASUREMENTS (rpms-rpc#540). WRITES on a disposable local container only.
 class BehavioralHealthWellnessLiveTest < LiveSpec::Test
-  runs_as :provider
-  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   DFN = 990_045
