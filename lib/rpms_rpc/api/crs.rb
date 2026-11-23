@@ -220,7 +220,7 @@ module RpmsRpc
           output_type: row[7].to_s, export_files: row[8].to_s, started_at: fm_time(row[9]), ended_at: fm_time(row[10]) }
       end
     end
-    shape :report_status, resource: "crs", verb: "GET", path: "/crs/reports"
+    shape :report_status, resource: "crs", verb: "POST", path: "/crs/reports/status-check"
 
     # BGPG 25 GET NATIONAL GPRA (ONTL^BGPXGR): the lines of a report's output,
     # in order, "\f" where the print formatter broke a page. [] when nothing is
@@ -254,7 +254,7 @@ module RpmsRpc
         sleep(interval) if interval.positive?
       end
     end
-    shape :wait_for_report, resource: "crs", verb: "GET", path: "/crs/reports/{report_ien}/completion"
+    shape :wait_for_report, resource: "crs", verb: "POST", path: "/crs/reports/{report_ien}/completion"
 
     private
 

@@ -128,7 +128,7 @@ module OpenApi
       "RpmsRpc::Crs.community_taxonomy" => "/crs/community-taxonomies/{taxonomy}",
       "RpmsRpc::Crs.queue_national_gpra" => "/crs/reports/national-gpra",
       "RpmsRpc::Crs.queue_patient_lists" => "/crs/reports/national-gpra-patient-lists",
-      "RpmsRpc::Crs.report_status" => "/crs/reports",
+      "RpmsRpc::Crs.report_status" => "/crs/reports/status-check",
       "RpmsRpc::Crs.wait_for_report" => "/crs/reports/{report_ien}/completion"
     }.freeze
 
