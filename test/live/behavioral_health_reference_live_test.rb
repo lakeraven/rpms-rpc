@@ -9,11 +9,11 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # The AMHG reference, intake, group and case-management reads over the wire
 # (rpms-rpc#622, #673), under AMHGRPC. Each answers parsed rows, never the
 # recordset's typed header read as a record. Reads only.
-# Needs a role AMHGRPC lets run these reads (the provider, once openrpms#1275 gives it).
+# Runs as the behavioral health provider, the role AMHGRPC lets run these reads (openrpms#1299).
 class BehavioralHealthReferenceLiveTest < LiveSpec::Test
-  runs_as :provider
-  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4" # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
   FROM = "3000101"

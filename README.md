@@ -815,6 +815,7 @@ The accounts are the openrpms build's published demo users (SEEDPERS) on synthet
 | `front_desk_clerk` | PROFILE,REG | `PREG123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU | no | patient registration and edits, coverage, tribal enrollment |
 | `registration_supervisor` | PROFILE,REGSUP | `PRSUP123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU, AGZMGR, AGZVIEWSSN, DGPF ASSIGNMENT | no | the role refusal and key specs |
 | `scheduler` | PROFILE,SCHED | `PSCH123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | SDZMENU, SDZREGMENU | no | clinics, availability, booking, check-in and check-out, wait list |
+| `bh_provider` | PROFILE,BH | `PBH123` | CIAV VUECENTRIC, BMXRPC, AMHGRPC (pending: no release carries the account yet) | PROVIDER, AMHZMENU, AMHZ DATA ENTRY | no | the Behavioral Health specs, skipped until a release carries the account (https://github.com/lakeraven/openrpms/issues/1299) |
 | `billing_technician` | PROFILE,BILL | `PBIL123` | none a broker signs on with (no CIAV VUECENTRIC) | ABMZMENU, ABMDZ EDIT CLAIM AND EXPORT, BARZMENU | no | no spec yet; the CIA sign-on refusal uses its pair |
 | `operator` | MANAGER,SYSTEM | `SYS123` | every option (XUPROGMODE) | XUPROGMODE | yes | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration role holds; #814) and build setup |
 
@@ -826,7 +827,7 @@ One guard keeps a run honest: right after sign-on it asks whether the account ho
 PROV123 (PROVIDER,TEST) is not a test role; it stays a stack's staging sign-on.
 Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it:
 
-- AMHGRPC for the provider, the Behavioral Health specs: https://github.com/lakeraven/openrpms/issues/1275
+- AMHGRPC for the behavioral health provider, the Behavioral Health specs: https://github.com/lakeraven/openrpms/issues/1299. The row is `pending`: no release carries PROFILE,BH yet, so it holds no option on the build and the specs skip without signing on. When a release carries it, drop `pending:` from the row and add the role to the role refusal spec.
 - OR CPRS GUI CHART for the provider, the sensitive-record check, a note's patient, a user's roles, the stock VistA vital add, and the XWB user class: https://github.com/lakeraven/openrpms/issues/1276
 - XQAL GUI ALERTS for the provider, the notification spec: https://github.com/lakeraven/openrpms/issues/1277
 

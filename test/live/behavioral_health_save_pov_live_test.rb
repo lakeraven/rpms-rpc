@@ -10,9 +10,9 @@ require "rpms_rpc/fileman_date_parser"
 # Replaces all POV and (mode E) Axis IV rows on each call. WRITES against a disposable
 # local container only.
 class BehavioralHealthSavePovLiveTest < LiveSpec::Test
-  runs_as :provider
-  # PROFILE,MD is not given AMHGRPC yet (PROVIDER,TEST was, openrpms#1192).
-  needs "AMHGRPC", tracked: "openrpms#1275"
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   # Synthetic seed patient; not used by save_visit (990033/990034) or other live write specs.
