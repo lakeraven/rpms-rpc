@@ -342,6 +342,9 @@ class CrsTest < Minitest::Test
 
   # --- parsing the tables ------------------------------------------------------
 
+  # The EISS column is not the site file's .04 INCLUDE DATA IN WEB EISS? (a
+  # Y/N set): SP^BGPXGU emits $S($P(^BGPSITE(ien,0),U,8):1,1:0), a 1/0 from
+  # the starred .08 *MFI SITE? field. Live, an entry whose .04 is N reads 0.
   def test_site_parameters_names_each_entrys_location_home_location_and_community_taxonomy
     twin(RPCS[:site_parameters] => blob(SP_HEADER, SP_ROW, "7820^7820~EXAMPLE SATELLITE^^^1"))
 
@@ -706,18 +709,18 @@ class CrsTest < Minitest::Test
     end
     assert captures.any? { |c| c["raw_return"].to_s.b.include?(MERROR_HEADER.b) },
            "bgpg-crs.yml must record a real MERR^BGPXGU table (T00250MError), the trapped-error wire"
-    # The queue captures record what the build answered. On the pinned image
-    # CRS refuses every report request (REPORT^BGPXGU cannot file the BGP 25
-    # DATA CURRENT entry, openrpms#1305): NPL answers the bare `0` and NTL
-    # `0^COULD NOT CREATE REPORT ENTRY`. A capture that answered a report ien
-    # can be recorded only once openrpms#1305 is fixed; until then the
-    # refusal is the wire, and it is what the parser is tested against.
+    # The queue captures record what the build answered: a report ien when
+    # the request filed, or the refusal (NPL's bare `0`, NTL's `0^reason`). A
+    # site entry whose EISS field holds anything but Y/N makes REPORT^BGPXUTL
+    # refuse every request with `0^COULD NOT CREATE REPORT ENTRY`, so both
+    # answers are real wire and the parser is tested against whichever was
+    # recorded.
     npl = captures.select { |c| c["rpc"] == RPCS[:queue_patient_lists] }.map { |c| c["raw_return"].to_s.b }
     assert npl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}\d+#{RS}/) },
-           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA LISTS queue answer: a report ien, or the bare 0 refusal (openrpms#1305)"
+           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA LISTS queue answer: a report ien, or the bare 0 refusal"
     ntl = captures.select { |c| c["rpc"] == RPCS[:queue_national_gpra] }.map { |c| c["raw_return"].to_s.b }
     assert ntl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}(\d+|0\^[A-Z ]+)#{RS}/) },
-           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA RPT NTL queue answer: a report ien, or 0^<reason> (openrpms#1305)"
+           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA RPT NTL queue answer: a report ien, or 0^<reason>"
   end
 
   def test_the_captured_queue_refusals_raise_the_typed_refusal

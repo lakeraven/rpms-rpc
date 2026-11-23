@@ -49,10 +49,12 @@ require "date"
 # cause to look at; one whose task TaskMan dropped is ERRORED (CHKFQT^BGPXGUA)
 # and fails the same way.
 #
-# On the pinned image CRS refuses every report request before TaskMan is
-# reached: REPORT^BGPXUTL cannot file the BGP 25 DATA CURRENT entry
-# (openrpms#1305). The queue scenario fails naming that refusal until the
-# image is fixed.
+# On the pinned image CHECK REPORT STATUS reports a RUNNING report as ERRORED:
+# CHKFQT^BGPXGUA asks JOBPAR^%ZOSV whether the task's job is alive, and that
+# compares /proc/<pid>/comm with "mumps" while a YottaDB process is "yottadb"
+# (openrpms#1305). wait_for_report treats ERRORED as final, as it must; when
+# the report then completes, the queue scenario fails naming openrpms#1305,
+# after it has checked the output the report produced.
 #
 # WRITES against a disposable local container only.
 class CrsBgpgLiveTest < LiveSpec::Test
@@ -116,18 +118,27 @@ class CrsBgpgLiveTest < LiveSpec::Test
       Crs.queue_patient_lists(community_taxonomy: taxonomy[:ien], name: name, lists: { DIABETES_PREVALENCE => [ DIABETES_DX_EVER ] },
                               period: { ends: server_today }, baseline_year: BASELINE_YEAR, population: :aian)
     rescue Crs::QueueRefusedError => e
-      flunk "openrpms#1305: CRS refused to file the report request (#{e.message}). REPORT^BGPXUTL could not create " \
-            "the BGP 25 DATA CURRENT entry although site parameters and community taxonomy #{taxonomy[:ien]} are on " \
-            "file. This is the image, not the gem; the scenario cannot pass until openrpms#1305 is fixed."
+      flunk "CRS refused to file the report request (#{e.message}) although site parameters and community taxonomy " \
+            "#{taxonomy[:ien]} are on file. REPORT^BGPXUTL copies the site entry's EISS field into BGP 25 DATA CURRENT " \
+            ".16, a Y/N set: a site entry saved with anything else there makes every request fail this way."
     end
     report = queued[:report_ien]
     assert_operator report, :>, 0, queued.inspect
 
     # Scenario: A report that never finishes times out. The lists take longer
-    # than a moment, so a moment's timeout names the report it gave up on.
-    timed_out = assert_raises(Crs::TimeoutError) { Crs.wait_for_report(report, timeout: 0.01, interval: 0) }
-    assert_includes timed_out.message, report.to_s
-    assert_includes timed_out.message, name
+    # than a moment, so a moment's timeout names the report it gave up on. On
+    # a build with openrpms#1305 the first status read may already say
+    # ERRORED; that is recorded and judged below, after the report's end.
+    errored_early = nil
+    begin
+      Crs.wait_for_report(report, timeout: 0.01, interval: 0)
+      flunk "report #{report} (#{name}) completed within 0.01s; a moment's timeout cannot be proven on it"
+    rescue Crs::TimeoutError => timed_out
+      assert_includes timed_out.message, report.to_s
+      assert_includes timed_out.message, name
+    rescue Crs::ReportFailedError => e
+      errored_early = e
+    end
 
     row = begin
       Crs.wait_for_report(report, timeout: REPORT_WAIT, interval: 5)
@@ -136,19 +147,55 @@ class CrsBgpgLiveTest < LiveSpec::Test
             "RUNNING was never picked up: check that TaskMan (ZTM0) is running on the twin; raise CRS_REPORT_WAIT only " \
             "if the twin is merely slow."
     rescue Crs::ReportFailedError => e
-      flunk "report #{report} (#{name}) failed: #{e.message}. ERRORED means CHKFQT^BGPXGUA found the TaskMan task deleted, " \
-            "errored or not running: check TaskMan (ZTM0) on the twin."
+      errored_early ||= e
+      completed_after_errored(report, name, e)
     end
     assert_equal "COMPLETED", row[:status], row.inspect
     refute_nil row[:ended_at], "a completed report has an end time: #{row.inspect}"
 
+    assert_report_lists_the_patient(report, patient)
+
+    return if errored_early.nil?
+
+    flunk "openrpms#1305: BGPG 25 CHECK REPORT STATUS read report #{report} (#{name}) as ERRORED while it was running " \
+          "(#{errored_early.message}); it completed afterwards and listed the patient. CHKFQT^BGPXGUA asks JOBPAR^%ZOSV " \
+          "for the task's job, which looks for a \"mumps\" process where YottaDB runs \"yottadb\"."
+  end
+
+  # A report CHK read as ERRORED: keep reading its status through the gem until
+  # the deadline. One that completes was running all along (openrpms#1305) and
+  # is returned for the output checks; one that stays ERRORED failed.
+  def completed_after_errored(report, name, error)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + REPORT_WAIT
+    while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+      row = Crs.report_status.find { |r| r[:ien] == report }
+      return row if row && row[:status] == "COMPLETED"
+
+      sleep 5
+    end
+    flunk "report #{report} (#{name}) failed: #{error.message}, and did not complete within #{REPORT_WAIT}s afterwards. " \
+          "ERRORED means CHKFQT^BGPXGUA found the TaskMan task deleted, errored or not running: check TaskMan (ZTM0) " \
+          "on the twin, and openrpms#1305 (a running YottaDB job reads as not running)."
+  end
+
+  def assert_report_lists_the_patient(report, patient)
     lines = Crs.report_output(report)
     refute_empty lines, "BGPG 25 GET NATIONAL GPRA answered no output for completed report #{report}"
     hits = lines.each_index.select { |i| lines[i].include?(patient[:name_last]) }
     refute_empty hits, "patient #{patient[:name_last]} (DFN #{patient[:dfn]}) is on none of the lists:\n#{lines.join("\n")}"
-    heading = lines[0...hits.first].reverse.find { |l| l.match?(/Diabetes/i) }
-    refute_nil heading, "the patient's line is not under a Diabetes measure heading:\n#{lines[[ hits.first - 15, 0 ].max..hits.first].join("\n")}"
-    assert lines.any? { |l| l.match?(/Diabetes DX Ever/i) }, "the output names the list asked for (001.A.1 Diabetes DX Ever)"
+    # The printed list (NPL1^BGPXNPLP) opens with the measure's name and the
+    # list's description from BGP 25 NATIONAL PATIENT LISTS, then one line per
+    # patient (name, HRN, community, sex, age, DOB, last visits) and a line
+    # naming the denominators the patient is in and the numerator evidence.
+    section = lines[[ hits.first - 30, 0 ].max..hits.first]
+    assert section.any? { |l| l.strip == "Diabetes Prevalence" }, "the patient's line is not under the Diabetes Prevalence heading:\n#{section.join("\n")}"
+    assert section.any? { |l| l.match?(/List of patients ever diagnosed with diabetes/i) },
+           "the patient's line is not under list 001.A.1's description:\n#{section.join("\n")}"
+    assert_match(/#{patient[:name_last]},#{patient[:name_first]}\s+#{patient[:dfn]}\s+#{COMMUNITY}\s+#{patient[:sex]}\s/, lines[hits.first],
+                 "the patient's line names the HRN (derived from the DFN), community and sex sent")
+    evidence = lines[hits.first + 1].to_s
+    assert_match(/\AUP\b/, evidence, "the patient is in the User Population denominator: #{evidence.inspect}")
+    assert_includes evidence, "POV #{ICD}", "the numerator evidence is the diabetes diagnosis filed on the visits: #{evidence.inspect}"
   end
 
   # --- Scenario: A trapped M error is an error, not an empty report ------------
@@ -238,11 +285,15 @@ class CrsBgpgLiveTest < LiveSpec::Test
   end
 
   # BGPG 25 SAVE SITE PARAMETERS (SITE^BGPXGU): location|taxonomy|home location|EISS.
-  # On a new entry the build answers an MError table (SITE+39^BGPXGU, BGPERR
+  # Piece 4 is filed unvalidated into BGP SITE PARAMETERS .04 INCLUDE DATA IN
+  # WEB EISS?, a Y/N set that REPORT^BGPXUTL copies into every report entry's
+  # .16, where FileMan refuses any other value: a site saved with "0" there
+  # makes CRS answer "0^COULD NOT CREATE REPORT ENTRY" to every request. On a
+  # new entry the build answers an MError table (SITE+39^BGPXGU, BGPERR
   # undefined) after filing, so the reply is not read; the entry is read back.
   def save_site_parameters!(taxonomy)
     client.with_context(Crs::CONTEXT) do
-      client.call_rpc_global_array("BGPG 25 SAVE SITE PARAMETERS", "#{division[:ien]}|#{taxonomy[:ien]}|#{division[:ien]}|0")
+      client.call_rpc_global_array("BGPG 25 SAVE SITE PARAMETERS", "#{division[:ien]}|#{taxonomy[:ien]}|#{division[:ien]}|N")
     end
     entry = Crs.site_parameters.find { |e| e.dig(:location, :ien) == division[:ien] }
     flunk "BGPG 25 SAVE SITE PARAMETERS filed no entry for division #{division[:ien]}" if entry.nil?
