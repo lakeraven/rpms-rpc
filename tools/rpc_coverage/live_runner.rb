@@ -281,6 +281,13 @@ cases["Problem.audit_history"] = -> { RpmsRpc::Problem.audit_history(ctx[:proble
 cases["NoteTemplate.items"] = -> { RpmsRpc::NoteTemplate.items(ctx[:template]) } if ctx[:template]
 cases["NoteTemplate.boilerplate"] = -> { RpmsRpc::NoteTemplate.boilerplate(ctx[:template]) } if ctx[:template]
 cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text([ "|PATIENT NAME|" ], dfn: ctx[:dfn]) }
+# The Behavioral Health reads run under AMHGRPC, which IHS gives only to BH staff: a role without it (the provider, since
+# openrpms#1299) is refused them by design, so they run only as a role that holds it (README, Test roles).
+unless ROLE.holds?(RpmsRpc::BehavioralHealth::CONTEXT)
+  not_run = cases.keys.grep(/\ABehavioralHealth\./)
+  not_run.each { |name| cases.delete(name) }
+  puts "not run: #{not_run.join(', ')} (#{ROLE.name} does not hold #{RpmsRpc::BehavioralHealth::CONTEXT})" unless not_run.empty?
+end
 
 cases.each { |name, fn| run.call(name) { fn.call } }
 
