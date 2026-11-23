@@ -8,6 +8,7 @@ require "rpms_rpc/api/ddr_fileman"
 # through Registration, read back through DDR.
 class RegistrationBprm418LiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-13.1", "S-REG-13.3"
   writes!
 
   DFN = 990_043

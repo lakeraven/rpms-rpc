@@ -1,0 +1,16 @@
+# The pilot workflows rake rpc:coverage reports per scenario (rpms-rpc#818): each openrpms-ux story
+# (docs/product-cycle/STORIES.md there), and the test role that plays its persona. A scenario of one of
+# these stories (its role is the persona STORIES.md gives the story) counts when a live spec declares it
+# (`proves "S-SCH-01.1"`) and every spec that does
+# passed as this role. A call answered only as the operator counts toward nothing.
+stories:
+  S-REG-01: front_desk_clerk   # Find the patient before registering
+  S-REG-02: front_desk_clerk   # Register a new patient
+  S-SCH-01: scheduler          # Book an appointment
+  S-SCH-02: scheduler          # Cancel or reschedule
+  S-SCH-03: front_desk_clerk   # Check the patient in
+  S-SCH-04: scheduler          # Search for an open slot across days
+  S-SCH-05: scheduler          # See the clinic's schedule and the appointment lists
+  S-SGN-01: medical_assistant  # Sign on
+  S-SGN-03: provider           # Read the Cover Sheet
+  S-CHT-01: provider           # Find and open a patient's chart

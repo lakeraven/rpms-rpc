@@ -11,6 +11,7 @@ require "rpms_rpc/server_clock"
 # read only: DDR FILER cannot file #2 .134 (its AXENR13 index needs DFN).
 class RegistrationEditsLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-20.2", "S-REG-20.4", "S-REG-21.1", "S-REG-21.7"
   writes!
 
   Reg = RpmsRpc::Registration

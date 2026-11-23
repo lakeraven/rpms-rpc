@@ -54,6 +54,14 @@
 # disagrees with the role's row: a programmer is answered under every option,
 # so an operator pair under another role's name would hide a permission gap.
 #
+# A spec declares the openrpms-ux scenarios it proves, beside its role
+# (`proves "S-SCH-01.1"`; docs/product-cycle/STORIES.md there). Every RPC a
+# spec sends after sign-on is recorded with its outcome (call_log.rb), and the
+# run's summary lists each spec with its result, the scenarios it proves and
+# its calls, so `rake rpc:coverage` can say which scenarios are proven live as
+# the role that plays them (#818). A run whose account's XUPROGMODE disagrees
+# with its role's row records no spec: it proves nothing for any scenario.
+#
 # A spec that WRITES declares `writes!`. It runs only when the target is
 # declared disposable (LIVE_DISPOSABLE=1) and is on this machine (a loopback
 # BROKER_HOST); anything else fails the spec, so a write can never reach a
@@ -78,6 +86,7 @@ require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
 require "rpms_rpc/api/authentication"
 require_relative "live_env"
+require_relative "call_log"
 
 module LiveSpec
   class Test < Minitest::Test
@@ -99,6 +108,18 @@ module LiveSpec
       end
 
       def runs_as?(name) = !name.to_s.empty? && Array(runs_as).include?(name.to_s.to_sym)
+
+      # Declare the openrpms-ux scenarios this spec proves (`proves "S-SCH-01.1"`),
+      # as its role. With no ids, the ones declared (inherited), or none.
+      def proves(*ids)
+        unless ids.empty?
+          bad = ids.map(&:to_s).reject { |id| id.match?(LiveSpec::SCENARIO_ID) }
+          raise ArgumentError, "proves takes openrpms-ux scenario ids like S-SCH-01.1, not #{bad.join(', ')}" unless bad.empty?
+
+          @proves = ids.map(&:to_s).uniq.freeze
+        end
+        @proves || (superclass.respond_to?(:proves) ? superclass.proves : [].freeze)
+      end
 
       # A run as another role loads the spec and runs none of its tests. A
       # spec that declares no role runs, so its setup can say so.
@@ -159,9 +180,11 @@ module LiveSpec
       end
       @client = sign_on
       check_xuprogmode!
+      CallLog.start
     end
 
     def teardown
+      LiveSpec.calls["#{self.class}##{name}"] = CallLog.stop
       @lookup_client&.disconnect
       @client&.disconnect
       RpmsRpc.reset!
@@ -297,8 +320,14 @@ module LiveSpec
     end
 
     def record(result)
-      super if LiveSpec.live_result?(result)
+      return unless LiveSpec.live_result?(result)
+
+      super
+      live_results << result
     end
+
+    # Every live result, passed ones included: StatisticsReporter keeps only the rest.
+    def live_results = (@live_results ||= [])
 
     def live_run? = @env["LIVE_RUN"] == "1"
     def none_ran? = (count - skips).zero?
@@ -414,8 +443,32 @@ module LiveSpec
         "assertions" => assertions,
         "failures" => failures,
         "errors" => errors,
-        "skips" => skips
+        "skips" => skips,
+        "specs" => spec_records
       }
+    end
+
+    # One record per live spec run: its result, the scenarios it proves, and
+    # the calls it sent with their outcomes. None when the account's XUPROGMODE
+    # disagreed with the role's row: such a run proves no scenario.
+    def spec_records
+      return [] if LiveSpec.xuprogmode_refused?(@env["ROLE"])
+
+      live_results.map do |r|
+        klass = Object.const_get(r.klass)
+        record = { "spec" => "#{r.klass}##{r.name}", "proves" => klass.proves, "result" => result_word(r),
+                   "calls" => LiveSpec.calls.fetch("#{r.klass}##{r.name}", []).uniq }
+        record["skip"] = r.failure.message.to_s[0, 200] if r.skipped?
+        record
+      end
+    end
+
+    def result_word(result)
+      if result.skipped? then "skip"
+      elsif result.passed? then "pass"
+      elsif result.error? then "error"
+      else "fail"
+      end
     end
 
     def skipped_by_issue
@@ -423,6 +476,9 @@ module LiveSpec
              .transform_values { |rs| rs.map { |r| "#{r.klass}##{r.name}" } }
     end
   end
+
+  # The calls each live spec sent, by "Class#test", for the summary.
+  def self.calls = (@calls ||= {})
 
   def self.live_result?(result)
     klass = Object.const_get(result.klass)

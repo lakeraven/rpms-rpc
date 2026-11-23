@@ -1,0 +1,353 @@
+{
+  "schema": 3,
+  "written_at": "2026-11-23T04:15:42Z",
+  "build": "bcer-9.0-20261119-f67498c-ydb",
+  "build_source": "release",
+  "source": "sha256:51b38476bf0478a1d21266b11948fc59c03d0bd1acfe73695fb69a6491f9f0d9",
+  "suite": "sha256:9c8b54e54d8097312cd5a1ae0e7ae7534900f2ce926e6fbc30859054fc3d4b70",
+  "protocol": "cia",
+  "role": "front_desk_clerk",
+  "passed": true,
+  "runs": 102,
+  "assertions": 888,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "specs": [
+    {
+      "spec": "RegistrationHrnSourceLiveTest#test_a_derived_hrn_that_another_patient_holds_here_is_not_filed",
+      "proves": [
+        "S-REG-02.9"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG UPDATE PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationHrnSourceLiveTest#test_s_reg_05_2_and_05_5_a_given_number_is_filed_once_and_refused_for_a_second_patient",
+      "proves": [
+        "S-REG-02.9"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationHrnSourceLiveTest#test_s_reg_05_1_a_temporary_number_is_filed_on_the_new_patient",
+      "proves": [
+        "S-REG-02.9"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG GET TEMP PAT HRN",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG UPDATE PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationWindowValidationLiveTest#test_s_reg_02_8_an_ssn_already_on_another_patient_is_refused_and_nothing_is_filed",
+      "proves": [
+        "S-REG-02.6",
+        "S-REG-02.8"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG UPDATE PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationWindowValidationLiveTest#test_an_ssn_and_a_reason_for_none_together_are_refused",
+      "proves": [
+        "S-REG-02.6",
+        "S-REG-02.8"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationWindowValidationLiveTest#test_s_reg_02_6_no_ssn_and_no_reason_is_not_filed_unchecked",
+      "proves": [
+        "S-REG-02.6",
+        "S-REG-02.8"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG UPDATE PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    },
+    {
+      "spec": "RegistrationWindowValidationLiveTest#test_no_ssn_with_a_reason_registers",
+      "proves": [
+        "S-REG-02.6",
+        "S-REG-02.8"
+      ],
+      "result": "pass",
+      "calls": [
+        {
+          "rpc": "XUS SIGNON SETUP",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS AV CODE",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS DIVISION GET",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XUS GET USER INFO",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "XWB CREATE CONTEXT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG LOOKUP PATIENTS",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG WINDOW DATA VALIDATION",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG ADD NEW PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "AGG UPDATE PATIENT",
+          "outcome": "answered"
+        },
+        {
+          "rpc": "DDR LISTER",
+          "outcome": "answered"
+        }
+      ]
+    }
+  ]
+}

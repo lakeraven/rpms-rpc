@@ -12,6 +12,7 @@ require "rpms_rpc/server_clock"
 # a disposable container; each run records one application on a new date.
 class PatientApplicationLiveTest < LiveSpec::Test
   runs_as :front_desk_clerk
+  proves "S-REG-03.3", "S-REG-03.4", "S-REG-03.5"
   writes!
 
   DFN = 990_010 # a synthetic seed patient
