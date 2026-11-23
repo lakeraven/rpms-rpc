@@ -98,8 +98,9 @@ class OversizedTextWritersTest < Minitest::Test
   def skip_problem_ownership_read
     skip_context_binding
     # A singleton stub, removed after, so the private module method is not left public.
-    RpmsRpc::Problem.define_singleton_method(:refuse_unless_patients) { |_dfn, _ien| nil }
-    @restore << -> { RpmsRpc::Problem.singleton_class.remove_method(:refuse_unless_patients) }
+    # The patient check answers the problem as this patient's, status A.
+    RpmsRpc::Problem.define_singleton_method(:patients_problem) { |dfn, _ien| [ { ".02" => dfn.to_s, ".12" => "A" }, nil ] }
+    @restore << -> { RpmsRpc::Problem.singleton_class.remove_method(:patients_problem) }
   end
 
   def assert_refused(result, limit, text)

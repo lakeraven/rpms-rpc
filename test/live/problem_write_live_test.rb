@@ -12,7 +12,8 @@ require "rpms_rpc/fileman_date_parser"
 # are in CIAV VUECENTRIC, the option CIA sign-on binds.
 #
 # The spec adds a problem, edits it, re-letters its status with the .12
-# internal letter and refuses a status BGOPROB does not know (#923), refuses
+# internal letter and refuses a status BGOPROB does not know (#923), keeps
+# the status on file through an edit that names none (#925), refuses
 # an edit and a delete named with another patient, then deletes it, and reads
 # the PROBLEM (#9000011) entry back with DDR after each step: what was filed,
 # by whom, and what the delete recorded.
@@ -63,6 +64,17 @@ class ProblemWriteLiveTest < LiveSpec::Test
     relettered = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "A", description: edited_text))
     assert_equal({ success: true, ien: ien, raw: ien.to_s }, relettered)
     assert_equal "A", entry(ien).dig(".12", :internal), "status \"A\" must file as A (Chronic), not as the build's EPISODIC fallback (#923)"
+
+    # PROB^BGOPROB3 files .12 on every SET, an edit included, from piece 8
+    # or else the concept's default or EPISODIC; so an edit that does not
+    # name a status sends the one on file, and a chronic problem stays
+    # chronic (#925).
+    kept_text = "SYNTH LIVE PROBLEM KEPT #{stamp}"
+    kept = RpmsRpc::Problem.update(DFN, ien, problem.except(:status).merge(description: kept_text))
+    assert_equal({ success: true, ien: ien, raw: ien.to_s }, kept)
+    row = entry(ien)
+    assert_equal "A", row.dig(".12", :internal), "an edit that names no status must keep Chronic (A), not re-file the build's default (#925)"
+    assert_equal "*#{kept_text}", row.dig(".05", :external).split("|").first, "the narrative-only edit did not file the narrative"
 
     guessed = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "ACTIVE-ISH", description: edited_text))
     refute guessed[:success], "a status BGOPROB does not know must be refused, got #{guessed.inspect}"

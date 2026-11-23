@@ -233,9 +233,9 @@ class ProblemStatusTest < Minitest::Test
     end
   end
 
-  # --- an omitted status keeps today's behaviour --------------------------------
+  # --- an omitted status: the build's default on add, the one on file on update --
 
-  def test_an_omitted_status_leaves_piece_8_empty_for_the_builds_default
+  def test_an_omitted_status_on_add_leaves_piece_8_empty_for_the_builds_default
     # BGOPROB3.m:113-114: an empty piece 8 takes the SNOMED lookup's default
     # status, else "Episodic". The gem does not fill it in; what the build
     # files then is the build's choice, not a guess of the gem's.
@@ -245,13 +245,42 @@ class ProblemStatusTest < Minitest::Test
 
       assert result[:success], "problem #{problem.inspect}: #{result.inspect}"
       assert_equal "", status_sent(client), "problem #{problem.inspect}: piece 8 is empty"
+    end
+  end
 
+  def test_an_omitted_status_on_update_sends_the_status_on_file
+    # PROB^BGOPROB3 files .12 on an edit too (BGOPROB3.m:164), so an empty
+    # piece 8 would re-file a chronic problem as the concept's default or
+    # EPISODIC (#925). The patient check (update/1) reads .12 A, so the edit
+    # sends Chronic.
+    [ PROBLEM, PROBLEM.merge(status: nil), PROBLEM.merge(status: "") ].each do |problem|
       client = replay_flow("update")
       result = RpmsRpc::Problem.update(DFN, IEN, problem)
 
       assert result[:success], "problem #{problem.inspect}: #{result.inspect}"
-      assert_equal "", status_sent(client), "problem #{problem.inspect}: piece 8 is empty"
+      assert_equal "Chronic", status_sent(client), "problem #{problem.inspect}: piece 8 is the status on file (A)"
+      assert_equal [ "DDR GETS ENTRY DATA", "BGOPROB SET", "DDR GETS ENTRY DATA" ], sent(client).map(&:first),
+                   "the status comes from the patient check; no extra read"
     end
+  end
+
+  def test_an_explicit_status_on_update_wins_over_the_one_on_file
+    client, result = update("update", "Inactive")
+
+    assert result[:success], result.inspect
+    assert_equal "Inactive", status_sent(client), "update/1 reads .12 A, but the caller named Inactive"
+  end
+
+  def test_an_update_naming_no_status_of_a_deleted_problem_is_refused_before_the_write
+    # delete/3 is the build's read of problem 148 after DEL^BGOPROB3: .12 D,
+    # which BGOPROB SET cannot file back.
+    client = replay("DDR GETS ENTRY DATA" => [ CapturedReplies.raw(SLUG, "delete/3") ])
+
+    result = RpmsRpc::Problem.update(DFN, IEN, PROBLEM)
+
+    assert_equal({ success: false, ien: nil, raw: nil }, result.except(:error), result.inspect)
+    assert_includes result[:error].to_s, "\"D\"", "the refusal names the status on file"
+    assert_equal [ "DDR GETS ENTRY DATA" ], sent(client).map(&:first), "only the patient check is sent; no BGOPROB SET"
   end
 
   # --- the other pieces are untouched -------------------------------------------
