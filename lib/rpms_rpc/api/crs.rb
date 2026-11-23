@@ -186,7 +186,7 @@ module RpmsRpc
     #
     # @param community_taxonomy [Integer, String] the community TAXONOMY ien
     # @param name [String] the report's name, the .01 of BGP 25 GUI REPORT
-    #   OUTPUT: 3 to 60 characters, not starting with punctuation or a space
+    #   OUTPUT: 3 to 60 printable ASCII characters, not starting with punctuation or a space
     # @param export_to_area [Boolean] true to write the Area export file
     # @param output [Symbol] :printed (default), :delimited or :both
     # @param run_at [Time, nil] when TaskMan starts it; nil starts now. It is
