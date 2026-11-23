@@ -594,12 +594,17 @@ module RpmsRpc
 
     # BGOVPOV GET — GET^BGOVPOV(RET,INP) (BGOVPOV.m:106). INP = VISIT IEN ^
     # V POV IEN (optional) ^ FORMAT; FORMAT 0 (sent empty) is the detailed
-    # row (BGOVPOV.m:100-105):
+    # row, as GET^BGOVPOV builds it (BGOVPOV.m:191-192 on
+    # bcer-9.0-20261119-f67498c-ydb; the header comment at :100-105 lists
+    # 29 pieces, the row has 30):
     #   IEN ^ VISIT DATE ^ FACILITY ^ FACILITY NAME ^ ICD ^ EPISODICITY ^
     #   NARRATIVE ^ MODIFIER ^ ONSET ^ STAGE ^ REVISIT ^ CAUSE ^ INJURY DATE ^
     #   EXTERNAL CAUSE ^ PLACE OF INJURY ^ PRIMARY ^ PROVIDER ^ VISIT IEN ^
-    #   LOCKED ^ ASTHMA CONTROL ^ SNOMED CT ^ PROVIDER TEXT ^ QUALIFIERS ^
-    #   PROBLEM ^ E-CODE ^ ICD NAME ^ ICD IEN ^ NORMAL/ABNORMAL ^ LATERALITY
+    #   LOCKED ^ ASTHMA CONTROL ^ SNOMED DESCRIPTION ^ PROVIDER TEXT ^
+    #   QUALIFIERS ^ PROBLEM ^ E-CODE ^ ICD NAME ^ ICD IEN ^ NORMAL/ABNORMAL ^
+    #   LATERALITY ^ FRACTURE ("<healing text>|<code>")
+    # Piece 21 is the concept's description ($$CONC^BSTSAPI piece 4), not
+    # its ID: the concept ID (V POV 1101) is not in the row (rpms-rpc#927).
     DataMapper.define(:visit_povs) do |m|
       m.rpc "BGOVPOV GET"
       m.context VUECENTRIC
@@ -623,7 +628,7 @@ module RpmsRpc
       m.field 17, :visit_ien,        :integer
       m.field 18, :visit_locked,     :boolean
       m.field 19, :asthma_control
-      m.field 20, :snomed_ct
+      m.field 20, :snomed_description
       m.field 21, :provider_text
       m.field 22, :qualifiers
       m.field 23, :problem_ien
@@ -632,6 +637,7 @@ module RpmsRpc
       m.field 26, :icd_ien,          :integer
       m.field 27, :normal_abnormal
       m.field 28, :laterality
+      m.field 29, :fracture
     end
 
     # BEHOENCX GETPRV — GETPRV^BEHOENCX(DATA,DFN,VSTR,PRI) (BEHOENCX.m:303):

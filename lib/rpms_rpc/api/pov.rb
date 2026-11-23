@@ -33,14 +33,15 @@ module RpmsRpc
     #                              onset_date:, stage:, revisit:, cause:,
     #                              injury_date:, external_cause:, place_of_injury:,
     #                              primary_or_secondary:, provider_name:, visit_ien:,
-    #                              visit_locked:, asthma_control:, snomed_ct:,
+    #                              visit_locked:, asthma_control:, snomed_description:,
     #                              provider_text:, qualifiers:, problem_ien:,
     #                              e_code:, icd_name:, icd_ien:, normal_abnormal:,
-    #                              laterality: }, ...]
+    #                              laterality:, fracture: }, ...]
     #
     # ien is the V POV (#9000010.07) IEN; the dates are Dates; qualifiers
-    # and laterality are the "|"-joined pieces as sent. A -n^text reply
-    # raises Client::RpcError.
+    # and fracture are the "|"-joined pieces as sent. snomed_description is
+    # the SNOMED concept's description: the row does not carry its concept
+    # ID (rpms-rpc#927). A -n^text reply raises Client::RpcError.
     def for_visit(visit_ien)
       return [] if invalid_id?(visit_ien)
 
@@ -48,7 +49,14 @@ module RpmsRpc
     end
     shape :for_visit, resource: "purposes-of-visit", verb: "GET", path: "/visits/{visit_ien}/purposes-of-visit"
 
-    # Add a POV to an open visit.
+    # File a visit diagnosis from a problem-list entry (BGOVPOV SET). The
+    # problem is required: GETDATA^BGOVPOV2 walks ^AUPNPROB(PROB,13,...) with
+    # the problem sent, and with none the build errors with a null subscript
+    # (rpms-rpc#922). A call without modifiers[:problem_ien] is refused with
+    # the failure hash, naming it, before anything is sent. A visit diagnosis
+    # with no problem goes through Encounter.save (BEHOENPC SAVE). On the
+    # pinned build the diagnosis also needs its SNOMED concept (:snomed_ct):
+    # without one SET2^BGOVPOV2 refuses the ICD code (-1092).
     #
     # INP layout (BGOVPOV.m:285-286; parsed :298-303): VPOV IEN[1]^
     # Visit IEN[2]^Problem IEN[3]^Patient IEN[4]^Prov Text[5]^
@@ -62,6 +70,9 @@ module RpmsRpc
     # (13), :fracture (14), :injury_cause (INJ piece 1).
     def add(dfn, visit_ien, diagnosis_code, narrative:, modifiers: {})
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(diagnosis_code)
+      if invalid_id?(modifiers[:problem_ien])
+        return failure.merge(error: "modifiers[:problem_ien] is required: BGOVPOV SET files a diagnosis from a problem-list entry")
+      end
 
       diagnosis_role =
         if modifiers[:primary] then "P"

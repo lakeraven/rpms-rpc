@@ -3,6 +3,7 @@
 require "date"
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   module Encounter
@@ -301,9 +302,14 @@ module RpmsRpc
     # A SNOMED concept that maps to more than one ICD files one V POV per
     # code (ADDICD^BEHOENP2), all with the diagnosis's narrative and problem;
     # the extra ones are reported under the diagnosis as additional: [{ ien:,
-    # icd: }]. A health factor IEN the build has no entry for is filed as a
-    # dangling pointer; it is reported in not_filed (reason:
-    # :unknown_health_factor), never as filed. Sending the primary provider on
+    # icd: }]. Each health factor IEN is read from HEALTH FACTORS
+    # (#9999999.64 .01, DDR GETS ENTRY DATA) before anything is filed: the
+    # build would file one it has no entry for as a dangling pointer in the
+    # patient's record (rpms-rpc#928), so such an IEN is refused, :invalid,
+    # named in not_filed (reason: :unknown_health_factor), and nothing is
+    # sent; a read that cannot be trusted is :snapshot_failed. Should one
+    # still read back with no factor, it is reported in not_filed the same
+    # way, never as filed. Sending the primary provider on
     # an existing visit makes any other primary provider on it secondary
     # (STORE^BEHOENPC sets .04 to P on the one sent). may_have_filed is true whenever BEHOENPC
     # SAVE was sent, including when the connection failed during it: the
@@ -341,6 +347,14 @@ module RpmsRpc
       replied = false
       raw = nil
       mapping.in_context(client) do
+        unknown = begin
+          unknown_health_factors(health_factors)
+        rescue Client::FrameTooLongError, Client::RpcError, Client::ParseError => e
+          next save_result(error: :snapshot_failed, raw: RpmsRpc.sanitize_error(e.message))
+        end
+        next save_result(error: :snapshot_failed, raw: unknown) if unknown.is_a?(String)
+        next save_result(error: :invalid, not_filed: unknown) unless unknown.empty?
+
         before = begin
           save_snapshot(dfn, vstr)
         rescue Client::FrameTooLongError, Client::RpcError, Client::ParseError => e
@@ -435,6 +449,24 @@ module RpmsRpc
         entries << { kind: :health_factor, factor_ien: h[:ien], reason: :bad_ien } unless h[:ien].to_s.match?(POSITIVE_INTEGER)
       end
       entries
+    end
+
+    HEALTH_FACTORS_FILE = "9999999.64"
+    private_constant :HEALTH_FACTORS_FILE
+
+    # The requested health factors HEALTH FACTORS has no entry for, each as
+    # not_filed names it; or, when a read cannot be trusted (no reply, or
+    # one DdrFileman marks malformed, stray or altered), the text saying so.
+    def unknown_health_factors(health_factors)
+      health_factors.each_with_object([]) do |h, unknown|
+        entry = DdrFileman.gets_entry(file: HEALTH_FACTORS_FILE, iens: "#{h[:ien]},", fields: ".01", flags: "I")
+        if entry.nil? || entry[:malformed] || entry[:stray] || entry[:altered]
+          return "DDR GETS ENTRY DATA on HEALTH FACTORS #{h[:ien]} could not be read"
+        end
+        next unless entry[:error] || entry.dig(:fields, ".01", :internal).to_s.strip.empty?
+
+        unknown << { kind: :health_factor, factor_ien: h[:ien], reason: :unknown_health_factor }
+      end
     end
 
     def diagnosis_entry(diagnosis)

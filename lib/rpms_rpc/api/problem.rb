@@ -87,7 +87,8 @@ module RpmsRpc
     # R), in any case; the exact name is what is sent. Any other value,
     # including D or Deleted (Problem.delete deletes), is refused before
     # anything is sent, because BGOPROB would file it as EPISODIC (#923).
-    # Omitted, nil or "" leaves the build's own default (BGOPROB3.m:113-114).
+    # Omitted, nil or "" leaves the build's own default on add
+    # (BGOPROB3.m:113-114); on update it keeps the status on file (#925).
     #
     # Returns { success:, ien:, raw: }, plus error: on a refusal.
     def add(dfn, problem)
@@ -106,6 +107,14 @@ module RpmsRpc
     # BGOPROB3.m:117, and leaves .02 alone on an edit), so the gem reads the
     # problem first and sends nothing unless its .02 is this patient
     # (:not_found, :wrong_patient). The edit is read back as add's is.
+    #
+    # PROB^BGOPROB3 files .12 STATUS on every SET, an edit included: the
+    # status sent, else the concept's default, else Episodic
+    # (BGOPROB3.m:113-114, :164). So an edit that names no status sends the
+    # status on file, read in the same patient check, by its name: a chronic
+    # problem whose narrative is edited stays chronic (#925). A status on
+    # file that BGOPROB SET cannot file back (D, or a letter outside A, I, S,
+    # E, O, R) refuses the edit before anything is written, naming it.
     def update(dfn, ien, changes)
       raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
       return failure if invalid_id?(dfn) || invalid_id?(ien)
@@ -114,7 +123,10 @@ module RpmsRpc
       return refused if refused
 
       in_context do
-        refused = refuse_unless_patients(dfn, ien)
+        filed, refused = patients_problem(dfn, ien)
+        next refused if refused
+
+        changes, refused = with_status_on_file(changes, filed[".12"])
         refused || write(dfn, ien, changes)
       end
     end
@@ -360,12 +372,16 @@ module RpmsRpc
 
     # nil when problem `ien` is on file for patient `dfn`; else the refusal:
     # :not_found, :unreadable (see problem_fields) or :wrong_patient.
-    def refuse_unless_patients(dfn, ien)
-      filed = problem_fields(ien)
-      return failure.merge(error: filed) if filed.is_a?(Symbol)
-      return failure.merge(error: :wrong_patient) unless filed[".02"] == dfn.to_s
+    def refuse_unless_patients(dfn, ien) = patients_problem(dfn, ien).last
 
-      nil
+    # [the problem's fields (problem_fields), nil] when it is on file for
+    # patient `dfn`; else [nil, the refusal refuse_unless_patients names].
+    def patients_problem(dfn, ien)
+      filed = problem_fields(ien)
+      return [ nil, failure.merge(error: filed) ] if filed.is_a?(Symbol)
+      return [ nil, failure.merge(error: :wrong_patient) ] unless filed[".02"] == dfn.to_s
+
+      [ filed, nil ]
     end
 
     # PROBLEM (#9000011) .01, .02 and .12, internal. :not_found when
@@ -476,6 +492,19 @@ module RpmsRpc
 
       [ fields, failure.merge(error: "status \"#{status.is_a?(String) ? status.scrub : status}\" is not one BGOPROB SET files " \
                                      "(#{STATUS_NAMES.values.uniq.join(', ')}, or A, I, S, E, O, R)") ]
+    end
+
+    # [changes, nil] with status: the name of the .12 letter on file when
+    # the edit names none; [changes, refusal] when that letter is not one
+    # BGOPROB SET files (#925).
+    def with_status_on_file(changes, letter)
+      return [ changes, nil ] unless changes[:status].nil? || changes[:status] == ""
+
+      name = letter.to_s.match?(/\A[A-Z]\z/) && STATUS_NAMES[letter.downcase]
+      return [ changes.merge(status: name), nil ] if name
+
+      [ changes, failure.merge(error: "status on file \"#{letter}\" is not one BGOPROB SET files back; " \
+                                      "name status: to edit this problem") ]
     end
 
     def build_p_line(fields)

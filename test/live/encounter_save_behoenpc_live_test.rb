@@ -4,6 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/encounter"
+require "rpms_rpc/api/pov"
 require "rpms_rpc/fileman_date_parser"
 
 # Encounter.save files an encounter through BEHOENPC SAVE (SAVE^BEHOENPC): a
@@ -112,6 +113,12 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     assert_equal "#{PREFERRED_TERM} | #{narrative}", pov[".04"], "V POV #{pov_ien} does not carry the narrative sent"
     assert_equal SNOMED, pov["1101"], "V POV #{pov_ien} is not SNOMED concept #{SNOMED}"
 
+    # BGOVPOV GET carries the concept's description in piece 21, not its ID
+    # (rpms-rpc#927): Pov.for_visit names it snomed_description.
+    got = RpmsRpc::Pov.for_visit(visit).find { |row| row[:ien].to_s == pov_ien }
+    refute_nil got, "Pov.for_visit(#{visit}) does not list V POV #{pov_ien}"
+    assert_equal PREFERRED_TERM, got[:snomed_description], "BGOVPOV GET piece 21 for V POV #{pov_ien}"
+
     assert_equal 1, result[:procedures].size, result[:procedures].inspect
     cpt_ien = result[:procedures].first[:ien].to_s
     cpt = fields_of(CPT_FILE, cpt_ien, ".01;.02;.03", external: %w[.01])
@@ -199,6 +206,32 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     assert_equal [ ICD ], result[:not_filed].select { |e| e[:kind] == :diagnosis }.map { |e| e[:icd] }
     assert_equal povs_before, iens(POV_FILE), "a refused save filed a V POV"
     assert_equal problems_before, problems_of(dfn), "a refused save changed the problem list"
+  end
+
+  # The build files HF+^<ien> for an IEN HEALTH FACTORS has no entry for, as
+  # a V HEALTH FACTOR whose .01 points at nothing; so the wrapper reads the
+  # factor first and refuses it before anything is sent (rpms-rpc#928).
+  def test_a_health_factor_not_on_file_is_refused_and_nothing_is_filed
+    dfn = synthetic_dfn!
+    unknown = 999_999
+    entry = RpmsRpc::DdrFileman.gets_entry(file: HF_TABLE, iens: "#{unknown},", fields: ".01", flags: "I")
+    assert entry && (entry[:error] || entry[:fields].empty?), "HEALTH FACTOR #{unknown} must not be on file: #{entry.inspect}"
+    now = server_now
+    hfs_before = iens(HF_FILE)
+    visits_before = iens(VISIT_FILE)
+
+    result = RpmsRpc::Encounter.save(
+      dfn,
+      location_ien: clinic_ien!, datetime: Time.new(now.year, now.month, now.day, now.hour, now.min, 0),
+      service_category: CATEGORY, provider_duz: client.duz.to_s, health_factors: [ { ien: unknown } ]
+    )
+
+    refute result[:success], "a health factor not on file must be refused: #{result.inspect}"
+    assert_equal :invalid, result[:error], result.inspect
+    refute result[:may_have_filed], "nothing was sent: #{result.inspect}"
+    assert_equal [ { kind: :health_factor, factor_ien: unknown, reason: :unknown_health_factor } ], result[:not_filed]
+    assert_equal hfs_before, iens(HF_FILE), "a refused save filed a V HEALTH FACTOR"
+    assert_equal visits_before, iens(VISIT_FILE), "a refused save filed a visit"
   end
 
   private

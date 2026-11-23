@@ -83,6 +83,14 @@ class EncounterSaveTest < Minitest::Test
   # Array of lines for a list. Records every call. No with_context, so
   # ContextScope.scoped runs the block as-is, like any plain stub.
   class FakeTwin
+    # The build's answer to the HEALTH FACTORS read the save makes before
+    # sending (rpms-rpc#928): HEALTH FACTOR 25 on file, as CiaClient#call_rpc
+    # reads the captured reply (health-factor-entry.yml). A state may
+    # override it.
+    HEALTH_FACTOR_ON_FILE = CapturedReplies::ReplayCiaClient
+                            .new("DDR GETS ENTRY DATA" => [ CapturedReplies.raw("health-factor-entry", "on_file") ])
+                            .call_rpc("DDR GETS ENTRY DATA", {})
+
     attr_reader :calls
 
     def initialize(before: {}, after: {}, save: "0")
@@ -103,6 +111,7 @@ class EncounterSaveTest < Minitest::Test
       end
 
       state = @saved ? @after : @before
+      return HEALTH_FACTOR_ON_FILE if rpc_name == "DDR GETS ENTRY DATA" && !state.key?(rpc_name)
       raise "FakeTwin: no reply for #{rpc_name} #{@saved ? 'after' : 'before'} the save" unless state.key?(rpc_name)
 
       reply = state[rpc_name]
@@ -132,7 +141,8 @@ class EncounterSaveTest < Minitest::Test
   def fetch_not_found = [ "EXAMPLE CLINIC^EXC^^#{DUZ}^PROVIDER,EXAMPLE^^^^" ]
 
   # BGOVPOV GET row (BGOVPOV.m, 29 pieces; mapping :visit_povs): piece 1 IEN,
-  # 5 ICD, 16 P/S, 18 visit IEN, 21 SNOMED, 22 provider text, 24 the PROBLEM
+  # 5 ICD, 16 P/S, 18 visit IEN, 21 the SNOMED concept's description (not
+  # its ID, rpms-rpc#927), 22 provider text, 24 the PROBLEM
   # (#9000011) the V POV's .16 points at — the one POV^BEHOENPC got from
   # PROBLST^BEHOENP2 (reused, or newly filed) and stored with SET(.16,12).
   def pov_row(ien:, icd:, snomed:, visit: VISIT, primary: "P", text: NARRATIVE, problem: PROBLEM)
@@ -147,7 +157,7 @@ class EncounterSaveTest < Minitest::Test
     pieces[16] = "PROVIDER,EXAMPLE"
     pieces[17] = visit.to_s
     pieces[18] = "0"
-    pieces[20] = snomed.to_s
+    pieces[20] = "Example concept #{snomed}"
     pieces[21] = text
     pieces[23] = problem.to_s
     pieces[25] = "Example diagnosis"
