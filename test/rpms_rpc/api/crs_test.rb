@@ -628,9 +628,13 @@ class CrsTest < Minitest::Test
     indicators: [ "GET", "/crs/indicators" ],
     queue_national_gpra: [ "POST", "/crs/reports/national-gpra" ],
     queue_patient_lists: [ "POST", "/crs/reports/national-gpra-patient-lists" ],
-    report_status: [ "GET", "/crs/reports" ],
+    # CHK^BGPXGU deletes week-old unfinished requests while it lists, so the
+    # status check and the wait that polls it are writes, and a write-class
+    # method never declares GET (test/api_coverage/shape_test.rb): they are
+    # actions, POSTed.
+    report_status: [ "POST", "/crs/reports/status-check" ],
     report_output: [ "GET", "/crs/reports/{report_ien}/output" ],
-    wait_for_report: [ "GET", "/crs/reports/{report_ien}/completion" ]
+    wait_for_report: [ "POST", "/crs/reports/{report_ien}/completion" ]
   }.freeze
 
   def test_each_method_declares_its_shape
@@ -702,8 +706,29 @@ class CrsTest < Minitest::Test
     end
     assert captures.any? { |c| c["raw_return"].to_s.b.include?(MERROR_HEADER.b) },
            "bgpg-crs.yml must record a real MERR^BGPXGU table (T00250MError), the trapped-error wire"
-    assert captures.any? { |c| c["rpc"] == RPCS[:queue_patient_lists] && c["raw_return"].to_s.b.match?(/#{DATA_HEADER}#{RS}\d+#{RS}/) },
-           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA LISTS queue that answered a report ien"
+    # The queue captures record what the build answered. On the pinned image
+    # CRS refuses every report request (REPORT^BGPXGU cannot file the BGP 25
+    # DATA CURRENT entry, openrpms#1305): NPL answers the bare `0` and NTL
+    # `0^COULD NOT CREATE REPORT ENTRY`. A capture that answered a report ien
+    # can be recorded only once openrpms#1305 is fixed; until then the
+    # refusal is the wire, and it is what the parser is tested against.
+    npl = captures.select { |c| c["rpc"] == RPCS[:queue_patient_lists] }.map { |c| c["raw_return"].to_s.b }
+    assert npl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}\d+#{RS}/) },
+           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA LISTS queue answer: a report ien, or the bare 0 refusal (openrpms#1305)"
+    ntl = captures.select { |c| c["rpc"] == RPCS[:queue_national_gpra] }.map { |c| c["raw_return"].to_s.b }
+    assert ntl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}(\d+|0\^[A-Z ]+)#{RS}/) },
+           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA RPT NTL queue answer: a report ien, or 0^<reason> (openrpms#1305)"
+  end
+
+  def test_the_captured_queue_refusals_raise_the_typed_refusal
+    captures = CapturedReplies.file("bgpg-crs").fetch("captures")
+    refused = captures.select { |c| c["raw_return"].to_s.b.match?(/#{DATA_HEADER}#{RS}0(\^[^#{RS}]*)?#{RS}/) }
+    refused.each do |capture|
+      twin(capture["rpc"] => capture["raw_return"].to_s.b)
+      call = capture["rpc"] == RPCS[:queue_patient_lists] ? -> { queue_lists } : -> { Crs.queue_national_gpra(community_taxonomy: TAX, name: "SYNTH NTL") }
+
+      assert_raises(Crs::QueueRefusedError, capture["name"]) { call.call }
+    end
   end
 
   def test_the_captured_trapped_error_parses_as_a_server_error_and_the_captured_tables_parse_as_rows

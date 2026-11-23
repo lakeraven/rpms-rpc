@@ -4,6 +4,7 @@ require_relative "live_helper"
 require_relative "free_ssn"
 require "rpms_rpc/api/crs"
 require "rpms_rpc/api/patient"
+require "rpms_rpc/api/agg"
 require "rpms_rpc/api/registration"
 require "rpms_rpc/api/encounter"
 require "rpms_rpc/api/problem"
@@ -40,9 +41,18 @@ require "date"
 # transform needs ATXFLG, so DDR FILER cannot add one) and BGPG 25 SAVE SITE
 # PARAMETERS. Each seed is read back through the gem.
 #
-# The report runs through TaskMan. Before queuing, the spec reads TaskMan's
-# heartbeat (^%ZTSCH("RUN") against $H, through XWB GET VARIABLE VALUE) and
-# fails naming TaskMan when it is stale.
+# The report runs through TaskMan. No stock RPC reads TaskMan's heartbeat
+# (XWB GET VARIABLE VALUE evaluates only a REFERENCE-type parameter, which
+# neither CIA nor BMX sends: it echoes "$H" back), so the spec does not
+# precheck it. A queued report that TaskMan never starts stays QUEUED or
+# RUNNING until the wait times out, and that failure names TaskMan as the
+# cause to look at; one whose task TaskMan dropped is ERRORED (CHKFQT^BGPXGUA)
+# and fails the same way.
+#
+# On the pinned image CRS refuses every report request before TaskMan is
+# reached: REPORT^BGPXUTL cannot file the BGP 25 DATA CURRENT entry
+# (openrpms#1305). The queue scenario fails naming that refusal until the
+# image is fixed.
 #
 # WRITES against a disposable local container only.
 class CrsBgpgLiveTest < LiveSpec::Test
@@ -62,7 +72,6 @@ class CrsBgpgLiveTest < LiveSpec::Test
   DIABETES_PREVALENCE = 1 # BGP 25 INDICATORS ien
   DIABETES_DX_EVER = 1 # BGP 25 NATIONAL PATIENT LISTS ien: 001.A.1 Diabetes DX Ever
   BASELINE_YEAR = 2010
-  TASKMAN_STALE_AFTER = 300 # seconds since ^%ZTSCH("RUN") before TaskMan counts as down
   REPORT_WAIT = Integer(ENV.fetch("CRS_REPORT_WAIT", "900")) # seconds to wait for the lists
   CONTEXT_ICARE = "BQIRPC"
   FS = "\x1c" # $C(28), between NAME=VALUE pairs of BQI UPDATE COMM TAXONOMY
@@ -99,7 +108,6 @@ class CrsBgpgLiveTest < LiveSpec::Test
   # --- Scenario: The National GPRA patient lists run and return patients -------
 
   def test_the_national_gpra_patient_lists_run_and_list_the_seeded_patient
-    taskman_running!
     taxonomy = seed_crs_configuration!
     patient = seed_diabetic_patient!
     name = "SYNTH NPL #{Time.now.utc.strftime('%H%M%S')}"
@@ -108,9 +116,9 @@ class CrsBgpgLiveTest < LiveSpec::Test
       Crs.queue_patient_lists(community_taxonomy: taxonomy[:ien], name: name, lists: { DIABETES_PREVALENCE => [ DIABETES_DX_EVER ] },
                               period: { ends: server_today }, baseline_year: BASELINE_YEAR, population: :aian)
     rescue Crs::QueueRefusedError => e
-      flunk "CRS refused to file the report request on this build (#{e.message}). REPORT^BGPXUTL could not create " \
+      flunk "openrpms#1305: CRS refused to file the report request (#{e.message}). REPORT^BGPXUTL could not create " \
             "the BGP 25 DATA CURRENT entry although site parameters and community taxonomy #{taxonomy[:ien]} are on " \
-            "file; this is the image, not the gem (bcer-9.0-20261119-f67498c-ydb). Fix or explain it in openrpms first."
+            "file. This is the image, not the gem; the scenario cannot pass until openrpms#1305 is fixed."
     end
     report = queued[:report_ien]
     assert_operator report, :>, 0, queued.inspect
@@ -124,11 +132,12 @@ class CrsBgpgLiveTest < LiveSpec::Test
     row = begin
       Crs.wait_for_report(report, timeout: REPORT_WAIT, interval: 5)
     rescue Crs::TimeoutError => e
-      flunk "report #{report} (#{name}) did not complete in #{REPORT_WAIT}s: #{e.message}. TaskMan was alive when it was " \
-            "queued (#{taskman_heartbeat.inspect}); raise CRS_REPORT_WAIT if the twin is merely slow."
+      flunk "report #{report} (#{name}) did not complete in #{REPORT_WAIT}s: #{e.message}. A report that stays QUEUED or " \
+            "RUNNING was never picked up: check that TaskMan (ZTM0) is running on the twin; raise CRS_REPORT_WAIT only " \
+            "if the twin is merely slow."
     rescue Crs::ReportFailedError => e
-      flunk "report #{report} (#{name}) failed: #{e.message}. If TaskMan dropped the task, ^%ZTSCH(\"RUN\") is stale: " \
-            "#{taskman_heartbeat.inspect}"
+      flunk "report #{report} (#{name}) failed: #{e.message}. ERRORED means CHKFQT^BGPXGUA found the TaskMan task deleted, " \
+            "errored or not running: check TaskMan (ZTM0) on the twin."
     end
     assert_equal "COMPLETED", row[:status], row.inspect
     refute_nil row[:ended_at], "a completed report has an end time: #{row.inspect}"
@@ -153,8 +162,8 @@ class CrsBgpgLiveTest < LiveSpec::Test
     nodes = raw.to_s.b.byteslice(2..).to_s.split("\x1e")
 
     assert_equal "T00250MError", nodes[0], "ERR^BGPXGU's header; got #{raw.to_s.b.inspect[0, 200]}"
-    assert_match(/\A0\|MUMPS error: /, nodes[1].to_s, "ERR^BGPXGU's one row")
-    assert_includes nodes[1], "BGPX", "the M error names its CRS routine"
+    assert_match(/\A0\|MUMPS error: ".+"/, nodes[1].to_s, "ERR^BGPXGU's one row: 0|MUMPS error: \"<the $ZSTATUS text>\"")
+    assert_equal 2, nodes.size, "the error table is the header and that one row: #{nodes.inspect}"
   end
 
   private
@@ -191,33 +200,6 @@ class CrsBgpgLiveTest < LiveSpec::Test
 
   def division
     client.division || flunk("the operator's CIA session has no bound division")
-  end
-
-  # --- TaskMan -------------------------------------------------------------------
-
-  # [^%ZTSCH("RUN") as $H, $H] read through XWB GET VARIABLE VALUE (VARVAL^XWBLIB).
-  def taskman_heartbeat
-    run = m_value('$G(^%ZTSCH("RUN"))')
-    now = m_value("$H")
-    { run: run, now: now }
-  end
-
-  def taskman_running!
-    beat = taskman_heartbeat
-    flunk "TaskMan has never run on this twin (^%ZTSCH(\"RUN\") is empty): start it (ZTM0) before this spec" if beat[:run].to_s.empty?
-    age = horolog_seconds(beat[:now]) - horolog_seconds(beat[:run])
-    flunk "TaskMan is not running on this twin: ^%ZTSCH(\"RUN\")=#{beat[:run]} is #{age}s behind $H=#{beat[:now]}. " \
-          "A queued CRS report would never start; start TaskMan (ZTM0) first." if age > TASKMAN_STALE_AFTER
-  end
-
-  def m_value(expression)
-    Array(client.call_rpc("XWB GET VARIABLE VALUE", expression)).first.to_s
-  end
-
-  def horolog_seconds(horolog)
-    days, seconds = horolog.split(",", 2)
-    flunk "not a $H value: #{horolog.inspect}" unless days.to_s.match?(/\A\d+\z/) && seconds.to_s.match?(/\A\d+\z/)
-    (days.to_i * 86_400) + seconds.to_i
   end
 
   # --- CRS configuration -----------------------------------------------------------
@@ -284,11 +266,15 @@ class CrsBgpgLiveTest < LiveSpec::Test
   # problem list with an onset before the period (FIRSTDM/PLTAXNDR). Registered
   # by the front desk clerk; seen by the provider.
   def seed_diabetic_patient!
-    attrs = { name_last: "ZZCRS#{SecureRandom.hex(3).tr('0-9', 'G-P').upcase}", name_first: "SYNTH", dob: Date.new(1965, 3, 14),
+    attrs = { name_last: "ZZCRS#{SecureRandom.hex(3).tr('0-9', 'G-P').upcase}", name_first: "SYNTH",
+              dob: Date.new(1960 + rand(10), 1 + rand(12), 1 + rand(28)),
               sex: "F", no_ssn_reason: "N", classification: 1, community_ien: community_ien!, community_since: :birth }
     clerk = session_as(:front_desk_clerk)
     lookup = clerk_lookup_client
-    registered = RpmsRpc.with_client(clerk) { RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(attrs) } }
+    registered = RpmsRpc.with_client(clerk) do
+      ensure_unused_registration_identity!(attrs)
+      RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(attrs) }
+    end
     flunk "Patient.register did not create the synthetic patient: #{registered.inspect}" unless registered && registered[:success]
     dfn = registered[:dfn]
 
@@ -308,6 +294,22 @@ class CrsBgpgLiveTest < LiveSpec::Test
       flunk "Problem.add did not file #{ICD}: #{added.inspect}" unless added[:success]
     end
     attrs.merge(dfn: dfn)
+  end
+
+  # AG refuses a registration whose name and date of birth match a patient on
+  # file (:duplicate_identity), and a twin that ran this spec before holds its
+  # earlier patients, so the date of birth moves until AG's own candidate
+  # lookup finds nobody (as test/live/pilot_registration_live_test.rb does).
+  def ensure_unused_registration_identity!(attrs)
+    366.times do
+      candidates = RpmsRpc::Agg.registration_candidates("AGGPTLNM" => attrs[:name_last], "AGGPTFNM" => attrs[:name_first],
+                                                        "AGGPTDOB" => attrs[:dob].strftime("%m/%d/%Y"))
+      flunk "AGG LOOKUP PATIENTS gave no answer for #{attrs[:name_last]},#{attrs[:name_first]}" if candidates.nil?
+      return if candidates.empty?
+
+      attrs[:dob] += 1
+    end
+    flunk "no unused date of birth within a year for #{attrs[:name_last]},#{attrs[:name_first]}"
   end
 
   def clinic_ien!
