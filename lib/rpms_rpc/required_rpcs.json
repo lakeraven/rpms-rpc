@@ -198,6 +198,7 @@
       "BGOVHF GET",
       "BGOVPOV GET",
       "BGOVTM GET",
+      "DDR GETS ENTRY DATA",
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
@@ -2231,6 +2232,7 @@
         "RpmsRpc::Coverage.on_file": "read",
         "RpmsRpc::DdrFileman.gets_entry": "read",
         "RpmsRpc::EmergencyRoom.visit": "read",
+        "RpmsRpc::Encounter.save": "non_idempotent_write",
         "RpmsRpc::Immunization.find": "read",
         "RpmsRpc::ImmunizationLot.find": "read",
         "RpmsRpc::ImmunizationLot.list": "read",
@@ -2298,6 +2300,7 @@
         "test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml",
         "test/fixtures/captured_replies/e-signature-clinician.yml",
         "test/fixtures/captured_replies/er-visit.yml",
+        "test/fixtures/captured_replies/health-factor-entry.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/measurement-provenance.yml",
         "test/fixtures/captured_replies/patient-address-contact.yml",
