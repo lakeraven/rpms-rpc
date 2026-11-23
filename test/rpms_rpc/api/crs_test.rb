@@ -709,29 +709,66 @@ class CrsTest < Minitest::Test
     end
     assert captures.any? { |c| c["raw_return"].to_s.b.include?(MERROR_HEADER.b) },
            "bgpg-crs.yml must record a real MERR^BGPXGU table (T00250MError), the trapped-error wire"
-    # The queue captures record what the build answered: a report ien when
-    # the request filed, or the refusal (NPL's bare `0`, NTL's `0^reason`). A
-    # site entry whose EISS field holds anything but Y/N makes REPORT^BGPXUTL
-    # refuse every request with `0^COULD NOT CREATE REPORT ENTRY`, so both
-    # answers are real wire and the parser is tested against whichever was
-    # recorded.
-    npl = captures.select { |c| c["rpc"] == RPCS[:queue_patient_lists] }.map { |c| c["raw_return"].to_s.b }
-    assert npl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}\d+#{RS}/) },
-           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA LISTS queue answer: a report ien, or the bare 0 refusal"
-    ntl = captures.select { |c| c["rpc"] == RPCS[:queue_national_gpra] }.map { |c| c["raw_return"].to_s.b }
-    assert ntl.any? { |raw| raw.match?(/#{DATA_HEADER}#{RS}(\d+|0\^[A-Z ]+)#{RS}/) },
-           "bgpg-crs.yml must record a BGPG 25 NATIONAL GPRA RPT NTL queue answer: a report ien, or 0^<reason>"
+    # The queue captures record both answers the build gives: the report ien
+    # when the request filed (NTL 6, NPL 7 on the recording twin) and the
+    # refusal (NTL's `0^reason`, NPL's bare `0` because NPL^BGPXGR answers
+    # +$G(BGPERR)). Each is pinned by name below.
+    QUEUE_CAPTURES.each_key { |name| assert captures.any? { |c| c["name"] == name }, "bgpg-crs.yml must record #{name}" }
+  end
+
+  # name => [rpc, what the capture answered: a report ien, or :refused]
+  QUEUE_CAPTURES = {
+    "queue_national_gpra/1" => [ "BGPG 25 NATIONAL GPRA RPT NTL", 6 ],
+    "queue_national_gpra_unknown_taxonomy/1" => [ "BGPG 25 NATIONAL GPRA RPT NTL", :refused ],
+    "queue_patient_lists/1" => [ "BGPG 25 NATIONAL GPRA LISTS", 7 ],
+    "queue_patient_lists_unknown_taxonomy/1" => [ "BGPG 25 NATIONAL GPRA LISTS", :refused ]
+  }.freeze
+
+  def captured(name)
+    capture = CapturedReplies.file("bgpg-crs").fetch("captures").find { |c| c["name"] == name }
+    refute_nil capture, "bgpg-crs.yml has no capture named #{name}"
+    capture
+  end
+
+  def queue_through(rpc)
+    rpc == RPCS[:queue_patient_lists] ? queue_lists : Crs.queue_national_gpra(community_taxonomy: TAX, name: "SYNTH NTL")
+  end
+
+  def test_the_captured_filed_queues_answer_their_report_ien
+    filed = QUEUE_CAPTURES.reject { |_, (_, answer)| answer == :refused }
+    refute_empty filed
+
+    filed.each do |name, (rpc, ien)|
+      capture = captured(name)
+      assert_equal rpc, capture["rpc"], name
+      twin(rpc => capture["raw_return"].to_s.b)
+
+      result = queue_through(rpc)
+
+      assert_equal ien, result[:report_ien], "#{name} answered report ien #{ien}: #{capture['raw_return'].inspect}"
+      assert_equal ien.to_s, result[:raw], name
+    end
   end
 
   def test_the_captured_queue_refusals_raise_the_typed_refusal
-    captures = CapturedReplies.file("bgpg-crs").fetch("captures")
-    refused = captures.select { |c| c["raw_return"].to_s.b.match?(/#{DATA_HEADER}#{RS}0(\^[^#{RS}]*)?#{RS}/) }
-    refused.each do |capture|
-      twin(capture["rpc"] => capture["raw_return"].to_s.b)
-      call = capture["rpc"] == RPCS[:queue_patient_lists] ? -> { queue_lists } : -> { Crs.queue_national_gpra(community_taxonomy: TAX, name: "SYNTH NTL") }
+    refused = QUEUE_CAPTURES.select { |_, (_, answer)| answer == :refused }
+    refute_empty refused, "the fixture's refusals are what the parser's refusal path is tested against"
 
-      assert_raises(Crs::QueueRefusedError, capture["name"]) { call.call }
+    refused.each do |name, (rpc, _)|
+      capture = captured(name)
+      assert_equal rpc, capture["rpc"], name
+      assert_match(/#{DATA_HEADER}#{RS}0(\^[^#{RS}]*)?#{RS}/, capture["raw_return"].to_s.b, "#{name} is a recorded refusal (0 or 0^reason)")
+      twin(rpc => capture["raw_return"].to_s.b)
+
+      error = assert_raises(Crs::QueueRefusedError, name) { queue_through(rpc) }
+
+      assert_includes error.message, rpc, name
     end
+    ntl = captured("queue_national_gpra_unknown_taxonomy/1")
+    assert_includes ntl["raw_return"].to_s.b, "0^INVALID COMMUNITY TAXONOMY IEN PASSED", "EP1^BGPXGNTL names its refusal"
+    twin(RPCS[:queue_national_gpra] => ntl["raw_return"].to_s.b)
+    error = assert_raises(Crs::QueueRefusedError) { queue_through(RPCS[:queue_national_gpra]) }
+    assert_includes error.message, "INVALID COMMUNITY TAXONOMY IEN PASSED", "the reason CRS gave reaches the caller"
   end
 
   def test_the_captured_trapped_error_parses_as_a_server_error_and_the_captured_tables_parse_as_rows

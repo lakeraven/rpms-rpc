@@ -137,6 +137,10 @@ class CrsBgpgLiveTest < LiveSpec::Test
       assert_includes timed_out.message, report.to_s
       assert_includes timed_out.message, name
     rescue Crs::ReportFailedError => e
+      # Only the ERRORED reading is openrpms#1305; a report missing from the
+      # user's reports is another failure and is raised as itself.
+      raise unless e.message.include?("ERRORED")
+
       errored_early = e
     end
 
@@ -147,6 +151,8 @@ class CrsBgpgLiveTest < LiveSpec::Test
             "RUNNING was never picked up: check that TaskMan (ZTM0) is running on the twin; raise CRS_REPORT_WAIT only " \
             "if the twin is merely slow."
     rescue Crs::ReportFailedError => e
+      raise unless e.message.include?("ERRORED")
+
       errored_early ||= e
       completed_after_errored(report, name, e)
     end
