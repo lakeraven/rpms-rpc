@@ -52,6 +52,16 @@ module RpmsRpc
   # until the report completes, errors, disappears or the caller's timeout
   # passes. report_output reads the finished report's lines.
   #
+  # A request files only when the division's BGP SITE PARAMETERS .04 INCLUDE
+  # DATA IN WEB EISS? is Y or N: REPORT^BGPXUTL copies it into the report's
+  # Y/N field, and any other value makes every request answer
+  # 0^COULD NOT CREATE REPORT ENTRY. BGPG 25 SAVE SITE PARAMETERS files .04
+  # unvalidated, so a site entry saved with another value refuses every report.
+  #
+  # On a YottaDB build JOBPAR^%ZOSV does not recognise a yottadb process, so
+  # CHECK REPORT STATUS can read a report that is still running as ERRORED
+  # (openrpms#1305), and wait_for_report then raises ReportFailedError.
+  #
   # ## The RPC names
   #
   # The RPC names and their option come from the crs_* DataMapper mappings
@@ -194,6 +204,8 @@ module RpmsRpc
     #   server's local time, so pass a Time in the server's zone.
     # @return [Hash] { report_ien:, raw: }
     # @raise [QueueRefusedError] naming CRS's reason when it answers 0^reason
+    #   (an unknown taxonomy, or 0^COULD NOT CREATE REPORT ENTRY when the site
+    #   parameters' .04 is not Y or N)
     def queue_national_gpra(community_taxonomy:, name:, export_to_area: false, output: :printed, run_at: nil)
       raise ArgumentError, "export_to_area must be true or false (got #{export_to_area.inspect})" unless [ true, false ].include?(export_to_area)
 
@@ -240,7 +252,8 @@ module RpmsRpc
 
     # BGPG 25 CHECK REPORT STATUS (CHK^BGPXGU): the signed-on user's CRS
     # reports. A write: CHK^BGPXGU deletes a report with no end time whose
-    # start is more than seven days old while it lists.
+    # start is more than seven days old while it lists. On a YottaDB build a
+    # running report can be listed ERRORED (openrpms#1305; see the module doc).
     #
     # @return [Array<Hash>] one { ien:, name:, user:, type:, status: ("QUEUED",
     #   "RUNNING", "COMPLETED" or "ERRORED"), output_type:, export_files:,
@@ -281,7 +294,10 @@ module RpmsRpc
     # @param timeout [Numeric] seconds, required and positive
     # @param interval [Numeric] seconds between polls
     # @return [Hash] the report's report_status row
-    # @raise [ReportFailedError] the report ERRORED or is no longer listed
+    # @raise [ReportFailedError] the report ERRORED or is no longer listed.
+    #   On a YottaDB build CHECK REPORT STATUS can read a running report as
+    #   ERRORED (openrpms#1305), so this can be raised for a report that later
+    #   completes.
     # @raise [TimeoutError] naming the report and its last status
     def wait_for_report(report_ien, timeout:, interval: 5)
       ien = positive_ien!(report_ien.is_a?(Hash) ? report_ien[:report_ien] : report_ien, "report").to_i

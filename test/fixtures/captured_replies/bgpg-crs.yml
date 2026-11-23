@@ -9,10 +9,10 @@ client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM; DUZ 4), the one account
   that can run BGPGRPC
 bound_context: BGPGRPC
-captured_at: '2026-11-23T17:57:14Z'
-note: Run on a throwaway container given a synthetic community taxonomy (3471) and
-  the division's CRS site parameters through stock RPCs. Both queue RPCs answered
-  a refusal on this build (openrpms#1305).
+captured_at: '2026-11-23T20:28:29Z'
+note: Run on a throwaway container given a synthetic community taxonomy (3471), the
+  division's CRS site parameters (EISS N) and synthetic diabetic patients through
+  stock RPCs, after a patient-list report completed.
 captures:
 - name: taxonomy_check_report_merror
   rpc: BGPG 25 GET TAXONOMIES
@@ -656,35 +656,334 @@ captures:
     of Days Covered by Medication Therapy\x1E279^Concurrent Use of Opioids and Benzodiazepines\x1E105^Medication
     Therapy Management Services\x1E57^Breastfeeding Rates\x1E317^Optometry\x1E"
   sha256: e19c779a06fb658c67f0ae1c92fd156252795140d0461452047e041965fc57d4
-- name: queue_national_gpra_refused/1
+- name: queue_national_gpra/1
   rpc: BGPG 25 NATIONAL GPRA RPT NTL
   inputs:
   - 3471|0|P||||||SYNTH NTL CAPTURE|
-  context: 'the National GPRA report for taxonomy 3471, refused: CRS could not create
-    the report entry (openrpms#1305)'
-  raw_return: "5\0T00250DATA\x1E0^COULD NOT CREATE REPORT ENTRY\x1E"
-  sha256: fb7421e9c7abf0779dfbda14b391f3d1c9916b37241a70110b00bcfe38b59e24
-- name: queue_patient_lists_refused/1
+  context: 'the National GPRA report for taxonomy 3471: filed, answering the report
+    ien'
+  raw_return: "5\0T00250DATA\x1E6\x1E"
+  sha256: 360cdad710afad58ecb981a8be2dfe7787ca4beda897e256b4eba0d75551e96d
+- name: queue_national_gpra_unknown_taxonomy/1
+  rpc: BGPG 25 NATIONAL GPRA RPT NTL
+  inputs:
+  - 999999|0|P||||||SYNTH NTL REFUSED|
+  context: 'the National GPRA report for a taxonomy ien not on file: refused with
+    CRS''s reason'
+  raw_return: "5\0T00250DATA\x1E0^INVALID COMMUNITY TAXONOMY IEN PASSED\x1E"
+  sha256: 24958968394a16939e62ff2b326c35e09c5b13a14c69a81b8ef53ff6bd23ec23
+- name: queue_patient_lists/1
   rpc: BGPG 25 NATIONAL GPRA LISTS
   inputs:
   - 3471|3261123|~|P||5|A||3100000|1|SYNTH NPL CAPTURE||1~1
   context: 'the Diabetes DX Ever list (measure 1, list 1) for the year ending 2026-11-23,
-    AI/AN, all patients, refused: NPL answers the bare number 0 (openrpms#1305)'
+    AI/AN, all patients: filed, answering the report ien'
+  raw_return: "5\0T00250DATA\x1E7\x1E"
+  sha256: cad00d33b4e68848d95be1b0cb09bb0a86da334851c4ec26045bac0b6e3360b5
+- name: queue_patient_lists_unknown_taxonomy/1
+  rpc: BGPG 25 NATIONAL GPRA LISTS
+  inputs:
+  - 999999|3261123|~|P||5|A||3100000|1|SYNTH NPL REFUSED||1~1
+  context: 'the same lists for a taxonomy ien not on file: refused, and NPL answers
+    the bare number 0'
   raw_return: "5\0T00250DATA\x1E0\x1E"
   sha256: c23eb09bab63a0bbf5a6c2eca8ddf3f169fbfefc93644c73cc71dd8f67c280db
-- name: report_status_none/1
+- name: completed_patient_list/1
   rpc: BGPG 25 CHECK REPORT STATUS
   inputs:
   - '4'
-  context: 'the operator''s CRS reports: none (nothing could be queued)'
+  context: 'the operator''s CRS reports (the two just queued are still running, and
+    read ERRORED: JOBPAR^%ZOSV does not recognise a yottadb process, openrpms#1305),
+    then the output of the first completed patient-list report: synthetic patients
+    under Diabetes Prevalence'
   raw_return: "5\0T00007BMXIEN^T00060Name^T00030User^T00030Start Time^T00030End Time^T00030Type
     of Report^T00020Report Status^T00020Type of Output^T00250Export File(s)^T00020Start
-    Time Internal^T00020End Time Internal\x1E"
-  sha256: db4f8d83c55d2761959553f58dee24146c110b624ae6ceb3e7eda9481765bea9
-- name: report_output_none/1
+    Time Internal^T00020End Time Internal\x1E7^SYNTH NPL CAPTURE^MANAGER,SYSTEM^11/23/2026
+    20:28:28^//1700 ^CRS 25 NPL^RUNNING^Microsoft Word Format^^3261123.202828^\x1E6^SYNTH
+    NTL CAPTURE^MANAGER,SYSTEM^11/23/2026 20:28:27^//1700 ^CRS 25 NATIONAL GPRA REPORT^ERRORED^Microsoft
+    Word Format^^3261123.202827^\x1E5^SYNTH NPL CAPTURE^MANAGER,SYSTEM^11/23/2026
+    20:27:31^11/23/2026 20:27:51^CRS 25 NPL^COMPLETED^Microsoft Word Format^^3261123.202731^3261123.202751\x1E4^SYNTH
+    NTL CAPTURE^MANAGER,SYSTEM^11/23/2026 20:27:30^11/23/2026 20:27:51^CRS 25 NATIONAL
+    GPRA REPORT^COMPLETED^Microsoft Word Format^^3261123.20273^3261123.202751\x1E3^SYNTH
+    NPL 202423^MANAGER,SYSTEM^11/23/2026 20:24:23^11/23/2026 20:24:41^CRS 25 NPL^COMPLETED^Microsoft
+    Word Format^^3261123.202423^3261123.202441\x1E2^SYNTH NPL 202244^MANAGER,SYSTEM^11/23/2026
+    20:22:44^11/23/2026 20:23:04^CRS 25 NPL^COMPLETED^Microsoft Word Format^^3261123.202244^3261123.202304\x1E1^SYNTH
+    NTL 1305^MANAGER,SYSTEM^11/23/2026 20:12:18^11/23/2026 20:12:37^CRS 25 NATIONAL
+    GPRA REPORT^COMPLETED^Microsoft Word Format^^3261123.201218^3261123.201237\x1E"
+  sha256: a0b1fbc3f08f1614b3384b2334bce0d4297e6c7f2ca8844ca1e4e3c785e1763d
+- name: completed_patient_list/2
   rpc: BGPG 25 GET NATIONAL GPRA
   inputs:
-  - '1'
-  context: 'the output of report 1, which is not on file: the header alone'
+  - '5'
+  context: 'the operator''s CRS reports (the two just queued are still running, and
+    read ERRORED: JOBPAR^%ZOSV does not recognise a yottadb process, openrpms#1305),
+    then the output of the first completed patient-list report: synthetic patients
+    under Diabetes Prevalence'
+  raw_return: "6\0T00250DATA\x1E\x1E\x1E\x1E\x1E\x1E                             Data
+    Sensitivity Label                             \x1E\x1ESensitivity Level (Circle
+    one):  Sensitive Private Classified\x1EType of data contained on this media:  Controlled
+    Unclassified\x1E\x1EInformation: Health Information (CUI:HLTH)\x1E\x1EDate of
+    creation: Nov 23, 2026\x1E\x1EDate of data coverage contained on this media: \x1E\x1EData
+    Owner: DEMO IHS CLINIC\x1E\x1EVol 1 of 1\x1E\x1E\x1E\x1E                       *****
+    SENSITIVE INFORMATION *****                        \x1E\x1E                                     Cover
+    Page         Section 1 of 2, Page 1  \x1E\x1E                   *** IHS 2025 GPRA/GPRAMA
+    Patient List ***                    \x1E                             CRS 2025,
+    Version 25.1                             \x1E                         Date Report
+    Run: Nov 23, 2026                          \x1E                        Site where
+    Run: DEMO IHS CLINIC                         \x1E                      Report
+    Generated by: MANAGER,SYSTEM                       \x1E                  Report
+    Period:  Nov 24, 2025 to Nov 23, 2026                  \x1E              Previous
+    Year Period:  Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline
+    Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E\x1E\x1EMeasures: GPRA
+    Developmental, GPRA/GPRAMA Denominators and Numerators and\x1ESelected Other Clinical
+    Denominators and Numerators\x1EPopulation: AI/AN Only (Classification 01)\x1E\x1ERUN
+    TIME (H.M.S): 0.0.19\x1E\x1EThis report includes clinical performance measures
+    reported for the \x1EGovernment Performance and Results Act (GPRA); measures reported
+    for the \x1EGPRA Modernization Act (GPRAMA); non-GPRA measures included to provide
+    \x1Econtext to the GPRA measures; and measures that have the potential to \x1Ebecome
+    GPRA measures in the future (i.e. GPRA Developmental measures).  \x1E \x1EThis
+    report has been split into two sections:\x1E \x1E - GPRA Developmental section
+    w/GPRA Developmental Summary\x1E - GPRA/GPRAMA (and non-GPRA for context to GPRA)
+    section w/non-GPRA \x1Esummary and GPRA/GPRAMA Summary\x1E \x1EIn the denominator
+    and numerator sections of the GPRA Developmental \x1Esection of the report for
+    each topic:\x1E \x1E - GPRA Developmental measures are a combination of a denominator
+    prefixed\x1Ewith \"GPRA Denominator\" or \"GPRA Developmental Denominator\" and
+    a \x1Enumerator prefixed with \"GPRA Developmental Numerator.\"\x1E \x1EIn the
+    denominator and numerator sections of the GPRA/GPRAMA section of \x1Ethe report
+    for each topic:\x1E \x1E - GPRA measures are a combination of a denominator prefixed
+    with \"GPRA \x1EDenominator\" and a numerator prefixed with \"GPRA Numerator.\"\x1E
+    - GPRAMA measures are a combination of a denominator prefixed with \x1E\"GPRAMA
+    Denominator\" and a numerator prefixed with \"GPRAMA Numerator.\"\x1E \x1EIn the
+    tabular sections of the report for each topic:\x1E \x1E - GPRA Developmental measures
+    are a combination of a denominator with a \x1Esuffix of \"(GPRA)\" or \"(GPRA
+    Dev)\" and a numerator with a suffix of \x1E\"(GPRA Dev.)\".\x1E - GPRA measures
+    are a combination of a denominator and numerator both \x1Ewith a suffix of \"(GPRA)\".\x1E\x1E\x1E\f\x1E\x1E
+    \                      ***** SENSITIVE INFORMATION *****                        \x1E\x1E
+    \                                    Cover Page         Section 1 of 2, Page 2
+    \ \x1E\x1E                   *** IHS 2025 GPRA/GPRAMA Patient List ***                    \x1E
+    \                            CRS 2025, Version 25.1                             \x1E
+    \                        Date Report Run: Nov 23, 2026                          \x1E
+    \                       Site where Run: DEMO IHS CLINIC                         \x1E
+    \                     Report Generated by: MANAGER,SYSTEM                       \x1E
+    \                 Report Period:  Nov 24, 2025 to Nov 23, 2026                  \x1E
+    \             Previous Year Period:  Nov 24, 2024 to Nov 23, 2025               \x1E
+    \                Baseline Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E\x1E\x1E
+    - GPRAMA measures are a combination of a denominator and numerator both \x1Ewith
+    a suffix of \"(GPRAMA)\".\x1E \x1EDenominator Definitions used in this Report:\x1E
+    \x1EACTIVE CLINICAL POPULATION:\x1E1. Must reside in a community specified in
+    the community taxonomy used for\x1Ethis report.\x1E2. Must be alive on the last
+    day of the Report period.\x1E3. Indian/Alaska Natives Only - based on Classification
+    of 01.\x1E4. Must have 2 visits to medical clinics in the 3 years prior to the
+    end \x1Eof the Report period. At least one visit must include: 01 General, \x1E06
+    Diabetic, 10 GYN, 12 Immunization, 13 Internal Med, 20\x1EPediatrics, 24 Well
+    Child, 28 Family Practice, 57 EPSDT, 70 Women's\x1EHealth, 80 Urgent, 89 Evening.
+    \ See User Manual for complete description\x1Eof medical clinics.\x1E \x1EACTIVE
+    CLINICAL PLUS BEHAVIORAL HEALTH POPULATION:\x1E1. Must reside in a community specified
+    in the community taxonomy used for\x1Ethis report.\x1E2. Must be alive on the
+    last day of the Report period.\x1E3. Indian/Alaska Natives Only - based on Classification
+    of 01.\x1E4. Must have 2 visits to medical or behavioral health clinics in the
+    3 \x1Eyears prior to the end of the Report period. At least one visit must\x1Einclude:
+    01 General, 06 Diabetic, 10 GYN, 12 Immunization, 13 Internal\x1EMed, 20 Pediatrics,
+    24 Well Child, 28 Family Practice, 57 EPSDT, 70\x1EWomen's Health, 80 Urgent,
+    89 Evening.  See User Manual for complete\x1Edescription of medical and behavioral
+    health clinics.\x1E \x1EUSER POPULATION:\x1E1. Definitions 1-3 above.\x1E2. Must
+    have been seen at least once in the 3 years prior to the end of \x1Ethe Report
+    period, regardless of the clinic type.\x1E \x1EThe report Performance Summaries
+    are split into two sections.\x1E - GPRA Developmental Summary located at the end
+    of the GPRA Developmental\x1Esection\x1E - Non-GPRA Summary and Official GPRA/GPRAMA
+    Summary are located on the \x1Elast pages of this report following the GPRA/GPRAMA
+    section.\x1E\x1E\x1E\f\x1E\x1E                       ***** SENSITIVE INFORMATION
+    *****                        \x1E\x1E                                     Cover
+    Page         Section 1 of 2, Page 3  \x1E\x1E                   *** IHS 2025 GPRA/GPRAMA
+    Patient List ***                    \x1E                             CRS 2025,
+    Version 25.1                             \x1E                         Date Report
+    Run: Nov 23, 2026                          \x1E                        Site where
+    Run: DEMO IHS CLINIC                         \x1E                      Report
+    Generated by: MANAGER,SYSTEM                       \x1E                  Report
+    Period:  Nov 24, 2025 to Nov 23, 2026                  \x1E              Previous
+    Year Period:  Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline
+    Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E\x1E\x1E\x1E          Community
+    Taxonomy Name: SYNTH CRS COMMUNITIES\x1E          The following communities are
+    included in this report:\x1E          FAIRHOPE                                          \x1E\x1EEND
+    OF SECTION 1\x1E\x1E\x1E\f\x1E\x1E                       ***** SENSITIVE INFORMATION
+    *****                        \x1E  SM                                Nov 23, 2026
+    \       Section 2 of 2, Page 1  \x1E\x1E                   *** IHS 2025 GPRA/GPRAMA
+    Patient List ***                    \x1E                                DEMO IHS
+    CLINIC                                 \x1E                  Report Period: Nov
+    24, 2025 to Nov 23, 2026                   \x1E              Previous Year Period:
+    \ Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline Period:
+    \ Nov 24, 2009 to Nov 23, 2010                 \x1E--------------------------------------------------------------------------------\x1EDiabetes
+    Prevalence\x1E\x1EDenominator(s):\x1E - User Population patients. Broken down
+    by sex and age groups: <15, 15-19, \x1E20-24, 25-34, 35-44, 45-54, 55-64, 65+.
+    \ \x1E\x1ENumerator(s):\x1E - Patients diagnosed with Diabetes at any time before
+    the end of the Report \x1EPeriod.  \x1E - Patients diagnosed with Diabetes during
+    the Report Period.  \x1E\x1ELogic:\x1EAge is calculated at the beginning of the
+    Report Period. Diabetes \x1Ediagnosis is defined as at least one POV diagnosis
+    recorded in the V POV \x1Efile or Problem List Entry where the status is not Deleted
+    ICD-9: \x1E250.00-250.93 or ICD-10: E10.*-E13.*; SNOMED data set PXRM DIABETES
+    \x1E(Problem List only). For DM diagnosis during the report period, Problem \x1EList
+    Entry must have a Date of Onset during the Report Period or, if no \x1EDate of
+    Onset, then Date Entered during the Report Period.\x1E\x1EPerformance Measure
+    Description:\x1EContinue tracking (i.e., data collection and analyses) Area age-specific
+    \x1Ediabetes prevalence rates to identify trends in the age-specific \x1Eprevalence
+    of diabetes (as a surrogate marker for diabetes incidence) for \x1Ethe AI/AN population.\x1E\x1EPast
+    Performance and/or Target:\x1EIHS Performance: FY 2017 - 15.2%, FY 2016 - 14.7%,
+    FY 2015 - 14.4%, FY \x1E2014 - 14.0%, FY 2013 - 13.9%, FY 2012 - 13.4%, FY 2011
+    - 12.8%, FY 2010 \x1E- 12%, FY 2009 - 12%, FY 2008 - 12%, FY 2007 - 11%, FY 2006
+    - 11%, FY \x1E2005 - 11%, FY 2004 - 10%\x1E\x1ESource:\x1EHP 2010 5-2, 5-3 \x1E\x1EDiabetes
+    Prevalence\x1E \x1E\x1E                     REPORT    %   PREV YR    %  CHG from
+    \ BASE      %  CHG from\x1E                     PERIOD        PERIOD        PREV
+    YR % PERIOD       BASE %\x1E\x1E\x1E\f\x1E\x1E                       ***** SENSITIVE
+    INFORMATION *****                        \x1E  SM                                Nov
+    23, 2026        Section 2 of 2, Page 2  \x1E\x1E                   *** IHS 2025
+    GPRA/GPRAMA Patient List ***                    \x1E                                DEMO
+    IHS CLINIC                                 \x1E                  Report Period:
+    Nov 24, 2025 to Nov 23, 2026                   \x1E              Previous Year
+    Period:  Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline
+    Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E--------------------------------------------------------------------------------\x1E\x1EDiabetes
+    Prevalence (con't)\x1E\x1E                     REPORT    %   PREV YR    %  CHG
+    from  BASE      %  CHG from\x1E                     PERIOD        PERIOD        PREV
+    YR % PERIOD       BASE %\x1E\x1EUser Pop Pts              7              0                      0
+    \x1E\x1E# w/ any DM Dx            7 100.0        0   0.0   +100.0       0   0.0
+    \  +100.0\x1E# w/ DM Dx during\x1E Report Period            7 100.0        0   0.0
+    \  +100.0       0   0.0   +100.0\x1E\x1EMale User Pop Pts         0              0
+    \                     0 \x1E\x1E# w/ any DM Dx            0   0.0        0   0.0
+    \     0.0       0   0.0      0.0\x1E# w/ DM Dx during\x1E Report Period            0
+    \  0.0        0   0.0      0.0       0   0.0      0.0\x1E\x1EFemale User Pop\x1E
+    Pts                      7              0                      0 \x1E\x1E# w/
+    any DM Dx            7 100.0        0   0.0   +100.0       0   0.0   +100.0\x1E#
+    w/ DM Dx during\x1E Report Period            7 100.0        0   0.0   +100.0       0
+    \  0.0   +100.0\x1E\x1E\x1E\f\x1E\x1E                       ***** SENSITIVE INFORMATION
+    *****                        \x1E  SM                                Nov 23, 2026
+    \       Section 2 of 2, Page 3  \x1E\x1E                   *** IHS 2025 GPRA/GPRAMA
+    Patient List ***                    \x1E                                DEMO IHS
+    CLINIC                                 \x1E                  Report Period: Nov
+    24, 2025 to Nov 23, 2026                   \x1E              Previous Year Period:
+    \ Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline Period:
+    \ Nov 24, 2009 to Nov 23, 2010                 \x1E--------------------------------------------------------------------------------\x1EDiabetes
+    Prevalence (con't)\x1E\x1E                             TOTAL USER POPULATION\x1E
+    \                                       Age Distribution\x1E                         <15
+    \ 15-19  20-24  25-34  35-44  45-54  55-64  65+ yrs\x1E\x1ECURRENT REPORT PERIOD\x1ETotal
+    # User Pop           0      0      0      0      0      0      6      1 \x1E#
+    w/ any DM Dx             0      0      0      0      0      0      6      1 \x1E%
+    w/ any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0  100.0  100.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     6      1 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0  100.0  100.0\x1E\x1EPREVIOUS YEAR PERIOD\x1ETotal # User
+    Pop           0      0      0      0      0      0      0      0 \x1E# w/ any
+    DM Dx             0      0      0      0      0      0      0      0 \x1E% w/
+    any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     0      0 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1ECHANGE FROM PREV YR %\x1Ew/ any DM
+    Dx             0.0    0.0    0.0    0.0    0.0    0.0 +100.0 +100.0\x1Ew/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0 +100.0
+    +100.0\x1E\x1EBASELINE REPORT PERIOD\x1ETotal # User Pop           0      0      0
+    \     0      0      0      0      0 \x1E# w/ any DM Dx             0      0      0
+    \     0      0      0      0      0 \x1E% w/ any DM Dx           0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1E# w/ DM Dx during\x1E  Report Period
+    \           0      0      0      0      0      0      0      0 \x1E% w/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0    0.0
+    \   0.0\x1E\x1ECHANGE FROM BASE YR %\x1Ew/ any DM Dx             0.0    0.0    0.0
+    \   0.0    0.0    0.0 +100.0 +100.0\x1Ew/ DM Dx during\x1E  Report Period          0.0
+    \   0.0    0.0    0.0    0.0    0.0 +100.0 +100.0\x1E\x1E\x1E\f\x1E\x1E                       *****
+    SENSITIVE INFORMATION *****                        \x1E  SM                                Nov
+    23, 2026        Section 2 of 2, Page 4  \x1E\x1E                   *** IHS 2025
+    GPRA/GPRAMA Patient List ***                    \x1E                                DEMO
+    IHS CLINIC                                 \x1E                  Report Period:
+    Nov 24, 2025 to Nov 23, 2026                   \x1E              Previous Year
+    Period:  Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline
+    Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E--------------------------------------------------------------------------------\x1EDiabetes
+    Prevalence (con't)\x1E\x1E                              MALE USER POPULATION\x1E
+    \                                       Age Distribution\x1E                         <15
+    \ 15-19  20-24  25-34  35-44  45-54  55-64  65+ yrs\x1E\x1ECURRENT REPORT PERIOD\x1ETotal
+    MALE User Pop        0      0      0      0      0      0      0      0 \x1E#
+    w/ any DM Dx             0      0      0      0      0      0      0      0 \x1E%
+    w/ any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     0      0 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1EPREVIOUS YEAR PERIOD\x1ETotal MALE
+    User Pop        0      0      0      0      0      0      0      0 \x1E# w/ any
+    DM Dx             0      0      0      0      0      0      0      0 \x1E% w/
+    any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     0      0 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1ECHANGE FROM PREV YR %\x1Ew/ any DM
+    Dx             0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1Ew/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0    0.0
+    \   0.0\x1E\x1EBASELINE REPORT PERIOD\x1ETotal MALE User Pop        0      0      0
+    \     0      0      0      0      0 \x1E# w/ any DM Dx             0      0      0
+    \     0      0      0      0      0 \x1E% w/ any DM Dx           0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1E# w/ DM Dx during\x1E  Report Period
+    \           0      0      0      0      0      0      0      0 \x1E% w/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0    0.0
+    \   0.0\x1E\x1ECHANGE FROM BASE YR %\x1Ew/ any DM Dx             0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1Ew/ DM Dx during\x1E  Report Period          0.0
+    \   0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1E\x1E\x1E\f\x1E\x1E                       *****
+    SENSITIVE INFORMATION *****                        \x1E  SM                                Nov
+    23, 2026        Section 2 of 2, Page 5  \x1E\x1E                   *** IHS 2025
+    GPRA/GPRAMA Patient List ***                    \x1E                                DEMO
+    IHS CLINIC                                 \x1E                  Report Period:
+    Nov 24, 2025 to Nov 23, 2026                   \x1E              Previous Year
+    Period:  Nov 24, 2024 to Nov 23, 2025               \x1E                 Baseline
+    Period:  Nov 24, 2009 to Nov 23, 2010                 \x1E--------------------------------------------------------------------------------\x1EDiabetes
+    Prevalence (con't)\x1E\x1E                             FEMALE USER POPULATION\x1E
+    \                                       Age Distribution\x1E                         <15
+    \ 15-19  20-24  25-34  35-44  45-54  55-64  65+ yrs\x1E\x1ECURRENT REPORT PERIOD\x1ETotal
+    FEMALE User Pop      0      0      0      0      0      0      6      1 \x1E#
+    w/ any DM Dx             0      0      0      0      0      0      6      1 \x1E%
+    w/ any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0  100.0  100.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     6      1 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0  100.0  100.0\x1E\x1EPREVIOUS YEAR PERIOD\x1ETotal FEMALE
+    User Pop      0      0      0      0      0      0      0      0 \x1E# w/ any
+    DM Dx             0      0      0      0      0      0      0      0 \x1E% w/
+    any DM Dx           0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0\x1E\x1E#
+    w/ DM Dx during\x1E  Report Period            0      0      0      0      0      0
+    \     0      0 \x1E% w/ DM Dx during\x1E  Report Period          0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1ECHANGE FROM PREV YR %\x1Ew/ any DM
+    Dx             0.0    0.0    0.0    0.0    0.0    0.0 +100.0 +100.0\x1Ew/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0 +100.0
+    +100.0\x1E\x1EBASELINE REPORT PERIOD\x1ETotal FEMALE User Pop      0      0      0
+    \     0      0      0      0      0 \x1E# w/ any DM Dx             0      0      0
+    \     0      0      0      0      0 \x1E% w/ any DM Dx           0.0    0.0    0.0
+    \   0.0    0.0    0.0    0.0    0.0\x1E\x1E# w/ DM Dx during\x1E  Report Period
+    \           0      0      0      0      0      0      0      0 \x1E% w/ DM Dx
+    during\x1E  Report Period          0.0    0.0    0.0    0.0    0.0    0.0    0.0
+    \   0.0\x1E\x1ECHANGE FROM BASE YR %\x1Ew/ any DM Dx             0.0    0.0    0.0
+    \   0.0    0.0    0.0 +100.0 +100.0\x1Ew/ DM Dx during\x1E  Report Period          0.0
+    \   0.0    0.0    0.0    0.0    0.0 +100.0 +100.0\x1E\x1E\x1E\f\x1E\x1E                       *****
+    SENSITIVE INFORMATION *****\x1E   SM                              Nov 23, 2026
+    \  Section 2 of 2, Page 6\x1E\x1E                  ***  IHS 2025 GPRA/GPRAMA Patient
+    List  ***\x1E                             CRS 2025, Version 25.1\x1E                                DEMO
+    IHS CLINIC\x1E                  Report Period: Nov 24, 2025 to Nov 23, 2026\x1E
+    \                                 All Patients\x1E\x1E--------------------------------------------------------------------------------\x1EDiabetes
+    Prevalence\x1E\x1EList of patients ever diagnosed with diabetes.\x1E\x1EUP=User
+    Pop; AC=Active Clinical; UPDM=User Pop Diabetic; AD=Active Diabetic;\x1EAAD=Active
+    Adult Diabetic; PREG=Pregnant Female; IMM=Active IMM Pkg Pt; \x1ECHD=Active Coronary
+    Heart Disease; HR=High Risk Patient\x1EPATIENT NAME            HRN    COMMUNITY
+    \    SEX AGE DOB      LAST MEDI-  LAST \x1E DENOMINATOR                  NUMERATOR
+    \                      CAL VISIT   VISIT\x1E--------------------------------------------------------------------------------\x1EZZCRSIGGGDA,SYNTH
+    \      990063 FAIRHOPE      F   57  06/26/68 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSNBKKBD,SYNTH       990059 FAIRHOPE
+    \     F   59  05/10/66 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSFFCEMH,SYNTH       990057 FAIRHOPE
+    \     F   60  03/14/65 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSPPPLMG,SYNTH       990060 FAIRHOPE
+    \     F   62  06/06/63 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSABBAEK,SYNTH       990061 FAIRHOPE
+    \     F   62  02/03/63 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSDKHKGG,SYNTH       990062 FAIRHOPE
+    \     F   63  12/13/61 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1EZZCRSFEKJEN,SYNTH       990058 FAIRHOPE
+    \     F   65  03/14/60 10/14/26  10/14/26\x1EUP                            EVER:
+    10/14/26 POV E11.9; RP: 10/14/26 POV E11.9\x1E\x1E\x1E\x1EEND OF SECTION 2\x1E\x1EEND
+    OF REPORT\x1E \x1E\x1E"
+  sha256: 16db8df65654f0e7c2a04e6d1ece6b20034b19449a8495efe93c174e00850821
+- name: report_output_not_on_file/1
+  rpc: BGPG 25 GET NATIONAL GPRA
+  inputs:
+  - '999999'
+  context: 'the output of a report ien that is not on file: the header alone'
   raw_return: "5\0T00250DATA\x1E"
   sha256: a4e7eae0823abc404178c223b615c83fd815c9f3c6861c8f18ad68e20028845b
