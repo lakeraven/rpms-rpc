@@ -2223,6 +2223,10 @@ module RpmsRpc
     # too. Returns [link, seen]: link is the pre-read .16 (nil when
     # blank) and seen is true when that field was read.
     # AMHPCCL stores the visit as .16 with no patient check (AMHPCCL.m:21,33).
+    # With the site PCC link on, stock links the record to another patient's
+    # visit and files its V POV there (openrpms#1284), so the .05 against .08
+    # check in pcc_confirm_target! is the only refusal. Both patients are read
+    # from the server; the caller supplies neither.
     def pcc_guard!(record_ien, visit_ien)
       bh = pcc_gets(file: BH_VISIT_FILE, ien: record_ien, fields: PCC_BH_FIELDS, flags: PCC_PRE_FLAGS)
       pcc_refuse!("the behavioral health record could not be read") if pcc_unreadable?(bh)

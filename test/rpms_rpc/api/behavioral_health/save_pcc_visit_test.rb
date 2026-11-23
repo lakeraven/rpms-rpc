@@ -17,7 +17,11 @@ require_relative "amhg_replay"
 # refusal with and without a PCC visit named, and the refusals the gem
 # reaches from the build's pre-reads (a PCC visit of another patient, a PCC
 # visit or a BH record not on file). test/live/behavioral_health_save_pcc_visit_live_test.rb
-# proves the same refusal live (rpms-rpc#622, option b).
+# proves the build's refusal live (rpms-rpc#622, option b), and
+# test/live/behavioral_health_pcc_visit_patient_live_test.rb proves the
+# other-patient refusal live on a target that does link (openrpms#1284): stock
+# AMHG CREATE/EDIT VISIT does not refuse another patient's PCC visit, so this
+# refusal is the gem's alone.
 #
 # The pinned build never links: its site PCC link is off and EN^AMHBHRU
 # refuses a visit without an activity type, activity time and the other
