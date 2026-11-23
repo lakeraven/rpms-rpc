@@ -1,0 +1,61 @@
+{
+  "backend": "local-ydb-0930",
+  "runs": [
+    {
+      "at": "2026-10-03T17:00:14Z",
+      "rpms_rpc": "0.3.1 @ d0e0860",
+      "host_label": "local-ydb-0930",
+      "context": "CIAV VUECENTRIC (sign-on)",
+      "cases": 56,
+      "tally": {
+        "ok": 33,
+        "session-dropped": 4,
+        "broker-error": 17,
+        "raised-before-wire": 1,
+        "no-rpc": 1
+      },
+      "signons": 5
+    },
+    {
+      "at": "2026-10-03T17:11:54Z",
+      "rpms_rpc": "0.3.1 @ 8d8fe94",
+      "host_label": "local-ydb-0930",
+      "persona": "least_privilege",
+      "context": "CIAV VUECENTRIC (sign-on)",
+      "cases": 56,
+      "tally": {
+        "ok": 33,
+        "broker-error": 18,
+        "raised-before-wire": 1,
+        "session-dropped": 3,
+        "no-rpc": 1
+      },
+      "signons": 4
+    }
+  ],
+  "rpcs": {
+    "AMHG GET SUICIDE FORMS": {
+      "outcome": "error",
+      "error": "RpmsRpc::Client::RpcTimeoutError: RPC 'AMHG GET SUICIDE FORMS' timed out after 30s; connection closed — reconnect and re-authenticate",
+      "last_at": "2026-10-03T17:11:54Z"
+    },
+    "AMHG GET TREATMENT PLANS": {
+      "outcome": "error",
+      "error": "RpmsRpc::Client::RpcTimeoutError: RPC 'AMHG GET TREATMENT PLANS' timed out after 30s; connection closed — reconnect and re-authenticate",
+      "last_at": "2026-10-03T17:11:54Z"
+    },
+    "AMHG GET VISITS": {
+      "outcome": "error",
+      "error": "RpmsRpc::Client::RpcTimeoutError: RPC 'AMHG GET VISITS' timed out after 30s; connection closed — reconnect and re-authenticate",
+      "last_at": "2026-10-03T17:11:54Z"
+    },
+    "BEHOCACV CWAD": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:11:54Z"
+    },
+    "BEHOCCD PHR": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:11:54Z"
+    }
+  }
+}

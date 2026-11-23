@@ -29,7 +29,7 @@ testable because the container is thrown away.
    openrpms#713; the exclusions, #323, generated from the pinned reach face, #394).
 2. **Contract.** A generated live sweep makes one safe read call per callable
    RPC from its `#8994` input parameters and RETURN VALUE TYPE, and records the
-   reply's shape per build and persona (#348). Its output is the build's
+   reply's shape per build and test role (#348). Its output is the build's
    contract catalogue, stored in lakeraven/rpms-diffs as evidence for client
    builders. It is not a test. `rake wire:capture` output moves there (#347).
    Writes are not swept; they enter at layer 3.
@@ -38,6 +38,11 @@ testable because the container is thrown away.
 4. **Data surfaces.** FileMan through the DDR RPCs, and the BMW SQL projection.
 
 Coverage is reported per layer: accounted for, contract known, typed in the gem.
+Every live record names the test role that signed on, never a pair: the live
+specs' summaries, `rake rpc:live` evidence (`<backend>.<role>.json`) and the
+wire cases openrpms runs as `operator` and `provider` (amended 2026-11-22, when
+the coverage tooling dropped the least-privilege and programmer labels). A run
+as the operator, which holds XUPROGMODE, never counts toward a number.
 
 ### Live specs prove layer 3
 

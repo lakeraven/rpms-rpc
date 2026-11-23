@@ -455,8 +455,9 @@ rake rpc:coverage
   in its reach face. So: never drop or "fix" a mapping because its routine is missing from FOIA; check the
   release's registry and reach face, and treat a name registered nowhere (no `#8994` row on any captured
   build) as the only sign of an invented RPC. Every invented name found so far was client-side.
-- **Covered:** a live run against that backend got an answer that was not a broker error.
+- **Covered:** a live run against that backend, as a test role other than the operator, got an answer that was not a broker error.
   Unit tests do not count, captured replies included: only a live run shows that a server answered.
+  The operator holds XUPROGMODE, so the broker answers it under every option; its run only classifies the RPCs the other roles did not reach (`permission_gap`: a role was refused and the operator answered; `operator_only`; `errors_for_both`; ...).
 - **Output:** the one-liner and per-status counts on stdout.
   `coverage/rpc/rpcs.tsv` has every registered RPC, one row each, with its status
   (`covered`, `live_error`, `declared_untested`, `not_declared`, `excluded:<reason>`).
@@ -468,18 +469,20 @@ rake rpc:coverage
   register (lower it toward 0, #207), a bad exclusion (unknown reason, unregistered name, or an
   excluded RPC that answered live), a malformed registry, or a sign-on code in the live evidence.
 
-Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
-connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
+Live evidence for a backend is refreshed with a read-only run of the API catalogue as one test role, one broker
+connection at a time, which merges into `rpc-coverage/live/<BACKEND>.<ROLE>.json` in
 [lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
 
 ```sh
-rake rpc:live BACKEND=local-ydb-0930 BROKER_HOST=127.0.0.1 BROKER_PORT=19300 \
-  RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
+VISTA_RPC_ENV=development rake rpc:live BACKEND=local-ydb-1119 ROLE=provider BROKER_HOST=127.0.0.1 BROKER_PORT=19300 \
+  [RPMS_ACCESS=... RPMS_VERIFY=...] [RPMS_CONTEXT="CIAV VUECENTRIC"]
 ```
 
+The pair is the role's published one (README, Test roles); `RPMS_ACCESS` and `RPMS_VERIFY` give a target's own, and `ROLE=operator` needs `RPMS_VERIFY`.
+The run is refused, and writes nothing, unless the account it signs on as is the role's and holds XUPROGMODE exactly when the role's row says so: `ROLE=provider` with PROV123's pair stops at "signed on as PROVIDER,TEST, not PROFILE,MD".
 The run merges: a name already in the file stays there, so a name the gem stops calling is never dropped.
 After removing RPC names, delete the backend's file and run again to rebuild it.
-The headline is measured as the least-privilege PROV123; it is the development default pair, so that run needs `VISTA_RPC_ENV=development`.
+Evidence written before roles (`<BACKEND>.json` as least_privilege, `<BACKEND>.programmer.json`) still loads when a backend has no role's file, and the report says it is legacy.
 
 The codes are read from the environment and never written. The implementation lives in
 `tools/rpc_coverage/`, which is not part of the gem.
@@ -487,7 +490,7 @@ The codes are read from the environment and never written. The implementation li
 Live evidence is specific to one build, so it lives in rpms-diffs rather than in this repo.
 Both tasks read and write it in `rpc-coverage/live/` of an rpms-diffs checkout, by default the sibling `../rpms-diffs`.
 Set `RPMS_DIFFS_DIR=` (the checkout) or `RPC_EVIDENCE_DIR=` (the directory) to point elsewhere.
-`rpc:coverage` fails when the directory or the backend's file is missing, rather than reporting 0%.
+`rpc:coverage` fails when the directory or every one of the backend's files is missing, rather than reporting 0%.
 After `rpc:live`, commit the JSON in rpms-diffs.
 
 The same report can be browsed in SimpleCov's HTML interface:
@@ -588,7 +591,7 @@ rake rpc:inventory IRIS=<tag> YDB=<tag>   # pinned: the same tags and checkout g
 # EXPLICIT SUCCESS: rpc:inventory wrote tmp/rpc-inventory/rpc-inventory.csv and tmp/rpc-inventory/rpc-inventory.md: 5592 RPCs, ...
 ```
 
-It downloads each release's `<tag>-rpcs.json`, `<tag>-rpms-rpc-live.json`, `<tag>-harness.json` and `<tag>-conformance-<persona>.jsonl` with `gh` into `tmp/openrpms/<tag>/` (`CACHE=` overrides) once, and writes `tmp/rpc-inventory/` (`OUT=`).
+It downloads each release's `<tag>-rpcs.json`, `<tag>-rpms-rpc-live.json`, `<tag>-harness.json` and `<tag>-conformance-<role>.jsonl` (`-operator` and `-provider`; a release gated before roles carries `-programmer` and `-least_privilege`, read as they are) with `gh` into `tmp/openrpms/<tag>/` (`CACHE=` overrides) once, and writes `tmp/rpc-inventory/` (`OUT=`).
 Nothing is committed: the output is a view of published releases, as `rake openrpms:matrix` is.
 The client lists are snapshots in `data/rpc_inventory/clients/`, each naming its source.
 Refresh them from where each kind of evidence lives when a client changes, then commit the four files:

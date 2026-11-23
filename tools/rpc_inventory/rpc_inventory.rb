@@ -17,8 +17,10 @@ require_relative "../rpc_coverage/rpc_coverage"
 # It joins what already exists and adds no source of its own:
 #   the releases    each engine's <tag>-rpcs.json (#8994 with reach classes and contexts; BuildSurface reads it),
 #                   <tag>-rpms-rpc-live.json (the per-RPC verdict of rpms-rpc's live run), its two
-#                   <tag>-conformance-<persona>.jsonl wire-case records and <tag>-harness.json (which rpms-rpc
-#                   judged it). A tag defaults to the newest published (non-draft) release of that engine.
+#                   <tag>-conformance-<role>.jsonl wire-case records (the operator's and the provider's; a release
+#                   gated before roles carries -programmer and -least_privilege instead, read as they are) and
+#                   <tag>-harness.json (which rpms-rpc judged it). A tag defaults to the newest published (non-draft)
+#                   release of that engine.
 #   rpms-rpc        tools/api_coverage (which public methods send each RPC, which live specs call them), its
 #                   captured-reply fixtures, retry_safety.yml (read or write), and the openapi:api and
 #                   openapi:surface addressing (the wrapper's REST verb and path, and the RPC name's own address),
@@ -34,7 +36,9 @@ module RpcInventory
   OPENRPMS = OpenrpmsMatrix::OPENRPMS
   TAG = OpenrpmsMatrix::TAG
   ENGINES = %w[iris ydb].freeze
-  PERSONAS = %w[least_privilege programmer].freeze
+  # The wire-case records a release carries, one per gate leg: the test role it signed on as. A release gated
+  # before roles (2026-11-22) carries the persona labels of then instead; they are shown as they are, legacy.
+  CASE_LABELS = [ %w[operator provider].freeze, %w[least_privilege programmer].freeze ].freeze
   CLIENT_DIR = "data/rpc_inventory/clients"
   OBSERVED_DIR = "data/rpc_tiers/observed"
   EXCLUSIONS = "data/rpc_coverage/exclusions.yml"
@@ -78,7 +82,7 @@ module RpcInventory
     "captured_replies" => "the test fixtures holding a reply captured for it (test/fixtures/captured_replies, wire_captures)",
     "live_*" => "the release's <tag>-rpms-rpc-live.json, the gate's run of rpms-rpc's live read catalogue (tools/rpc_coverage): " \
                 "pass, fail, known-failure, excluded, or not-run when the record does not cover it",
-    "wire_cases_*" => "openrpms' wire cases for it, per persona: the verdict, `!` when that was not the expected one"
+    "wire_cases_*" => "openrpms' wire cases for it, per gate leg (operator, provider; before roles least_privilege, programmer): the verdict, `!` when that was not the expected one"
   }.freeze
 
   Release = Struct.new(:tag, :engine, :surface, :live, :cases, :harness, keyword_init: true)
@@ -88,8 +92,14 @@ module RpcInventory
   # --- the releases ---------------------------------------------------------------------------
 
   def asset_names(tag)
-    [ "#{tag}-rpcs.json", "#{tag}-rpms-rpc-live.json", "#{tag}-harness.json",
-      *PERSONAS.map { |p| "#{tag}-conformance-#{p}.jsonl" } ]
+    [ "#{tag}-rpcs.json", "#{tag}-rpms-rpc-live.json", "#{tag}-harness.json" ]
+  end
+
+  # The wire-case labels whose records are all in dir for tag: the roles, else the labels of before roles, else nil.
+  def case_labels(dir, tag)
+    CASE_LABELS.find do |labels|
+      labels.all? { |l| File.file?(File.join(dir, "#{tag}-conformance-#{l}.jsonl")) || File.file?(File.join(dir, "#{tag}-conformance-#{l}.jsonl.gz")) }
+    end
   end
 
   # { "iris" => tag, "ydb" => tag }: per engine, the newest published release (not a draft or prerelease) that
@@ -119,13 +129,16 @@ module RpcInventory
     into = File.join(dir, tag)
     FileUtils.mkdir_p(into)
     missing = asset_names(tag).reject { |n| File.file?(File.join(into, n)) || File.file?(File.join(into, "#{n}.gz")) }
+    cases = "#{tag}-conformance-*.jsonl"
+    missing << cases unless case_labels(into, tag)
     return into if missing.empty?
 
-    args = [ "gh", "release", "download", tag, "-R", OPENRPMS, "-D", into, *missing.flat_map { |n| [ "-p", n ] } ]
+    args = [ "gh", "release", "download", tag, "-R", OPENRPMS, "-D", into, "--skip-existing", *missing.flat_map { |n| [ "-p", n ] } ]
     _, err, st = Open3.capture3(*args)
     raise "cannot download #{missing.join(', ')} from #{OPENRPMS} #{tag} (#{err.to_s.lines.first.to_s.strip})" unless st.success?
 
-    gone = missing.reject { |n| File.file?(File.join(into, n)) }
+    gone = (missing - [ cases ]).reject { |n| File.file?(File.join(into, n)) }
+    gone << "#{tag}-conformance-{#{CASE_LABELS.first.join(',')}}.jsonl" unless case_labels(into, tag)
     raise "#{tag} does not carry #{gone.join(', ')}" unless gone.empty?
 
     into
@@ -149,9 +162,9 @@ module RpcInventory
     surface = RpmsRpc::Conformance::BuildSurface.new(doc: doc, path: rpcs_path)
     live = read_maybe_gz(File.join(dir, "#{tag}-rpms-rpc-live.json"))
     harness = read_maybe_gz(File.join(dir, "#{tag}-harness.json"))
-    cases = PERSONAS.to_h do |p|
-      body = read_maybe_gz(File.join(dir, "#{tag}-conformance-#{p}.jsonl"))
-      [ p, body ? body.lines.reject { |l| l.strip.empty? }.map { |l| JSON.parse(l) } : [] ]
+    cases = (case_labels(dir, tag) || []).to_h do |label|
+      body = read_maybe_gz(File.join(dir, "#{tag}-conformance-#{label}.jsonl"))
+      [ label, body.lines.reject { |l| l.strip.empty? }.map { |l| JSON.parse(l) } ]
     end
     Release.new(tag: tag, engine: engine, surface: surface, live: live && JSON.parse(live),
                 cases: cases, harness: harness && JSON.parse(harness))
@@ -312,14 +325,14 @@ module RpcInventory
     OpenrpmsMatrix.cells(record).transform_values { |c| c["verdict"] }
   end
 
-  # { rpc => "least_privilege=answered;programmer=answered" }, a "!" after a verdict that was not the expected one.
+  # { rpc => "operator=answered;provider=answered" }, a "!" after a verdict that was not the expected one.
   def wire_cells(release)
     by_rpc = Hash.new { |h, k| h[k] = Hash.new { |hh, kk| hh[kk] = [] } }
-    release.cases.each do |persona, cases|
-      cases.each { |c| by_rpc[c["rpc"]][persona] << "#{c['verdict']}#{'!' unless c['pass']}" }
+    release.cases.each do |label, cases|
+      cases.each { |c| by_rpc[c["rpc"]][label] << "#{c['verdict']}#{'!' unless c['pass']}" }
     end
     by_rpc.transform_values do |per|
-      per.sort.map { |persona, vs| "#{persona}=#{vs.uniq.sort.join('/')}" }.join(";")
+      per.sort.map { |label, vs| "#{label}=#{vs.uniq.sort.join('/')}" }.join(";")
     end
   end
 

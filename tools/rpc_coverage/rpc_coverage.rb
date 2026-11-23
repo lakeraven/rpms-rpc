@@ -3,6 +3,7 @@
 require "json"
 require "yaml"
 require_relative "../../lib/rpms_rpc/conformance/build_surface"
+require_relative "../../lib/rpms_rpc/test_roles"
 
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
@@ -11,15 +12,17 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 #                `rake openrpms:fetch`, rpms-rpc#724), minus the RPCs its reach classes say no client
 #                can call (computed per release, exclusions_for) and the reviewed exclusions in
 #                data/rpc_coverage/exclusions.yml
-#   covered      registered, not excluded, and a live run against the backend
-#                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
+#   covered      registered, not excluded, and a live run against the backend as a role other than the operator
+#                (rpc-coverage/live/<backend>.<role>.json in rpms-diffs, written by `rake rpc:live`) got an answer
 #                that was not a broker error (data, or an empty reply)
 #
-# Personas (#335): the headline is measured as the least-privilege user (no XUPROGMODE), the user a
-# web client signs on as. A programmer run (XUPROGMODE skips the CIANBACT context check) is kept
-# beside it in <backend>.programmer.json and never counts toward the number: it only classifies the
-# RPCs the least-privilege run did not cover (PROGRAMMER_CLASSES), so a permission or context gap is
-# told apart from an RPC that is broken for everyone.
+# Test roles (README, Test roles): a live run signs on as one role (ROLE=provider) and is recorded
+# under it, in <backend>.<role>.json. The number counts what the roles other than the operator got
+# answered. The operator holds XUPROGMODE, which skips the CIANBACT context check, so its run never
+# counts toward the number: it only classifies the RPCs the other roles did not cover
+# (OPERATOR_CLASSES), so a permission or context gap is told apart from an RPC broken for everyone.
+# Evidence recorded before roles (runs labelled least_privilege or programmer, in <backend>.json and
+# <backend>.programmer.json) still loads, and is shown as legacy: no role is claimed for it.
 #
 # Unit tests do not count, captured replies included: coverage here means "a real server answered"
 # in a live run.
@@ -50,16 +53,20 @@ module RpcCoverage
   }.freeze
   STATUSES = %w[covered live_error declared_untested not_declared].freeze
   EVIDENCE_KEYS = %w[backend runs rpcs].freeze
-  RUN_KEYS = %w[at rpms_rpc host_label persona context cases tally signons].freeze
-  PERSONAS = %w[least_privilege programmer].freeze
-  DEFAULT_PERSONA = "least_privilege"
-  # For an RPC the least-privilege run did not cover, what the programmer run got.
-  PROGRAMMER_CLASSES = {
-    "permission_gap" => "least-privilege got an error (refused, timed out, dropped); a programmer got an answer",
-    "programmer_only" => "least-privilege never sent it; a programmer got an answer",
-    "errors_for_both" => "an error for both users: broken for everyone, not a permission gap",
-    "errors_as_programmer" => "least-privilege never sent it; a programmer got an error",
-    "untested_as_programmer" => "no programmer evidence for this RPC"
+  # persona is read, never written: runs recorded before roles carry it instead of role.
+  RUN_KEYS = %w[at rpms_rpc host_label role persona context cases tally signons].freeze
+  ROLES = RpmsRpc::TestRoles
+  OPERATOR = "operator"
+  # The labels runs carried before roles (2026-11-22), by whether the account held XUPROGMODE.
+  LEGACY_PERSONAS = %w[least_privilege programmer].freeze
+  LEGACY = "legacy"
+  # For an RPC no other role's run covered, what the operator's run got.
+  OPERATOR_CLASSES = {
+    "permission_gap" => "a role got an error (refused, timed out, dropped); the operator got an answer",
+    "operator_only" => "no role sent it; the operator got an answer",
+    "errors_for_both" => "an error for a role and for the operator: broken for everyone, not a permission gap",
+    "errors_as_operator" => "no role sent it; the operator got an error",
+    "untested_as_operator" => "no operator evidence for this RPC"
   }.freeze
   RPC_KEYS = %w[outcome error last_at].freeze
 
@@ -171,44 +178,67 @@ module RpcCoverage
     end
   end
 
-  # --- personas (#335) ------------------------------------------------------------------------
+  # --- test roles -----------------------------------------------------------------------------
 
-  def persona(value)
-    v = value.to_s.empty? ? DEFAULT_PERSONA : value.to_s
-    raise Error, "PERSONA=#{v} is not one of #{PERSONAS.join(', ')}" unless PERSONAS.include?(v)
+  # The role a run signs on as: ROLE names one of RpmsRpc::TestRoles. A run that still sets the
+  # retired PERSONA is refused, naming the ROLE to set, as the live specs refuse it.
+  def run_role(env = ENV)
+    retired = ROLES.retired_persona_message(env)
+    raise Error, retired if retired
 
-    v
+    name = env["ROLE"].to_s.strip
+    raise Error, "ROLE is not set: name the test role the run signs on as, one of #{ROLES.names.join(', ')} (README, Test roles)" if name.empty?
+
+    ROLES.fetch(name)
+  rescue ROLES::UnknownRole => e
+    raise Error, e.message
   end
 
-  # The least-privilege file keeps the path it has always had; a programmer run is written beside it.
-  def evidence_path(dir, backend, persona)
-    File.join(dir, persona == DEFAULT_PERSONA ? "#{backend}.json" : "#{backend}.#{persona}.json")
+  # [access, verify]: RPMS_ACCESS and RPMS_VERIFY when set (a target whose codes differ), else the
+  # role's published pair. The operator's verify code is not published, so its run needs RPMS_VERIFY.
+  def sign_on_pair(role, env = ENV)
+    access = env["RPMS_ACCESS"].to_s.strip.empty? ? role.access : env["RPMS_ACCESS"]
+    verify = env["RPMS_VERIFY"].to_s.strip.empty? ? role.verify : env["RPMS_VERIFY"]
+    raise Error, "ROLE=#{role.name} needs RPMS_VERIFY: #{role.account}'s verify code is not published" if verify.to_s.empty?
+
+    [ access, verify ]
   end
 
   # ORWU HASKEY XUPROGMODE as reply lines: "1" when the signed-on user holds the key. A refusal or
-  # an empty reply is "does not hold": a programmer is never refused, since XUPROGMODE skips the
-  # context check.
+  # an empty reply is "does not hold": a holder of XUPROGMODE is never refused, since the key skips
+  # the context check.
   def holds_progmode?(lines)
     Array(lines).map(&:to_s).map(&:strip) == [ "1" ]
   end
 
-  # A run is labelled by who signed on (#397): a user holding XUPROGMODE is a programmer (CIANBACT
-  # skips the context check for them), anyone else is least-privilege. Whoever signs on, the run is
-  # recorded under what that user is.
-  def persona_of(holds_progmode:)
-    holds_progmode ? "programmer" : DEFAULT_PERSONA
+  # nil when the signed-on account is the role's (its NEW PERSON name) and holds XUPROGMODE exactly
+  # when the role's row says so; else why the run is refused. Either way a run under one role's name
+  # cannot record another account's answers, and an XUPROGMODE holder cannot hide a permission gap.
+  def signed_on_problem(role, user:, holds_progmode:)
+    name = user.to_s.strip
+    unless name == role.account
+      return "ROLE=#{role.name} signed on as #{name.empty? ? 'an unnamed user' : name}, not #{role.account}: " \
+             "sign on with #{role.name}'s own pair (README, Test roles)"
+    end
+
+    ROLES.xuprogmode_mismatch(role, holds: holds_progmode)
   end
 
-  # PERSONA is optional: unset expects nothing; set, it names the persona the caller meant to sign on as.
-  def expected_persona(value)
-    value.to_s.empty? ? nil : persona(value)
+  # Where a role's run is kept: <backend>.<role>.json.
+  def evidence_path(dir, backend, role)
+    File.join(dir, "#{backend}.#{role}.json")
   end
 
-  # The run fails only when the caller stated an expectation the signed-on user does not meet.
-  def persona_problem(expected, actual)
-    return if expected.nil? || expected == actual
+  # The files written before roles: the least-privilege run and the programmer run.
+  def legacy_paths(dir, backend)
+    { "least_privilege" => File.join(dir, "#{backend}.json"), "programmer" => File.join(dir, "#{backend}.programmer.json") }
+  end
 
-    "PERSONA=#{expected} but the signed-on user is #{actual} (XUPROGMODE #{actual == 'programmer' ? 'held' : 'not held'})"
+  # The label a run carries: its role, or "legacy" for a run recorded before roles.
+  def run_label(run)
+    return run["role"] if run["role"]
+
+    LEGACY if run["persona"].nil? || LEGACY_PERSONAS.include?(run["persona"])
   end
 
   def empty_evidence(backend)
@@ -221,25 +251,56 @@ module RpcCoverage
     JSON.parse(File.read(path))
   end
 
+  # What rake rpc:coverage reads for BACKEND in DIR, or nil when there is nothing:
+  #   as, evidence           the runs of every role but the operator, merged (union_evidence): they make the number
+  #   operator_as, operator  the operator's run, or nil: it classifies what the others did not cover
+  #   paths, problems        the files read, and what is wrong with any of them (evidence_problems)
+  # With no role's file but the operator's, the files written before roles are read instead, as legacy.
+  def coverage_inputs(dir, backend, secrets: [])
+    found = ROLES.names.map(&:to_s).to_h { |r| [ r, evidence_path(dir, backend, r) ] }.select { |_, p| File.exist?(p) }
+    paths = []
+    problems = []
+    read = lambda do |path, label|
+      paths << path
+      ev = load_evidence(path, backend)
+      problems.concat(evidence_problems(ev, secrets: secrets, role: label).map { |p| "#{File.basename(path)}: #{p}" })
+      ev
+    end
+    roles = found.reject { |r, _| r == OPERATOR }
+    legacy = legacy_paths(dir, backend)
+    operator, operator_as =
+      if found[OPERATOR] then [ read.call(found[OPERATOR], OPERATOR), OPERATOR ]
+      elsif roles.empty? && File.exist?(legacy["programmer"]) then [ read.call(legacy["programmer"], LEGACY), "legacy programmer, recorded before roles" ]
+      end
+    if roles.any?
+      evidence = union_evidence(backend, roles.map { |r, p| read.call(p, r) })
+      as = roles.keys.join(", ")
+    elsif File.exist?(legacy["least_privilege"])
+      evidence = read.call(legacy["least_privilege"], LEGACY)
+      as = "legacy least_privilege, recorded before roles"
+    else
+      return nil
+    end
+    { as: as, evidence: evidence, operator: operator, operator_as: operator_as, paths: paths, problems: problems }
+  end
+
   # Evidence is committed, so it must never carry a sign-on credential. The schema is closed
   # (no key can smuggle one in), and when the codes are in the environment the whole file is
   # searched for them.
   #
-  # With persona:, every run must be that persona's. A least-privilege run recorded before runs
-  # carried the label (#335) has none and is accepted; a programmer file must say so on every run.
-  def evidence_problems(evidence, secrets: [], persona: nil)
+  # With role:, every run must carry that role; role: "legacy" accepts only runs recorded before roles.
+  def evidence_problems(evidence, secrets: [], role: nil)
     problems = []
     extra = evidence.keys - EVIDENCE_KEYS
     problems << "live evidence has unexpected keys: #{extra.join(', ')}" unless extra.empty?
     Array(evidence["runs"]).each_with_index do |run, i|
       bad = run.keys - RUN_KEYS
       problems << "live evidence run #{i} has unexpected keys: #{bad.join(', ')}" unless bad.empty?
-      next unless persona
+      problems << "live evidence run #{i} carries both role and persona" if run.key?("role") && run.key?("persona")
+      next unless role
 
-      got = run["persona"]
-      next if got == persona || (got.nil? && persona == DEFAULT_PERSONA)
-
-      problems << "live evidence run #{i} is persona #{got.inspect}, not #{persona.inspect}"
+      got = run_label(run)
+      problems << "live evidence run #{i} is #{got.inspect}, not #{role.inspect}" unless got == role.to_s
     end
     (evidence["rpcs"] || {}).each do |name, e|
       bad = e.keys - RPC_KEYS
@@ -284,11 +345,12 @@ module RpcCoverage
 
   # --- the report -----------------------------------------------------------------------------
 
+  # as: what the covered evidence was recorded as ("provider, scheduler", or "legacy").
   Report = Struct.new(:registry, :backend, :rows, :counts, :covered, :denominator, :excluded,
-                      :declared_registered, :unregistered_used, :percent, :programmer, keyword_init: true) do
+                      :declared_registered, :unregistered_used, :percent, :operator, :as, keyword_init: true) do
     def one_liner
       "RPC coverage: #{format('%.1f', percent)}% (#{covered} / #{denominator} registered on #{registry.tag}; " \
-        "#{excluded} excluded) · declared #{declared_registered} · unregistered names used #{unregistered_used.size}"
+        "#{excluded} excluded)#{" · as #{as}" if as} · declared #{declared_registered} · unregistered names used #{unregistered_used.size}"
     end
 
     def status_lines
@@ -296,21 +358,21 @@ module RpcCoverage
       order.map { |s| format("  %-34s %5d", s, counts.fetch(s, 0)) }
     end
 
-    # RPCs that answer only for a programmer: least-privilege got an error, a programmer an answer.
+    # RPCs that answer only for the operator: a role got an error, the operator an answer.
     def permission_gaps
-      rows.select { |r| r[:programmer] == "permission_gap" }.map { |r| r[:name] }
+      rows.select { |r| r[:operator] == "permission_gap" }.map { |r| r[:name] }
     end
 
-    def programmer_counts
-      rows.filter_map { |r| r[:programmer] }.tally.sort.to_h
+    def operator_counts
+      rows.filter_map { |r| r[:operator] }.tally.sort.to_h
     end
 
-    def programmer_lines
-      return [ "programmer evidence: none (rake rpc:live signed on as a XUPROGMODE holder writes it); permission gaps not classified" ] unless programmer
+    def operator_lines
+      return [ "operator evidence: none (rake rpc:live ROLE=operator writes it); permission gaps not classified" ] unless operator
 
       gaps = permission_gaps
-      [ "programmer evidence: #{programmer_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",
-        "permission gaps (answer only for a programmer): #{gaps.size}" ] + gaps.map { |n| "  #{n}" }
+      [ "operator evidence (#{operator}): #{operator_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",
+        "permission gaps (answer only for the operator): #{gaps.size}" ] + gaps.map { |n| "  #{n}" }
     end
 
     def tsv
@@ -318,22 +380,23 @@ module RpcCoverage
         "# #{one_liner}",
         "# backend: #{backend}",
         "# #{counts.sort.map { |k, v| "#{k}=#{v}" }.join(' ')}",
-        "# #{programmer_lines.first}",
-        "name\tstatus\tdetail\tprogrammer"
+        "# #{operator_lines.first}",
+        "name\tstatus\tdetail\toperator"
       ]
-      (head + rows.map { |r| [ r[:name], r[:status], r[:detail], r[:programmer] ].join("\t") }).join("\n") + "\n"
+      (head + rows.map { |r| [ r[:name], r[:status], r[:detail], r[:operator] ].join("\t") }).join("\n") + "\n"
     end
 
     def to_h
       { backend: backend, registry: registry.tag, percent: percent.round(2), covered: covered,
         denominator: denominator, excluded: excluded, declared_registered: declared_registered,
-        unregistered_used: unregistered_used, counts: counts,
-        programmer: programmer ? { present: true, counts: programmer_counts, permission_gaps: permission_gaps } : { present: false } }
+        unregistered_used: unregistered_used, counts: counts, as: as,
+        operator: operator ? { present: true, as: operator, counts: operator_counts, permission_gaps: permission_gaps } : { present: false } }
     end
   end
 
-  # programmer: the programmer persona's evidence, or nil. It never changes a status or the number.
-  def compute(registry:, declared:, evidence:, exclusions:, backend:, programmer: nil)
+  # evidence: what the roles other than the operator got (union_evidence), recorded as AS.
+  # operator: the operator's evidence, or nil, recorded as OPERATOR_AS. It never changes a status or the number.
+  def compute(registry:, declared:, evidence:, exclusions:, backend:, operator: nil, as: nil, operator_as: OPERATOR)
     live = evidence["rpcs"] || {}
     rows = registry.names.map do |name|
       e = live[name]
@@ -349,7 +412,7 @@ module RpcCoverage
         { name: name, status: "not_declared", detail: "" }
       end
     end
-    rows.each { |r| r[:programmer] = programmer_class(r[:status], programmer["rpcs"]&.dig(r[:name])) } if programmer
+    rows.each { |r| r[:operator] = operator_class(r[:status], operator["rpcs"]&.dig(r[:name])) } if operator
     counts = rows.map { |r| r[:status] }.tally
     excluded = rows.count { |r| r[:status].start_with?("excluded:") }
     denominator = registry.names.size - excluded
@@ -362,21 +425,35 @@ module RpcCoverage
       declared_registered: declared.keys.count { |n| known[n] },
       unregistered_used: used.reject { |n| known[n] }.sort,
       percent: denominator.zero? ? 0.0 : 100.0 * covered / denominator,
-      programmer: !programmer.nil?
+      operator: operator && operator_as, as: as
     )
   end
 
-  # Covered and excluded RPCs have no class: there is nothing for a programmer run to explain.
-  def programmer_class(status, prog)
+  # Covered and excluded RPCs have no class: there is nothing for the operator's run to explain.
+  def operator_class(status, op)
     return nil if status == "covered" || status.start_with?("excluded:")
-    return "untested_as_programmer" unless prog
+    return "untested_as_operator" unless op
 
     sent = status == "live_error"
-    if prog["outcome"] == "ok"
-      sent ? "permission_gap" : "programmer_only"
+    if op["outcome"] == "ok"
+      sent ? "permission_gap" : "operator_only"
     else
-      sent ? "errors_for_both" : "errors_as_programmer"
+      sent ? "errors_for_both" : "errors_as_operator"
     end
+  end
+
+  # One evidence document from several roles' runs: per RPC the best outcome wins, as merge_run keeps it.
+  def union_evidence(backend, evidences)
+    out = empty_evidence(backend)
+    evidences.each do |ev|
+      out["runs"] += Array(ev["runs"])
+      rpcs = out["rpcs"]
+      (ev["rpcs"] || {}).each do |name, o|
+        rpcs[name] = o.dup if rpcs[name].nil? || (rpcs[name]["outcome"] == "error" && o["outcome"] == "ok")
+      end
+    end
+    out["rpcs"] = out["rpcs"].sort.to_h
+    out
   end
 
   # Every reason `rake rpc:coverage` fails. An empty array is the only pass. The coverage number is

@@ -14,8 +14,8 @@ require "fileutils"
 #   hit       covered            a live run against the backend got an answer (not a broker error)
 #   missed    live_error, declared_untested, not_declared
 #   never     excluded:<reason>  outside the denominator, with the reason on the line
-# A missed line also names its programmer class (permission_gap, errors_for_both, ...) when the
-# programmer evidence is present (#335); that class never makes a line a hit.
+# A missed line also names its operator class (permission_gap, errors_for_both, ...) when the
+# operator's evidence is present (#335); that class never makes a line a hit.
 # So SimpleCov's percentage for a package is covered / (registered - excluded) for that package, the
 # same arithmetic as the rpc:coverage headline, and its total is the headline number.
 #
@@ -57,7 +57,7 @@ module RpcCoverage
 
     def line_text(row)
       cols = [ row[:name].ljust(32), row[:status].ljust(22) ]
-      cols << row[:programmer].to_s.ljust(22) if row[:programmer]
+      cols << row[:operator].to_s.ljust(22) if row[:operator]
       (cols << row[:detail].to_s).join(" ").rstrip
     end
 
