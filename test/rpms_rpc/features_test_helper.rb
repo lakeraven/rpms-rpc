@@ -96,9 +96,13 @@ module FeaturesTestHelper
   # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
   BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
     "DDR GETS ENTRY DATA" =>
-      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767)",
+      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767); " \
+      "Referral.record_follow_up reads the referral before BMC UPDATE REFERRAL rewrites it, and follow_up_state reads it back (#722)",
     "DDR LISTER" =>
-      "Referral.update looks a diagnosis code up in ICD DIAGNOSIS (#80) under the caller's context before BMC UPDATE REFERRAL (#915)"
+      "Referral.update looks a diagnosis code up in ICD DIAGNOSIS (#80) under the caller's context before BMC UPDATE REFERRAL (#915); " \
+      "Referral.record_follow_up lists the SNOMED CT terms it must resend, and follow_up_state lists the case notes (#722)",
+    "DDR LOCK/UNLOCK NODE" =>
+      "Referral.record_follow_up and record_status hold the FileMan entry lock on ^BMCREF(ien) from the read to the read-back (#722)"
   }.freeze
 
   ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {

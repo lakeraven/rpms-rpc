@@ -145,3 +145,39 @@ TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned
 TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 6 matches the note lines row for row after the header (only a wrap-boundary space or hard cut tolerated), each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
 TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 6; ProgressNote.unlock reads it as true | unproven: none
 TIU SIGN RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 6 with PROVIDER,TEST's demo signature code (NEW PERSON 20.4, seeded by openrpms#1247; the code is withheld); ESignature.add reads it as success; test/live/progress_note_sign_live_test.rb reads #8925 back as COMPLETED, SIGNED BY 200, with a signature date/time, and a wrong code is refused with 89250005 leaving the note UNSIGNED (captured in test/fixtures/captured_replies/e-signature-clinician.yml, #720) | unproven: none
+
+# Referral write-back status on bcer-9.0-20261124-60d39b6-ydb (issue #722, slice of lakeraven-ehr#993); first proven
+# on bcer-9.0-20261012-e7923a4-ydb.
+# Synthetic referrals 1 and 2 (ACTIVE, no EHR referral link, INCLUDE flags 401-412, 1302 and the SNOMED CT
+# multiple empty), live-verified as the provider test role (PROFILE,MD) by test/live/referral_follow_up_live_test.rb and
+# test/live/referral_status_live_test.rb (writes, restores; disposable container only). A write is proven by its
+# read-back (DDR GETS ENTRY DATA / DDR LISTER in the caller's option), never by its reply: record_follow_up and
+# record_status both decide success from the read-back, hold the FileMan entry lock on ^BMCREF(ien) from the read to
+# the read-back (a lock held by a second session was refused as :locked, live), refuse a read missing any requested
+# row, and answer :unverified when the read-back cannot be read after the call. The captured replies are
+# test/fixtures/captured_replies/referral-follow-up.yml (tools/captured_replies/referral-follow-up.rb).
+# Live findings behind green tests:
+#  - A note-only BMC UPDATE REFERRAL deletes the date of service: UPDREFRL^BMCRPC2 files 1106 = "@" whenever SCHWIDAY
+#    carries no date (BMCRPC2.m:216-217, UPDREFRL at :161). record_follow_up resends the 1106 on file, and refuses a date-only one.
+#  - UPDREFRL files the time as typed (date_"."_HHMM, FILE^DIE without E): "09:30" filed 3261204.0930.
+#    record_follow_up sends the canonical digits (093) and requires a time with a date.
+#  - UPDREFRL and UPDTSTRF take no lock, so the gem's lock excludes FileMan editors and other gem callers only; a
+#    writer that takes no lock can still change the entry between the read and the rewrite.
+#  - UPDTSTRF^BMCRPC3 (BMCRPC3.m:179) files .15 without the E flag, so any string files ("H" did). record_status refuses a code
+#    outside A, A1, C1, X before anything is sent. Filing .15 fires its triggers (.16, .17, .24, 1305),
+#    an approval alert on A1 (APRV^BMCALERT) and, on C1, BMCPXCHK.
+#  - UPDTSTRF NEWs neither FDA nor ERR1, and FILE^DIE keeps the FDA when it fails (DIEF.m:24). After one failed
+#    update in a broker session, every later BMC REFERRAL STATUS UPDATE in it re-files the queued writes and answers
+#    the stale "~`0^...": live, a status write on referral 2 set referral 1 back to A1. record_status answers
+#    :session_poisoned on any refusal reply; the caller must close that session. Referral.update_status and
+#    Referral.cancel still send unchecked and can poison a session (an unknown IEN does).
+#  - In an option without the RPC (OR CPRS GUI CHART) the broker answers "Access denied for remote procedure" and the
+#    client raises Client::RpcRefusedError; .15 is unchanged.
+#  - UPDREFRL is UPDREFRL(RSLT,P) on the YottaDB build since rpms-ops#866: the broker packs more than 31 parameters
+#    as P(1)..P(n), so record_follow_up sends all 35, as update does (30 answered %YDB-E-ACTLSTTOOLONG, live).
+#  - UPDREFRL files ADDITIONAL INFO (.34) from the INCLUDE flags it is sent (BMCRPC2.m:243-244); record_follow_up
+#    refuses a referral whose .34 they would change (:additional_info_would_change), proven live.
+# One line per RPC: RPC | status | reason | unproven: <fields or none>
+
+BMC UPDATE REFERRAL | partial | Referral.record_follow_up as the provider (PROFILE,MD) filed 1106 = 3261204.093 (12/4/2026 09:30) and one CASE note (#90001.03 type C) on referral 1, read back exactly through DDR GETS ENTRY DATA and DDR LISTER; a note-only follow-up kept 1106; a closed referral and an unknown IEN are typed refusals before the call; the INCLUDE flags, 1302 and SNOMED CT term were empty on the synthetic referral, so resending them with values is not proven live; referrals linked to an EHR referral (1303) or with several SNOMED CT terms are refused, not written; captured in test/fixtures/captured_replies/referral-follow-up.yml | unproven: resent INCLUDE flags/1302/SNOMED CT term with values
+BMC REFERRAL STATUS UPDATE | partial | Referral.record_status as the provider (PROFILE,MD) filed .15 A -> A1 -> A on referral 1, each read back; an unknown IEN and a code outside the set are typed refusals before the call; the wrong option raises RpcRefusedError with .15 unchanged; after a failed update the session re-files queued writes on other referrals, which record_status reports as :session_poisoned; update_status and cancel send unchecked and trust the reply; captured in test/fixtures/captured_replies/referral-follow-up.yml | unproven: update_status and cancel

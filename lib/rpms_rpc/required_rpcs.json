@@ -423,7 +423,8 @@
       "BMC SEARCH REFERRED TO",
       "BMC UPDATE REFERRAL",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE"
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
@@ -1902,10 +1903,12 @@
     "BMC REFERRAL STATUS UPDATE": {
       "methods": {
         "RpmsRpc::Referral.cancel": "non_idempotent_write",
+        "RpmsRpc::Referral.record_status": "non_idempotent_write",
         "RpmsRpc::Referral.update_status": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/referral-calls.yml"
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-follow-up.yml"
       ]
     },
     "BMC SEARCH REFERRAL": {
@@ -1929,11 +1932,13 @@
     },
     "BMC UPDATE REFERRAL": {
       "methods": {
+        "RpmsRpc::Referral.record_follow_up": "non_idempotent_write",
         "RpmsRpc::Referral.update": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml",
-        "test/fixtures/captured_replies/referral-diagnosis.yml"
+        "test/fixtures/captured_replies/referral-diagnosis.yml",
+        "test/fixtures/captured_replies/referral-follow-up.yml"
       ]
     },
     "BQI PATIENT INSURANCE": {
@@ -2291,6 +2296,9 @@
         "RpmsRpc::Problem.update": "non_idempotent_write",
         "RpmsRpc::Procedure.add": "non_idempotent_write",
         "RpmsRpc::Referral.find": "non_idempotent_write",
+        "RpmsRpc::Referral.follow_up_state": "read",
+        "RpmsRpc::Referral.record_follow_up": "non_idempotent_write",
+        "RpmsRpc::Referral.record_status": "non_idempotent_write",
         "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
         "RpmsRpc::Registration.address_history": "read",
         "RpmsRpc::Registration.advance_directives": "read",
@@ -2348,6 +2356,7 @@
         "test/fixtures/captured_replies/procedure-add.yml",
         "test/fixtures/captured_replies/referral-calls.yml",
         "test/fixtures/captured_replies/referral-diagnosis.yml",
+        "test/fixtures/captured_replies/referral-follow-up.yml",
         "test/fixtures/captured_replies/referral-wire.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
@@ -2391,6 +2400,8 @@
         "RpmsRpc::PatientApplication.for_patient": "read",
         "RpmsRpc::PatientApplication.types": "read",
         "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::Referral.follow_up_state": "read",
+        "RpmsRpc::Referral.record_follow_up": "non_idempotent_write",
         "RpmsRpc::Referral.update": "non_idempotent_write",
         "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
         "RpmsRpc::Registration.add_mbi": "non_idempotent_write",
@@ -2464,6 +2475,7 @@
         "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/reference-code-lists.yml",
         "test/fixtures/captured_replies/referral-diagnosis.yml",
+        "test/fixtures/captured_replies/referral-follow-up.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
@@ -2482,12 +2494,15 @@
         "RpmsRpc::BehavioralHealth::Wellness.save_measurements": "non_idempotent_write",
         "RpmsRpc::BehavioralHealth::Wellness.save_screening": "non_idempotent_write",
         "RpmsRpc::DdrFileman.lock": "non_idempotent_write",
-        "RpmsRpc::DdrFileman.unlock": "non_idempotent_write"
+        "RpmsRpc::DdrFileman.unlock": "non_idempotent_write",
+        "RpmsRpc::Referral.record_follow_up": "non_idempotent_write",
+        "RpmsRpc::Referral.record_status": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
         "test/fixtures/captured_replies/amhg-wellness.yml",
-        "test/fixtures/captured_replies/ddr-fileman.yml"
+        "test/fixtures/captured_replies/ddr-fileman.yml",
+        "test/fixtures/captured_replies/referral-follow-up.yml"
       ]
     },
     "DDR VALIDATOR": {
