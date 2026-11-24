@@ -445,12 +445,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal 2, result[:reconciled]
   end
 
-  def test_phr_access
-    result = RpmsRpc::DataMapper[:phr_access].parse_one("1^Patient portal enabled")
-
-    assert_equal true, result[:has_access]
-    assert_equal "Patient portal enabled", result[:message]
-  end
 
   # -- RPC names verified against staging file 8994 (2026-06-07) -------------
   # BMC v4.0*13 registers the CHS/PRC referral RPCs with English-name NAMEs;

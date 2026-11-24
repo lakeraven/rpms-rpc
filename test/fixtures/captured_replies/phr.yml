@@ -3,26 +3,35 @@
 ---
 rpc: BEHOCCD PHR
 entry_point: PHR^BEHOCCD
-release_tag: bcer-9.0-20261116-2a9b3fe-ydb
-image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
 client: RpmsRpc::CiaClient#call_rpc_raw
-signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-18T17:34:10Z'
-note: Run on a throwaway container; every call reads.
+captured_at: '2026-11-24T03:02:56Z'
+note: Run on a fresh throwaway container. Setup files PHR answers for DFN 2 (YES)
+  and DFN 4 (YES, then NO), and RCIS referral 9000000000221 for DFN 4 recorded on
+  visit 2 as a V REFERRAL; every flow reads.
 captures:
-- name: enrollment_seed/1
+- name: enrollment_yes/1
   rpc: BEHOCCD PHR
   inputs:
   - '2'
-  context: enrollment_status of DFN 2
-  raw_return: "5\00"
-  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+  context: enrollment_status of DFN 2, who said YES
+  raw_return: "5\01^11/13/2026"
+  sha256: 75750a51a7ec1a8ad5c66fe663343a13257c07624230df9e5e3b362cdc088a83
+- name: enrollment_no/1
+  rpc: BEHOCCD PHR
+  inputs:
+  - '4'
+  context: enrollment_status of DFN 4, whose latest answer is NO
+  raw_return: "5\00^11/13/2026"
+  sha256: 2c937487b355053419ed2fd08b1b6eadba747f5302db6e89da2654390adeca88
 - name: enrollment_panel/1
   rpc: BEHOCCD PHR
   inputs:
   - '990001'
-  context: enrollment_status of DFN 990001
+  context: enrollment_status of DFN 990001, with no answer on file
   raw_return: "5\00"
   sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
 - name: enrollment_unknown/1
@@ -49,7 +58,15 @@ captures:
 - name: referrals/1
   rpc: BEHOCCD GETREF
   inputs:
-  - 1^2
-  context: referrals_for_visits of visits 1 and 2
+  - - '1'
+    - '2'
+  context: referrals_for_visits of visits 1 and 2; visit 2 carries the V REFERRAL
+  raw_return: "5\02^1^4^^ACTIVE^9000000000221^^^^\r"
+  sha256: 383ac46861981d4803a03c3032e9c77d9b56db7fc99fe037efd47cc78e769084
+- name: referrals_none/1
+  rpc: BEHOCCD GETREF
+  inputs:
+  - - '1'
+  context: referrals_for_visits of visit 1, which has none
   raw_return: "5\0"
   sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

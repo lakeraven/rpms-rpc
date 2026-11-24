@@ -2959,7 +2959,8 @@
         "RpmsRpc::Encounter.for_patient": "read"
       },
       "replies": [
-        "test/fixtures/captured_replies/clinical-data.yml"
+        "test/fixtures/captured_replies/clinical-data.yml",
+        "test/fixtures/captured_replies/orwpt-apptlst.yml"
       ]
     },
     "ORWPT CWAD": {
