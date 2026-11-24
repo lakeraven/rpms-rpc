@@ -6,6 +6,7 @@ require "rpms_rpc/api/scheduling_setup"
 # rpms-rpc#418 live writes: synthetic holiday add/list/remove. Undo check-in
 # moved to rpms-rpc#570.
 class SchedulingBprm418LiveTest < LiveSpec::Test
+  runs_as :scheduler
   writes!
 
   HOLIDAY_DATE = Date.new(2032, 11, 11)

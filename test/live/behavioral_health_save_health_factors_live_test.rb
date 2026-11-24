@@ -4,10 +4,14 @@ require_relative "live_helper"
 require "rpms_rpc/api/behavioral_health"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/api/behavioral_health/wellness"
 
 # RpmsRpc::BehavioralHealth.save_health_factors over AMHG SAVE HEALTH FACTORS (HF^AMHGSVF).
 # WRITES on a disposable container only; synthetic patient DFN 990037.
 class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   DFN = 990_037
@@ -42,7 +46,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
     refute_hf_name!(visit_ien, name_a)
     assert_hf_row_count!(visit_ien, 1)
 
-    puts "\n#{persona}: BH visit #{visit_ien} edit replaced #{name_a.inspect} with #{name_b.inspect}"
+    puts "\n#{role}: BH visit #{visit_ien} edit replaced #{name_a.inspect} with #{name_b.inspect}"
   end
 
   def test_save_health_factors_add_keeps_existing_factors
@@ -78,7 +82,124 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
     assert_hf_row_count!(visit_ien, 1)
   end
 
+  # #629: a health-factor save and a Wellness save of one visit on one client
+  # share one exclusion. The health-factor save holds the visit lock (its
+  # body is held at the lock's yield) when the Wellness save starts on the
+  # same client. The broker grants that job the lock again at once (M LOCK is
+  # incremental per job), so only the shared exclusion refuses it. Once the
+  # first save finishes, the second lands.
+  def test_a_wellness_save_during_a_health_factor_save_of_the_same_visit_is_refused_then_lands
+    visit_ien = create_visit!
+    name = discover_health_factor_names!(1).first
+
+    saving, inside, go = save_health_factors_held_inside_the_lock(visit_ien, name)
+    refute_nil inside.pop(timeout: 10), "the health-factor save never took the visit lock"
+
+    err = assert_raises(RpmsRpc::BehavioralHealth::Wellness::SaveError) { save_phq9!(visit_ien) }
+    assert_match(/in progress/i, err.message)
+
+    go << true
+    assert_equal visit_ien.to_s, saving.value.to_s
+    assert_hf_row!(visit_ien, name, level: "MINIMAL", quantity: "1", comment: "SYN LIVE RACE")
+    phq = save_phq9!(visit_ien).find { |row| row[:type] == "PHQ9" }
+    assert_equal 12, phq&.fetch(:value)
+  ensure
+    go&.<< true
+    settle(saving)
+    @restore_lock&.call
+  end
+
+  # #629: while a save waits on a visit lock another job holds, the client's
+  # wire is free between polls, so another RPC on the same client answers.
+  def test_a_lock_wait_does_not_hold_the_wire
+    visit_ien = create_visit!
+    name = discover_health_factor_names!(1).first
+    other = hold_visit_lock_elsewhere!(visit_ien)
+
+    saving, polls = save_health_factors_waiting_on_the_lock(visit_ien, name)
+    refute_nil polls.pop(timeout: 10), "the health-factor save never waited on the lock"
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    server_now_fm
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    assert_operator elapsed, :<, 1.0, "an RPC on the same client waited #{elapsed.round(2)}s behind the lock wait"
+    assert saving.alive?, "the health-factor save was still waiting on the lock"
+
+    release_visit_lock_elsewhere!(other, visit_ien)
+    assert_equal visit_ien.to_s, saving.value.to_s
+  ensure
+    other&.disconnect
+    settle(saving)
+    @restore_pause&.call
+  end
+
   private
+
+  # A second broker job, signed on as the same persona, holding ^AMHREC(visit).
+  def hold_visit_lock_elsewhere!(visit_ien)
+    other = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
+    other.connect
+    other.authenticate(*sign_on_pair)
+    held = on_fileman(other) { RpmsRpc::DdrFileman.lock(node: "^AMHREC(#{visit_ien})", timeout: 0) }
+    assert_equal true, held, "the second job took the visit lock"
+    other
+  end
+
+  def release_visit_lock_elsewhere!(other, visit_ien)
+    on_fileman(other) { RpmsRpc::DdrFileman.unlock(node: "^AMHREC(#{visit_ien})") }
+  end
+
+  def on_fileman(target, &block)
+    RpmsRpc.with_client(target) { RpmsRpc::ContextScope.scoped(target, RpmsRpc::Patient::FILEMAN_CONTEXT, &block) }
+  end
+
+  # The save in a thread, stopped once it holds the visit lock: `inside` gets
+  # an entry then, and the save goes on when `go` gets one.
+  def save_health_factors_held_inside_the_lock(visit_ien, name)
+    inside = Queue.new
+    go = Queue.new
+    bh = RpmsRpc::BehavioralHealth
+    bh.define_singleton_method(:with_record_lock) do |node, &body|
+      super(node) do
+        inside << true
+        go.pop(timeout: 10)
+        body.call
+      end
+    end
+    @restore_lock = -> { bh.singleton_class.remove_method(:with_record_lock) }
+    saving = Thread.new { save!(visit_ien, :edit, [ factor(name, "MINIMAL", "1", "SYN LIVE RACE") ]) }
+    saving.report_on_exception = false
+    [ saving, inside, go ]
+  end
+
+  # The save in a thread, and a queue that gets an entry each time the lock
+  # poll pauses (the real pause still runs).
+  def save_health_factors_waiting_on_the_lock(visit_ien, name)
+    polls = Queue.new
+    bh = RpmsRpc::BehavioralHealth
+    pause = bh.method(:save_guard_pause)
+    bh.define_singleton_method(:save_guard_pause) do
+      polls << true
+      pause.call
+    end
+    @restore_pause = -> { bh.singleton_class.remove_method(:save_guard_pause) }
+    saving = Thread.new { save!(visit_ien, :edit, [ factor(name, "MINIMAL", "1", "SYN LIVE RACE") ]) }
+    saving.report_on_exception = false
+    [ saving, polls ]
+  end
+
+  # Let the save finish without its outcome replacing the test's own failure.
+  def settle(saving)
+    saving&.join(10)
+  rescue StandardError
+    nil
+  end
+
+  def save_phq9!(visit_ien)
+    RpmsRpc::BehavioralHealth::Wellness.save_measurements(
+      visit_ien, patient: DFN, measurements: [ { type: "PHQ9", value: 12, provider: client.duz.to_s } ]
+    )
+  end
 
   def factor(name, level, quantity, comment)
     { name: name, level: level, quantity: quantity, comment: comment }

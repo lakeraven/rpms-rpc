@@ -1,14 +1,18 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mappings"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/patient"
+require_relative "../captured_replies"
 
 # AGG LOOKUP PATIENTS — parameter and column contract.
 #
 # Oracle: FOIA-RPMS `Packages/Patient Registration GUI/Routines/AGGPTLKP.m`,
-# entry point FND. Every assertion cites the M it pins.
+# entry point FND, and the replies it sent PROFILE,REG on a throwaway
+# container of the pinned build (test/fixtures/captured_replies/
+# agg-patient-lookup.yml). There, ALPHA,AVERY's HRN was inactivated, the
+# facility's community columns turned on, and BEACON,DREW made a sensitive
+# record, all through stock FileMan.
 #
 #   FND(DATA,TEXT,TYPE,ALL,INAC) ; EP -- AGG LOOKUP PATIENTS   (AGGPTLKP.m:7)
 #     TEXT - search text (name, SSN, HRN, ...)
@@ -26,333 +30,227 @@ require "rpms_rpc/api/patient"
 # limit passed positionally does not truncate anything — it silently turns on
 # all-divisions or inactive search.
 class AggPatientLookupTest < Minitest::Test
-  # AGGPTLKP.m:174 — the typed column header this RPC opens with.
-  HEADER = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^" \
-           "D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
-
-  def setup
-    RpmsRpc.mock!
-  end
+  SLUG = "agg-patient-lookup"
 
   def teardown
     RpmsRpc.reset!
   end
 
+  def replay(flow = nil)
+    @client = CapturedReplies::ReplayCiaClient.new(flow ? CapturedReplies.flow_script(SLUG, flow) : {})
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
+
+  def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def recorded(flow) = CapturedReplies.flow_calls(SLUG, flow)
+  def names(rows) = rows.map { |r| r[:name] }
+
   # -- Parameter contract ----------------------------------------------------
 
-  def test_sends_text_and_type_in_the_declared_order
-    RpmsRpc::Patient.lookup("ANDERSON", type: "N")
+  def test_defaults_scope_to_the_users_division_and_exclude_inactive
+    replay("by_name")
 
-    assert_equal "AGG LOOKUP PATIENTS", last_call[:rpc]
-    assert_equal "ANDERSON", last_call[:params][0]
-    assert_equal "N",        last_call[:params][1]
+    rows = RpmsRpc::Patient.lookup("ALPHA")
+
+    assert_equal [ [ "AGG LOOKUP PATIENTS", [ "ALPHA", "", "", "" ] ] ], sent,
+                 'TYPE="" searches every cross-reference (AGGPTLKP.m:60); blank ALL and INAC (AGGPTLKP.m:13, :66)'
+    assert_equal recorded("by_name"), sent
+    assert_equal [ "ALPHA,CASEY" ], names(rows), "ALPHA,AVERY's HRN is inactive, so blank INAC leaves it out"
+  end
+
+  def test_sends_text_and_type_in_the_declared_order
+    replay("by_name_type_n")
+
+    RpmsRpc::Patient.lookup("ALPHA", type: "N")
+
+    assert_equal recorded("by_name_type_n"), sent
   end
 
   def test_all_divisions_is_the_third_parameter
-    RpmsRpc::Patient.lookup("ANDERSON", all_divisions: true)
+    replay("all_divisions")
 
-    assert_equal "1", last_call[:params][2],
-                 "ALL is FND's 4th formal / the caller's 3rd parameter (AGGPTLKP.m:7)"
+    rows = RpmsRpc::Patient.lookup("ALPHA", all_divisions: true)
+
+    assert_equal [ "ALPHA", "", "1", "" ], sent.first.last, "ALL is FND's 4th formal / the caller's 3rd parameter"
+    assert_equal recorded("all_divisions"), sent
+    assert_equal [ "*990051-DIC", "990001-DIC" ], rows.map { |r| r[:hrn] }, "ALL=1 reads each HRN with its facility"
   end
 
   def test_include_inactive_is_the_fourth_parameter
-    RpmsRpc::Patient.lookup("ANDERSON", include_inactive: true)
+    replay("include_inactive")
 
-    assert_equal "1", last_call[:params][3],
-                 "INAC is FND's 5th formal / the caller's 4th parameter (AGGPTLKP.m:7)"
-  end
+    rows = RpmsRpc::Patient.lookup("ALPHA", include_inactive: true)
 
-  def test_defaults_scope_to_the_users_division_and_exclude_inactive
-    RpmsRpc::Patient.lookup("ANDERSON")
-
-    assert_equal "", last_call[:params][2],
-                 "blank ALL applies the division screen (AGGPTLKP.m:66)"
-    assert_equal "", last_call[:params][3],
-                 "blank INAC excludes inactive patients (AGGPTLKP.m:13)"
-  end
-
-  def test_blank_type_searches_all_cross_references
-    RpmsRpc::Patient.lookup("ANDERSON")
-
-    assert_equal "", last_call[:params][1],
-                 'TYPE="" falls through to the all-cross-reference lookup (AGGPTLKP.m:60)'
+    assert_equal [ "ALPHA", "", "", "1" ], sent.first.last, "INAC is FND's 5th formal / the caller's 4th parameter"
+    assert_equal [ [ "ALPHA,AVERY", true ], [ "ALPHA,CASEY", false ] ], rows.map { |r| [ r[:name], r[:inactive] ] }
   end
 
   def test_the_two_flags_are_independent
-    RpmsRpc::Patient.lookup("ANDERSON", all_divisions: true, include_inactive: true)
+    replay("both_flags")
 
-    assert_equal %w[1 1], last_call[:params][2, 2]
+    RpmsRpc::Patient.lookup("ALPHA", all_divisions: true, include_inactive: true)
+
+    assert_equal [ "ALPHA", "", "1", "1" ], sent.first.last
   end
 
   def test_a_result_limit_is_refused_rather_than_sent_positionally
-    error = assert_raises(ArgumentError) do
-      RpmsRpc::Patient.lookup("ANDERSON", limit: 25)
-    end
+    replay
+    error = assert_raises(ArgumentError) { RpmsRpc::Patient.lookup("ALPHA", limit: 25) }
 
     assert_match(/no result-limit parameter/i, error.message)
+    assert_empty sent
   end
 
   def test_blank_search_text_is_refused_before_dispatch
+    replay
     assert_raises(ArgumentError) { RpmsRpc::Patient.lookup("   ") }
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty sent
   end
 
   # -- "LAST, FIRST" is normalised by the server, not the client (#199) ----
   #
   # FND^AGGPTLKP strips doubled spaces and turns ", " into "," before it
   # searches (AGGPTLKP.m:53-56), then upper-cases the text (AGGPTLKP.m:61)
-  # and matches a prefix. Proven live on the pinned 0930 build in AGGRPC:
-  # "MOUSE, MICKEY M", "MOUSE,MICKEY M", "MOUSE, MICKEY", "MOUSE,  MICKEY",
-  # "mouse, mickey", "MOUSE, MIC" and "MOU" each return MOUSE,MICKEY M.
-  # So the client sends the text as typed, in one call, and never retries
-  # with the last name alone: a retry would widen a miss into every patient
-  # sharing that surname.
+  # and matches a prefix. So the client sends the text as typed, in one call,
+  # and never retries with the last name alone: a retry would widen a miss
+  # into every patient sharing that surname.
 
   def test_last_comma_space_first_is_sent_as_typed_in_one_call
-    RpmsRpc::Patient.lookup("MOUSE, MICKEY M")
+    replay("last_comma_space_first")
 
-    calls = RpmsRpc.client.received_calls.select { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
-    assert_equal 1, calls.length, "no client-side last-name retry"
-    assert_equal "MOUSE, MICKEY M", calls.first[:params][0],
-                 "the server normalises \", \" to \",\" (AGGPTLKP.m:55-56)"
+    rows = RpmsRpc::Patient.lookup("MOUSE, MICKEY M")
+
+    assert_equal [ "MOUSE,MICKEY M" ], names(rows)
+    assert_equal [ [ "AGG LOOKUP PATIENTS", [ "MOUSE, MICKEY M", "", "", "" ] ] ], sent, "no client-side retry"
   end
 
   def test_an_empty_last_first_result_is_not_retried_with_the_last_name
-    result = RpmsRpc::Patient.lookup("NOSUCH, PERSON")
+    replay("no_match")
 
-    assert_empty result
-    assert_equal [ "NOSUCH, PERSON" ],
-                 RpmsRpc.client.received_calls.map { |c| c[:params][0] }
+    assert_empty RpmsRpc::Patient.lookup("NOSUCH, PERSON")
+    assert_equal recorded("no_match"), sent
   end
 
   # -- Column contract -------------------------------------------------------
 
   def test_parses_a_row_into_the_declared_columns
-    seed([ HEADER, "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N", "" ])
+    replay("last_comma_space_first")
 
-    result = RpmsRpc::Patient.lookup("ANDERSON").first
+    row = RpmsRpc::Patient.lookup("MOUSE, MICKEY M").first
 
-    assert_equal 3, result[:dfn]
-    assert_equal "ANDERSON,ALICE", result[:name]
-    assert_equal "104827", result[:hrn]
-    assert_equal "05/15/1980", result[:dob]
-    assert_equal false, result[:inactive]
+    assert_equal({ dfn: 3, name: "MOUSE,MICKEY M", hrn: "1001", ssn: nil, ssn_masked: true, dob: "FEB 14,1910",
+                   dod: nil, sens_flag: "N", alias: nil, inactive: false },
+                 row.slice(:dfn, :name, :hrn, :ssn, :ssn_masked, :dob, :dod, :sens_flag, :alias, :inactive))
+  end
+
+  def test_reads_every_row_of_a_many_row_reply
+    replay("many")
+
+    assert_equal [ 4, 990_013 ], RpmsRpc::Patient.lookup("DEMO").map { |r| r[:dfn] }
   end
 
   def test_header_only_response_is_an_empty_result_not_an_error
-    seed([ HEADER, "" ])
+    replay("no_match")
 
-    assert_equal [], RpmsRpc::Patient.lookup("NOSUCHNAME")
+    assert_equal [], RpmsRpc::Patient.lookup("NOSUCH, PERSON")
   end
 
+  # AGGPTLKP.m:139 — COMM and MOMDN are appended only when the facility's
+  # community-display flag is "Y" AND ALL=1. A nine-column read must not
+  # break when eleven arrive.
   def test_tolerates_the_optional_trailing_community_columns
-    # AGGPTLKP.m:175 — COMM and MOMDN are appended only when the facility's
-    # community-display flag is "Y" AND ALL=1. A nine-column read must not
-    # break when eleven arrive.
-    seed([ HEADER + "^T00030COMM^T00030MOMDN",
-          "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N^EXAMPLE COMMUNITY^MAIDEN,NAME",
-          "" ])
+    replay("all_divisions")
 
-    result = RpmsRpc::Patient.lookup("ANDERSON", all_divisions: true).first
+    rows = RpmsRpc::Patient.lookup("ALPHA", all_divisions: true)
 
-    assert_equal 3, result[:dfn]
-    assert_equal "EXAMPLE COMMUNITY", result[:community]
+    assert_equal [ 990_051, 990_001 ], rows.map { |r| r[:dfn] }
+    assert(rows.all? { |r| r.key?(:community) && r.key?(:mothers_maiden_name) })
   end
 
-  def test_inactive_flag_is_parsed_as_a_boolean
-    seed([ HEADER, "3^ANDERSON,ALICE^104827*^000009999^05/15/1980^^^^Y", "" ])
+  # require_response checks the header and each row first; both shapes pass.
+  def test_require_response_accepts_the_nine_and_the_eleven_column_reply
+    replay("all_divisions")
+    assert_equal 2, RpmsRpc::Patient.lookup("ALPHA", all_divisions: true, require_response: true).size
 
-    result = RpmsRpc::Patient.lookup("ANDERSON", include_inactive: true).first
+    replay("by_name")
+    assert_equal 1, RpmsRpc::Patient.lookup("ALPHA", require_response: true).size
+  end
 
-    assert_equal true, result[:inactive]
+  def test_the_sensitive_flag_is_read
+    replay("sensitive")
+
+    assert_equal "Y", RpmsRpc::Patient.lookup("BEACON").first[:sens_flag]
   end
 
   # -- SSN masking is a wire behaviour, not patient data ---------------------
 
+  # AGGPTLKP.m:124 — without the AGZVIEWSSN security key the routine returns
+  # "XXX-XX-" _ $E(SSN,6,9) in a division search. That is a redaction, not an
+  # identifier, and a caller that stores it has stored a fake SSN.
   def test_masked_ssn_is_not_surfaced_as_an_ssn
-    # AGGPTLKP.m:124 — without the AGZVIEWSSN security key the routine returns
-    # "XXX-XX-" _ $E(SSN,6,9). That is a redaction, not an identifier, and a
-    # caller that stores it has stored a fake SSN.
-    seed([ HEADER, "3^ANDERSON,ALICE^104827^XXX-XX-9999^05/15/1980^^^^N", "" ])
+    replay("by_name")
 
-    result = RpmsRpc::Patient.lookup("ANDERSON").first
+    row = RpmsRpc::Patient.lookup("ALPHA").first
 
-    assert_nil result[:ssn]
-    assert_equal true, result[:ssn_masked]
+    assert_nil row[:ssn]
+    assert_equal true, row[:ssn_masked]
   end
 
-  def test_empty_ssn_masked_to_a_bare_prefix_is_treated_as_absent
-    # AGGPTLKP.m:194 (LST2) omits the SSN'="" guard that LST:124 applies, so a
-    # patient with no SSN comes back as the literal "XXX-XX-" with no digits.
-    seed([ HEADER, "3^ANDERSON,ALICE^104827^XXX-XX-^05/15/1980^^^^N", "" ])
-
-    result = RpmsRpc::Patient.lookup("ANDERSON").first
-
-    assert_nil result[:ssn]
-    assert_equal true, result[:ssn_masked]
-  end
-
+  # The same line skips the mask when ALL=1, so an all-divisions search sends
+  # the whole SSN to a user without AGZVIEWSSN.
   def test_unmasked_ssn_is_surfaced
-    seed([ HEADER, "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N", "" ])
+    replay("all_divisions")
 
-    result = RpmsRpc::Patient.lookup("ANDERSON").first
+    row = RpmsRpc::Patient.lookup("ALPHA", all_divisions: true).last
 
-    assert_equal "000009999", result[:ssn]
-    assert_equal false, result[:ssn_masked]
+    assert_equal "666021001", row[:ssn]
+    assert_equal false, row[:ssn_masked]
   end
 
-  # -- Errors arriving as rows ----------------------------------------------
+  def test_a_patient_with_no_ssn_has_none
+    replay("no_ssn")
 
-  def test_an_m_error_arriving_as_a_row_is_not_parsed_as_a_patient
-    seed([ HEADER, "%YDB-E-NULSUBSC, Null subscript", "" ])
+    row = RpmsRpc::Patient.lookup("USER,TEST").first
 
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.lookup("ANDERSON") }
-  end
-
-  def test_a_row_whose_dfn_is_not_numeric_is_rejected
-    seed([ HEADER, "M ERROR^ANDERSON,ALICE^^^^^^^N", "" ])
-
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.lookup("ANDERSON") }
+    assert_nil row[:ssn]
+    assert_equal false, row[:ssn_masked]
   end
 
   # -- Wire framing: this RPC returns a GLOBAL ARRAY, not a printable string --
   #
-  # FND^AGGPTLKP sets DATA=$NA(^TMP("AGGPTLK",UID)) — a global reference, so
-  # the broker sends a return-type-4 reply: typed header, then $C(30)-separated
-  # records, ending at $C(31). $C(30) IS the CIA EOD, so a plain call_rpc read
-  # stops at the header and every data row is lost on the wire while seeded
-  # tests still pass. CiaClient#call_rpc_global_array reads to the $C(31)
-  # sentinel instead; RpmsRpc::Agg already routes its AGG RPCs that way.
-  class GlobalArrayClient
-    RS = "\x1e"
-    US = "\x1f"
-
-    attr_reader :calls
-
-    def initialize(rows)
-      @rows = rows
-      @calls = []
-    end
-
-    # What the socket really yields: read_until_raw(EOD) stops at the first
-    # $C(30), so the caller sees the header and nothing else.
-    def call_rpc(rpc_name, *params)
-      @calls << [ :call_rpc, rpc_name, params ]
-      full_reply.split(RS, 2).first
-    end
-
-    def call_rpc_global_array(rpc_name, *params)
-      @calls << [ :call_rpc_global_array, rpc_name, params ]
-      full_reply
-    end
-
-    private
-
-    # CIANBACT.m:122 `W @X,EOL,!` — the broker writes every node followed by a
-    # line feed, and AGGPTLKP ends each node with $C(30) (AGGPTLKP.m:30,140)
-    # plus a final $C(31)-only node (:73). A fixture that joins on RS alone
-    # omits the `!` and cannot see the framing this test exists to pin.
-    def full_reply = ([ HEADER ] + @rows).map { |n| n + RS + "\n" }.join + US + "\n"
-  end
-
+  # FND^AGGPTLKP sets DATA=$NA(^TMP("AGGPTLK",UID)), so the broker sends a
+  # return-type-4 reply: typed header, then $C(30)-separated records, ending at
+  # $C(31). $C(30) IS the CIA EOD, so a plain call_rpc read stops at the header
+  # and every data row is lost. CiaClient#call_rpc_global_array reads to the
+  # $C(31) sentinel instead.
   def test_lookup_reads_the_global_array_and_does_not_truncate_at_the_header
-    client = GlobalArrayClient.new([ "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N" ])
-    RpmsRpc.configure { |c| c.client = client }
+    replay("many")
+    @client.define_singleton_method(:call_rpc) { |*| raise "AGG LOOKUP PATIENTS must not be read with call_rpc" }
 
-    rows = RpmsRpc::Patient.lookup("ANDERSON")
-
-    assert_equal [ :call_rpc_global_array ], client.calls.map(&:first),
-      "AGG LOOKUP PATIENTS is a global-array reply; a plain call_rpc read terminates at the $C(30) header"
-    assert_equal 1, rows.size, "the data row was lost — the reply was truncated at the header"
-    assert_equal "ANDERSON,ALICE", rows.first[:name]
+    assert_equal 2, RpmsRpc::Patient.lookup("DEMO").size
   end
 
-  # `W @X,EOL,!` (CIANBACT.m:122) can put CRLF, a bare LF, a bare CR, or
-  # nothing after each $C(30): EOL is $C(13) only when the #8994 entry has word
-  # wrap on, and what `!` emits is device-dependent. Reviews of this path read
-  # those bytes differently, so all four are pinned rather than the one shape
-  # this broker happens to send today.
-  [ [ "crlf", "\r\n" ], [ "lf", "\n" ], [ "cr", "\r" ], [ "none", "" ] ].each do |label, feed|
-    define_method("test_decodes_a_reply_whose_nodes_are_followed_by_#{label}") do
-      row = "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N"
-      payload = ("5\x00" + HEADER + "\x1e" + feed + row + "\x1e" + feed + "\x1f" + feed).b
+  # BMX has no global-array read; the lookup falls back to call_rpc, and
+  # BmxClient's own reply grammar reads the frame the build sent.
+  def test_lookup_falls_back_to_call_rpc_over_bmx
+    client = CapturedReplies::ReplayBmxClient.new(CapturedReplies.flow_script(SLUG, "bmx_by_name"))
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    RpmsRpc::Authentication.authenticate(access_code: "PREG123", verify_code: "PREG123!!")
 
-      client = Object.new
-      client.define_singleton_method(:call_rpc_global_array) { |*| payload }
-      RpmsRpc.configure { |c| c.client = client }
+    rows = RpmsRpc::Patient.lookup("MOUSE")
 
-      rows = RpmsRpc::Patient.lookup("ANDERSON")
-
-      assert_equal 1, rows.size, "#{label} framing lost the data row"
-      assert_equal 3, rows.first[:dfn]
-      assert_equal "ANDERSON,ALICE", rows.first[:name]
-    end
-  end
-
-  def test_a_no_match_reply_over_the_wire_is_empty_not_an_error
-    # Header, then the $C(31)-only node (AGGPTLKP.m:73), each followed by the
-    # broker's line feed. Splitting on $C(30) alone leaves a bare "\n" that
-    # reaches normalize_lookup_row as a blank DFN and raises RpcError — a
-    # patient search with no hits must return [], not blow up.
-    client = GlobalArrayClient.new([])
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_equal [], RpmsRpc::Patient.lookup("NOSUCHNAME")
-  end
-
-  def test_a_non_utf8_patient_name_does_not_raise_on_decode
-    # The wire is binary and AGGPTLKP does not promise UTF-8: a Latin-1 name
-    # ("MARIA" with accented bytes) arrives as raw bytes. Labelling those rows
-    # UTF-8 makes them INVALID UTF-8, and parse_many's separator regex then
-    # raises "invalid byte sequence in UTF-8" on a real lookup while every
-    # ASCII-only test stays green. Rows keep the reply's own encoding.
-    latin1_row = "3^O\xE9,MAR\xEDA^104827^000009999^05/15/1980^^^^N".b
-    payload = ("5\x00" + HEADER + "\x1e\n" + latin1_row + "\x1e\n\x1f\n").b
-
-    client = Object.new
-    client.define_singleton_method(:call_rpc_global_array) { |*| payload }
-    RpmsRpc.configure { |c| c.client = client }
-
-    rows = RpmsRpc::Patient.lookup("O")
-
-    assert_equal 1, rows.size
-    assert_equal 3, rows.first[:dfn]
-  end
-
-  def test_lookup_falls_back_to_call_rpc_when_the_client_has_no_global_array_read
-    plain = Class.new do
-      attr_reader :calls
-      def initialize = @calls = []
-      def call_rpc(rpc_name, *params)
-        @calls << rpc_name
-        [ HEADER, "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N" ].join("\n")
-      end
-    end.new
-    RpmsRpc.configure { |c| c.client = plain }
-
-    rows = RpmsRpc::Patient.lookup("ANDERSON")
-
-    assert_equal [ "AGG LOOKUP PATIENTS" ], plain.calls
-    assert_equal "ANDERSON,ALICE", rows.first[:name]
+    assert_equal [ "MOUSE,MICKEY M" ], names(rows)
+    assert_equal CapturedReplies.flow_calls(SLUG, "bmx_by_name").map(&:first), client.rpcs_called
   end
 
   # AGG LOOKUP PATIENTS is in AGGRPC's RPC multiple only; a CIA session binds
   # CIAV VUECENTRIC, which refuses it. The lookup binds AGGRPC for its call.
   def test_lookup_runs_in_the_aggrpc_context
-    RpmsRpc::Patient.lookup("MOUSE")
+    replay("by_name")
 
-    assert_equal "AGG LOOKUP PATIENTS", last_call[:rpc]
-    assert_equal "AGGRPC", last_call[:context]
-  end
+    RpmsRpc::Patient.lookup("ALPHA")
 
-  private
-
-  def seed(lines)
-    RpmsRpc.client.seed_raw_lines(:patient_lookup_agg, "ANDERSON", lines)
-    RpmsRpc.client.seed_raw_lines(:patient_lookup_agg, "NOSUCHNAME", lines)
-  end
-
-  def last_call
-    RpmsRpc.client.received_calls.last
+    assert_equal [ "AGGRPC", "CIAV VUECENTRIC" ],
+                 @client.calls.select { |c| c[:rpc] == :create_context }.map { |c| c[:params].first }
   end
 end

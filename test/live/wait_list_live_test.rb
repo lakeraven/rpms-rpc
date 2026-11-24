@@ -9,6 +9,8 @@ require "rpms_rpc/api/ddr_fileman"
 # files it. The demo build has no list, so the spec makes one the way a
 # site's SDZAC holder would, and reads every write back through FileMan.
 class WaitListLiveTest < LiveSpec::Test
+  runs_as :scheduler
+  proves "S-SCH-10.1", "S-SCH-10.2", "S-SCH-10.3", "S-SCH-10.4", "S-SCH-10.5", "S-SCH-10.6", "S-SCH-10.8"
   writes!
 
   WL = RpmsRpc::WaitList

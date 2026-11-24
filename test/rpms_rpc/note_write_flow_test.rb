@@ -7,6 +7,7 @@ require "rpms_rpc"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/api/progress_note"
 require "rpms_rpc/api/e_signature"
+require_relative "captured_replies"
 
 # Issue #564 / #224 (TIU note writes): NoteWriteFlow drives create → lock →
 # set text → read-back → unlock → sign through the public API with a
@@ -275,7 +276,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     end
   end
 
-  def test_quarantine_secrets_replaces_tainted_captures_and_leaves_others_byte_identical
+  def test_quarantine_secrets_drops_every_capture_when_any_holds_a_secret
     flow = flow_class
     assert flow.respond_to?(:quarantine_secrets), "NoteWriteFlow.quarantine_secrets missing"
 
@@ -292,8 +293,12 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     }
     out = flow.quarantine_secrets(captures, [ secret ])
 
-    assert_equal pristine_raw, out[CREATE_RPC]["raw"],
-                 "untainted capture raw must be unchanged byte-for-byte"
+    # One tainted capture drops the whole run (#617): a kept CREATE beside a
+    # dropped SET would mix this run's IEN with an older fixture's.
+    [ CREATE_RPC, LOCK_RPC ].each do |rpc|
+      assert out[rpc].key?("error"), "#{rpc} must be dropped with the tainted capture"
+      refute out[rpc].key?("raw")
+    end
     tainted = out[SET_TEXT_RPC]
     assert tainted.key?("error"), "capture whose raw contains a secret must become an error"
     refute tainted.key?("raw")
@@ -560,15 +565,19 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     "#{GET_TEXT_CIA_FRAME}\x00#{payload}"
   end
 
+  # The TEXT list ProgressNote.update_text sends for NOTE_TEXT: the body a
+  # read-back must hold. Replayed from the replies the build gave a note filed
+  # as PROFILE,MD (test/fixtures/captured_replies/note-write-flow-text.yml), and
+  # the frame the gem sends must be the one it sent live.
   def wrapped_note_body_rows
-    note_ien = "1"
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
+    flow = CapturedReplies.flow("note-write-flow-text", "update_text")
+    note_ien = flow.first.fetch("raw_return").b.byteslice(2..)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("note-write-flow-text", "update_text"))
+    RpmsRpc.configure { |c| c.client = client }
     RpmsRpc::ProgressNote.update_text(note_ien, note_text)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
+    call = client.calls.find { |c| c[:rpc] == SET_TEXT_RPC }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
+    assert_equal flow.last.fetch("inputs"), call[:params], "update_text must send the TEXT list it sent live"
 
     tiux = call[:params][1]
     tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
@@ -605,20 +614,8 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     result
   end
 
-  def wrapped_read_back_payload(note_ien)
-    body_lines = nil
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
-    RpmsRpc::ProgressNote.update_text(note_ien, note_text)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
-    flunk "TIU SET DOCUMENT TEXT was not called" unless call
-
-    tiux = call[:params][1]
-    body_lines = tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
-                     .sort_by { |k, _| k[1] }
-                     .map(&:last)
+  def wrapped_read_back_payload(_note_ien)
+    body_lines = wrapped_note_body_rows
     header = [
       "LOCAL TITLE: Progress Note",
       "STANDARD TITLE: Progress Note",
@@ -721,6 +718,47 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
     refute result.key?(SIGN_RPC),
            "TIU SIGN RECORD must not run when unlock did not return ERR=0"
+  end
+
+  # #617 point 3: an esig that is also a word of the read-back header passes the
+  # pre-run gate, but the GET capture holds it. SIGN must not fire, and no
+  # capture of the run is kept, so a fixture set never mixes this run's IEN
+  # with an older one.
+  def test_esig_found_in_a_capture_skips_sign_and_drops_every_capture
+    note_ien = "10"
+    read_back = wrapped_read_back_payload(note_ien)
+    assert_read_back_passes_write_evidence?(read_back, note_ien)
+    esig = "PROVIDER"
+    assert_includes read_back, esig
+    assert_nil RpmsRpc::WireCapture.write_refusal(
+      writes: true, host: "127.0.0.1", container: nil, access: "PMD123", esig: esig
+    ), "the esig passes the pre-run gate; only the captures reveal it"
+
+    client = ScriptedClient.new(
+      flow_steps(
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raw: read_back },
+        { rpc: UNLOCK_RPC, raw: "0" },
+        { rpc: SIGN_RPC, raw: "0" }
+      ),
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: esig)
+
+    refute_includes client.calls.map { |c| c[:rpc] }, SIGN_RPC,
+                    "SIGN must not fire when the code already appears in a capture"
+    refute_empty result
+    result.each do |rpc, capture|
+      assert capture.key?("error"), "#{rpc} must be dropped with the rest of the run"
+      refute capture.key?("raw"), "#{rpc} must not carry raw"
+      refute capture.key?("inputs"), "#{rpc} must not carry inputs"
+      refute_includes capture["error"], esig
+    end
   end
 
   def test_sign_runs_after_proven_read_back_unlock_and_set_success

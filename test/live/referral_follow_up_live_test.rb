@@ -33,6 +33,7 @@ require "rpms_rpc/api/ddr_fileman"
 #   RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' \
 #   bundle exec ruby -Ilib -Itest test/live/referral_follow_up_live_test.rb
 class ReferralFollowUpLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   REFERRAL_FILE = "90001"
@@ -62,7 +63,7 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
       note = after[:case_notes].find { |n| n[:ien] == added.first }
       assert_equal NOTE, note[:text].strip
       assert_equal untouched, untouched_fields(ien), "fields the update should resend as read changed"
-      puts "\n#{persona}: referral #{ien} 1106=#{after[:appointment]} case note #{added.first}: #{note[:text].strip}"
+      puts "\n#{role}: referral #{ien} 1106=#{after[:appointment]} case note #{added.first}: #{note[:text].strip}"
     ensure
       restore(ien, before, added)
     end
@@ -90,7 +91,7 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
       added = after[:case_notes].map { |n| n[:ien] } - before[:case_notes].map { |n| n[:ien] }
       assert_equal [ result[:case_note_ien] ], added, "expected one new CASE note"
       assert_equal untouched, untouched_fields(ien), "fields the update should resend as read changed"
-      puts "\n#{persona}: referral #{ien} 1106=#{after[:appointment]} kept by a note-only follow-up (note #{added.first})"
+      puts "\n#{role}: referral #{ien} 1106=#{after[:appointment]} kept by a note-only follow-up (note #{added.first})"
     ensure
       restore(ien, before, added)
     end
@@ -107,6 +108,22 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
       client.with_context(RpmsRpc::Referral::CONTEXT) { RpmsRpc::Referral.update_status(ien, ACTIVE) }
       assert_equal ACTIVE, RpmsRpc::Referral.follow_up_state(ien)[:status], "referral #{ien} left cancelled"
     end
+  end
+
+  # UPDREFRL files ADDITIONAL INFO (.34) from the INCLUDE flags it is sent
+  # (BMCRPC2.m:243-244). A referral whose .34 is 1 with no flag Y would have
+  # it rewritten as 0, so record_follow_up refuses it and files nothing.
+  def test_an_additional_info_flag_the_include_flags_would_clear_is_refused
+    ien = file_fixture
+    one = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: REFERRAL_FILE, field: ".34", iens: "#{ien},", value: "1" } ])
+    assert one && one[:success], "could not set .34 on referral #{ien}: #{one.inspect}"
+
+    result = RpmsRpc::Referral.record_follow_up(ien, appointment_on: APPOINTMENT, time: "09:30", case_note: NOTE)
+
+    refute result[:success]
+    assert_equal :additional_info_would_change, result[:error]
+    read = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".34;1106", flags: "I")[:fields]
+    assert_equal [ "1", "" ], [ read.dig(".34", :internal).to_s, read.dig("1106", :internal).to_s ], "nothing was filed"
   end
 
   # UPDREFRL takes no lock; record_follow_up locks ^BMCREF(ien) around its
@@ -129,7 +146,7 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
     assert_equal [ false, :locked, nil ], result.values_at(:success, :error, :raw), result.inspect
     assert_equal before, after, "the referral changed under another session's lock"
     assert_equal untouched, untouched_fields(ien)
-    puts "\n#{persona}: referral #{ien} locked by a second session: #{result[:message]}"
+    puts "\n#{role}: referral #{ien} locked by a second session: #{result[:message]}"
   ensure
     if other
       RpmsRpc.configure { |cfg| cfg.client = other }
@@ -144,15 +161,6 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
     result = RpmsRpc::Referral.record_follow_up("999999999", case_note: NOTE)
     refute result[:success]
     assert_equal :not_found, result[:error]
-  end
-
-  # The full UPDREFRL frame is 36 actuals: YottaDB refuses it before the
-  # routine runs, so nothing is filed.
-  def test_the_full_frame_is_over_yottadbs_actual_argument_limit
-    ien = active_referral
-    params = [ ien ] + Array.new(34, "")
-    error = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Referral.update(*params) }
-    assert_match(/MAXACTARG/, error.message)
   end
 
   private

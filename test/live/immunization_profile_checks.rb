@@ -22,7 +22,7 @@ module ImmunizationProfileChecks
       when true then refute text.start_with?(NOT_IN_REGISTER), "DFN #{dfn} is in the register, and the profile says it is not"
       when false then assert text.start_with?(NOT_IN_REGISTER), "DFN #{dfn} is not in the register: #{text.inspect}"
       end
-      puts "\n#{persona}: DFN #{dfn} -> #{text.lines.first.to_s.strip.inspect} (#{text.lines.size} lines)"
+      puts "\n#{role}: DFN #{dfn} -> #{text.lines.first.to_s.strip.inspect} (#{text.lines.size} lines)"
     end
   end
 
@@ -43,7 +43,7 @@ module ImmunizationProfileChecks
     raise unless e.message.include?("BGOVIMM PROFILE: -1082^")
 
     refute_equal false, registered?(dfn), "DFN #{dfn} is not in the register, so the package should answer its message, not #{e.message.inspect}"
-    puts "\n#{persona}: DFN #{dfn} -> package error #{e.message.inspect}"
+    puts "\n#{role}: DFN #{dfn} -> package error #{e.message.inspect}"
     nil
   end
 

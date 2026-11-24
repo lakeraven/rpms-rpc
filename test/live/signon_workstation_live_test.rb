@@ -9,17 +9,21 @@ require "rpms_rpc/api/ddr_fileman"
 # DDR LISTER reads in CIAV VUECENTRIC. Each run signs on from a fresh
 # documentation address (RFC 5737), and finds it on a sign-on log entry for this
 # persona. Signing on writes a log entry, as any sign-on does; it reads
-# nothing else.
+# nothing else. The newest entries are the highest IENs (the IEN is the
+# sign-on time, XUS1.m:110), so they are listed by "#": the default B index
+# is on .01, the USER, and listed the highest DUZ first, missing a low DUZ
+# such as the operator's once other users had signed on.
 class SignonWorkstationLiveTest < LiveSpec::Test
+  runs_as :provider
   def test_the_sign_on_log_records_the_address_the_session_was_signed_on_from
     address = "198.51.100.#{rand(1..254)}"
     signed = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
     signed.connect
-    result = signed.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"),
+    result = signed.authenticate(*sign_on_pair,
                                  workstation: "rpms-rpc live spec", workstation_ip: address)
 
     log = client.with_context("CIAV VUECENTRIC") do
-      RpmsRpc::DdrFileman.lister(file: "3.081", fields: "@;.01I;11", flags: "IPB", max: 20)
+      RpmsRpc::DdrFileman.lister(file: "3.081", fields: "@;.01I;11", flags: "IPB", xref: "#", max: 20)
     end
     refute_nil log, "DDR LISTER on the sign-on log gave no reply"
     refute log[:error], "DDR LISTER on the sign-on log answered with errors: #{log.inspect}"

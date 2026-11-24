@@ -14,6 +14,7 @@ require "rpms_rpc/api/scheduling"
 #
 # These specs read only; they file nothing.
 class CiaSequenceEchoLiveTest < LiveSpec::Test
+  runs_as :scheduler
   # More exchanges than the sequence has values, so the echo wraps 9 -> 1.
   EXCHANGES = 20
 

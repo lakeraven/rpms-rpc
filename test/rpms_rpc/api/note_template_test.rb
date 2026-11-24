@@ -2,130 +2,108 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/note_template"
+require_relative "../captured_replies"
 
+# The TIU template reads (TIUSRVT). The replies are
+# test/fixtures/captured_replies/note-template.yml, captured live as the
+# clinician PROVIDER,TEST on the build's shared templates and the seed
+# patient DFN 4, and replayed through CiaClient's own reply grammar
+# (rpms-rpc#620).
 class NoteTemplateTest < Minitest::Test
-  USER_DUZ    = "301"
-  TEMPLATE    = "4001"
-  DFN         = "8791"
-  VISIT_IEN   = "2090060"
+  SLUG = "note-template"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  # GETROOTS and GETITEMS rows are IEN^TYPE^STATUS^NAME^EXCLUDE^BLANK
-  # LINES^PERSONAL OWNER^HAS CHILDREN^... (TIUSRVT.m:4-29, built by
-  # NODEDATA, TIUSRVT.m:104-109). The old mapping read TYPE as the name and
+  def replay(flow)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script(SLUG, flow))
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def sent(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  # GETROOTS(TIUY,USER) (TIUSRVT.m:30) takes the user alone; each row is
+  # IEN^TYPE^STATUS^NAME^EXCLUDE^BLANK LINES^PERSONAL OWNER^HAS CHILDREN^...
+  # (NODEDATA, TIUSRVT.m:104-109). The old mapping read TYPE as the name and
   # STATUS as the type (#219).
-  ROOT_ROW = "1^P^A^My Templates^0^0^301^1"
-  ITEM_ROWS = [ "11^T^A^Subjective^0^1^^0", "12^G^A^Objective^0^0^^1" ].freeze
+  def test_roots_send_the_user_and_parse_by_the_nodedata_layout
+    client = replay("roots")
 
-  def test_roots_parse_by_the_nodedata_layout
-    RpmsRpc.mock! { |m| m.seed_raw_lines(:template_roots, USER_DUZ, [ ROOT_ROW ]) }
+    roots = RpmsRpc::NoteTemplate.roots(200)
 
-    root = RpmsRpc::NoteTemplate.roots(USER_DUZ).first
-    assert_equal({ ien: 1, type: "P", status: "A", name: "My Templates",
-                   exclude_from_group_boilerplate: "0", blank_lines: 0,
-                   personal_owner_duz: "301", has_children: 1 }, root)
+    assert_equal [ [ "TIU TEMPLATE GETROOTS", [ "200" ] ] ], sent(client)
+    assert_equal [ 1, 1952, 53 ], roots.map { |r| r[:ien] }
+    assert_equal({ ien: 1, type: "R", status: "A", name: "Shared Templates", exclude_from_group_boilerplate: nil,
+                   blank_lines: nil, personal_owner_duz: nil, has_children: 1 }, roots.first)
+    assert_equal [ "R", "TF", "CF" ], roots.map { |r| r[:type] }
   end
 
-  # GETROOTS(TIUY,USER) (TIUSRVT.m:30): one actual, the user.
-  def test_roots_send_the_user
-    RpmsRpc.mock!
-    RpmsRpc::NoteTemplate.roots(USER_DUZ)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU TEMPLATE GETROOTS" }
-    assert_equal [ USER_DUZ ], call[:params]
-  end
-
-  # GETITEMS(TIUY,TIUDA) (TIUSRVT.m:42) lists the children of TIUDA, each
-  # row by NODEDATA of the child (TIUSRVT.m:51). Nothing in the row names a
-  # parent: the old :parent_ien read the NAME piece as an integer.
+  # GETITEMS(TIUY,TIUDA) (TIUSRVT.m:42) lists TIUDA's children, each row by
+  # NODEDATA of the child (TIUSRVT.m:51). Nothing in the row names a parent:
+  # the old :parent_ien read the NAME piece as an integer.
   def test_items_parse_by_the_nodedata_layout_with_no_parent_piece
-    RpmsRpc.mock! { |m| m.seed_raw_lines(:template_items, TEMPLATE, ITEM_ROWS) }
+    client = replay("items")
 
-    items = RpmsRpc::NoteTemplate.items(TEMPLATE)
-    assert_equal [ 11, 12 ], items.map { |i| i[:ien] }
-    assert_equal [ "Subjective", "Objective" ], items.map { |i| i[:name] }
-    assert_equal [ "T", "G" ], items.map { |i| i[:type] }
-    assert_equal [ 0, 1 ], items.map { |i| i[:has_children] }
+    items = RpmsRpc::NoteTemplate.items(1)
+
+    assert_equal [ [ "TIU TEMPLATE GETITEMS", [ "1" ] ] ], sent(client)
+    assert_equal [ 3454, 3318, 3419, 4, 3194 ], items.map { |i| i[:ien] }
+    assert_equal [ "SCREENING BUNDLE", "New Patient Visit Note" ], items.first(2).map { |i| i[:name] }
+    assert_equal [ "T", "G", "G", "C", "C" ], items.map { |i| i[:type] }
+    assert_equal [ 0, 3, 3, 1, 1 ], items.map { |i| i[:has_children] }
+    assert_equal [ nil, 1 ], items.first(2).map { |i| i[:blank_lines] }
     refute items.first.key?(:parent_ien)
   end
 
   # GETBOIL(TIUY,TIUDA) (TIUSRVT.m:55) takes the template alone and returns
-  # its UNEXPANDED boilerplate (TIUSRVT.m:55, 62-64); expansion is GETTEXT.
+  # its UNEXPANDED boilerplate (TIUSRVT.m:62-64); expansion is GETTEXT.
   # Three actuals died in M (ACTLSTTOOLONG) (#219).
-  def test_boilerplate_returns_the_unexpanded_text
-    RpmsRpc.mock! { |m| m.seed_text(:template_boilerplate, TEMPLATE, "Patient: |PATIENT NAME|\nChief Complaint:") }
+  def test_boilerplate_sends_only_the_template_and_returns_the_unexpanded_text
+    client = replay("boilerplate")
 
-    assert_equal "Patient: |PATIENT NAME|\nChief Complaint:", RpmsRpc::NoteTemplate.boilerplate(TEMPLATE)
+    text = RpmsRpc::NoteTemplate.boilerplate(3337)
+
+    assert_equal [ [ "TIU TEMPLATE GETBOIL", [ "3337" ] ] ], sent(client)
+    assert_equal "VITALS:\n  |VITALS FOR VISIT CONTEXT|\n{FLD:BLANK LINE1}", text
   end
 
-  def test_boilerplate_sends_only_the_template_ien
-    RpmsRpc.mock! { |m| m.seed_text(:template_boilerplate, TEMPLATE, "x") }
+  # GETTEXT(TIUY,DFN,VSTR,TIUX) (TIUSRVT.m:67) expands the TEXT it is handed,
+  # each line a TIUX(n,0) node (BLRPLT^TIUSRVD, TIUSRVD.m:82-83). The reply
+  # starts with the word-processing 0-node header, which text drops.
+  def test_text_sends_each_line_as_a_tiux_node_and_drops_the_header
+    client = replay("text")
 
-    RpmsRpc::NoteTemplate.boilerplate(TEMPLATE)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU TEMPLATE GETBOIL" }
-    assert_equal [ TEMPLATE ], call[:params]
+    text = RpmsRpc::NoteTemplate.text([ "Name: |PATIENT NAME|", "Sex: |PATIENT SEX|" ], dfn: "4")
+
+    assert_equal "Name: DEMO,PATIENT ONE\nSex: FEMALE", text
+    assert_equal CapturedReplies.flow_calls(SLUG, "text").map(&:first), sent(client).map(&:first)
+    assert_equal [ "4", "", { [ 1, 0 ] => "Name: |PATIENT NAME|", [ 2, 0 ] => "Sex: |PATIENT SEX|" } ],
+                 sent(client).first.last
   end
 
-  # GETTEXT(TIUY,DFN,VSTR,TIUX) (TIUSRVT.m:67) expands the TEXT it is
-  # handed — there is no template IEN on this wire. The mock keys the
-  # reply by its first formal, the DFN (#259).
-  def test_text_returns_the_expanded_text
-    RpmsRpc.mock! do |m|
-      m.seed_text(:template_text, DFN, "^^1^1^3260527^^\nPatient: DOE,JOHN")
-    end
+  def test_access_level_returns_the_routines_code
+    client = replay("access_level")
 
-    assert_equal "Patient: DOE,JOHN",
-                 RpmsRpc::NoteTemplate.text([ "Patient: |PATIENT NAME|" ], dfn: DFN, visit_string: VISIT_IEN)
+    assert_equal "2", RpmsRpc::NoteTemplate.access_level(1, 200)
+    assert_equal [ [ "TIU TEMPLATE ACCESS LEVEL", [ "1", "200" ] ] ], sent(client)
   end
 
-  # The reply as a fresh rpms-ydb e9b78c8 sent it for DFN 4: the 0-node
-  # header first, then one line per expanded line.
-  def test_text_drops_the_word_processing_header_rpms_sends_first
-    RpmsRpc.mock! do |m|
-      m.seed_raw_lines(:template_text, "4", [ "^^2^2^3261027^^", "Name: DEMO,PATIENT ONE", "Sex: FEMALE" ])
-    end
+  def test_blank_args_reach_no_wire
+    client = replay("roots")
 
-    assert_equal "Name: DEMO,PATIENT ONE\nSex: FEMALE",
-                 RpmsRpc::NoteTemplate.text([ "Name: |PATIENT NAME|", "Sex: |PATIENT SEX|" ], dfn: "4")
-  end
-
-  def test_text_sends_each_line_as_a_tiux_n_0_node
-    RpmsRpc.mock! { |m| m.seed_text(:template_text, DFN, "x") }
-
-    RpmsRpc::NoteTemplate.text([ "one", "two" ], dfn: DFN, visit_string: "349;3260527.1;A;7")
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU TEMPLATE GETTEXT" }
-    # BLRPLT^TIUSRVD reads @ROOT@(n,0) with ROOT="TIUX" (TIUSRVD.m:82-83).
-    assert_equal [ DFN, "349;3260527.1;A;7", { [ 1, 0 ] => "one", [ 2, 0 ] => "two" } ], call[:params]
-  end
-
-  def test_text_returns_nil_for_no_lines_or_no_patient
-    RpmsRpc.mock!
-    assert_nil RpmsRpc::NoteTemplate.text([], dfn: DFN)
-    assert_nil RpmsRpc::NoteTemplate.text([ "x" ], dfn: nil)
-    assert_empty RpmsRpc.client.received_calls
-  end
-
-  def test_access_level_returns_string
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:template_access_level, TEMPLATE, "READ_WRITE")
-    end
-
-    assert_equal "READ_WRITE", RpmsRpc::NoteTemplate.access_level(TEMPLATE, USER_DUZ)
-  end
-
-  def test_blank_args_return_empty_or_nil
     assert_equal [], RpmsRpc::NoteTemplate.roots(nil)
     assert_equal [], RpmsRpc::NoteTemplate.items("0")
     assert_nil RpmsRpc::NoteTemplate.boilerplate(nil)
+    assert_nil RpmsRpc::NoteTemplate.text([], dfn: "4")
     assert_nil RpmsRpc::NoteTemplate.text([ "x" ], dfn: "")
-    assert_nil RpmsRpc::NoteTemplate.access_level(TEMPLATE, nil)
+    assert_nil RpmsRpc::NoteTemplate.access_level(1, nil)
+    assert_empty sent(client)
   end
 
   def test_boilerplate_no_longer_takes_a_patient_or_visit
-    assert_raises(ArgumentError) { RpmsRpc::NoteTemplate.boilerplate(TEMPLATE, dfn: DFN, visit_ien: VISIT_IEN) }
+    assert_raises(ArgumentError) { RpmsRpc::NoteTemplate.boilerplate(3337, dfn: "4", visit_ien: "1") }
   end
 end

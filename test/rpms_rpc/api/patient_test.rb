@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "date"
 require "rpms_rpc/client"
 require "rpms_rpc/api/patient"
+require_relative "../captured_replies"
 
 # RpmsRpc::Patient mechanics a server cannot show: arguments refused before
 # the wire, the age arithmetic, and that brief_header raises a broker
@@ -12,7 +13,8 @@ require "rpms_rpc/api/patient"
 # test/live/patient_live_test.rb and patient_update_live_test.rb (ADR 0009).
 #
 # No double here returns RPMS data: NoWireClient fails any call that reaches
-# it, and RaisingClient only raises.
+# it, and RaisingClient only raises. address, contact and race replay replies
+# captured from the pinned build (CapturedReplies::ReplayCiaClient).
 class PatientTest < Minitest::Test
   # Any RPC that reaches this client is a test failure.
   class NoWireClient
@@ -119,40 +121,49 @@ class PatientTest < Minitest::Test
     [ nil, 0, "-5", "", 4.5, "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.contact(dfn), dfn.inspect }
   end
 
+  # -- replayed replies --------------------------------------------------------
+
+  # DDR GETS ENTRY DATA replies captured for synthetic DFN 990055 (every
+  # address and contact piece filled), seed DFN 2 (every piece empty) and
+  # DFN 5 (no PATIENT entry): test/fixtures/captured_replies/patient-address-contact.yml.
+  READS = "patient-address-contact"
+  RACE = "patient-race"
+  CALLER_CONTEXT = "OR CPRS GUI CHART"
+
+  def replay(slug, flow, from: CALLER_CONTEXT)
+    client = CapturedReplies::ReplayCiaClient.new(flow ? CapturedReplies.flow_script(slug, flow) : {})
+    client.create_context(from)
+    use(client)
+    client
+  end
+
+  def sent(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def binds(client) = client.calls.select { |c| c[:rpc] == :create_context }.map { |c| c[:params].first }.drop(1)
+
   # -- contact reads email where AG files it (#381) ---------------------------
 
-  def gets_key(file, fields)
-    RpmsRpc::DdrFileman.gets_entry_param(file: file, iens: "42,", fields: fields, flags: "IE").to_s
-  end
-
-  def seed_contact(mock, ihs: true)
-    mock.seed(:ddr_gets_entry_data, gets_key("2", ".131;.132;.134"), <<~REPLY.chomp)
-      [Data]
-      2^42,^.131^406-555-0101^406-555-0101
-      2^42,^.132^^
-      2^42,^.134^406-555-0198^406-555-0198
-    REPLY
-    return unless ihs
-
-    mock.seed(:ddr_gets_entry_data, gets_key("9000001", "1801;1802"), <<~REPLY.chomp)
-      [Data]
-      9000001^42,^1801^MSG 406-555-0100^MSG 406-555-0100
-      9000001^42,^1802^una@example.test^una@example.test
-    REPLY
-  end
-
   def test_contact_reads_email_and_other_phone_from_ihs_patient
-    seed_contact(RpmsRpc.mock!)
+    client = replay(READS, "contact_full")
 
-    assert_equal({ dfn: 42, phone_home: "406-555-0101", phone_work: nil, phone_cell: "406-555-0198",
-                   phone_other: "MSG 406-555-0100", email: "una@example.test" },
-                 RpmsRpc::Patient.contact(42))
+    assert_equal({ dfn: 990_055, phone_home: "406-555-1055", phone_work: nil, phone_cell: "406-555-0198",
+                   phone_other: "MSG 406-555-0100", email: "synthetic.patient@example.test" },
+                 RpmsRpc::Patient.contact(990_055))
+    assert_equal CapturedReplies.flow_calls(READS, "contact_full"), sent(client)
   end
 
-  def test_contact_is_nil_when_the_ihs_patient_read_fails
-    seed_contact(RpmsRpc.mock!, ihs: false)
+  def test_contact_empty_fields_are_nil
+    replay(READS, "contact_empty")
 
-    assert_nil RpmsRpc::Patient.contact(42)
+    assert_equal({ dfn: 2, phone_home: nil, phone_work: nil, phone_cell: nil, phone_other: nil, email: nil },
+                 RpmsRpc::Patient.contact(2))
+  end
+
+  # GETS^DIQ answers [ERROR] for a DFN with no PATIENT entry; IHS PATIENT is not read.
+  def test_contact_is_nil_when_the_patient_read_fails
+    client = replay(READS, "contact_unknown")
+
+    assert_nil RpmsRpc::Patient.contact(5)
+    assert_equal CapturedReplies.flow_calls(READS, "contact_unknown"), sent(client)
   end
 
   def test_update_takes_named_attributes_and_refuses_field_numbers_before_the_wire
@@ -206,62 +217,28 @@ def test_brief_header_raises_any_other_m_error
 
   # -- address (DDR GETS ENTRY DATA, PATIENT #2) ----------------------------
 
-  ADDRESS_FIELDS = ".111;.112;.113;.114;.115;.116;.1112"
   ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip_plus4].freeze
-  ADDRESS_FIXTURE = {
-    line1: "100 Example Street",
-    line2: "SUITE 200",
-    line3: "BUILDING B",
-    city: "Exampleville",
-    state: "EXAMPLE STATE",
-    state_ien: 99,
-    zip: "00000",
-    zip_plus4: "00000-0000"
-  }.freeze
-
-  def gets_key_for(dfn, file, fields)
-    RpmsRpc::DdrFileman.gets_entry_param(file: file, iens: "#{dfn},", fields: fields, flags: "IE").to_s
-  end
-
-  def seed_address(mock, dfn: 42, **overrides)
-    values = ADDRESS_FIXTURE.merge(overrides)
-    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
-      [Data]
-      2^#{dfn},^.111^#{values[:line1]}^#{values[:line1]}
-      2^#{dfn},^.112^#{values[:line2]}^#{values[:line2]}
-      2^#{dfn},^.113^#{values[:line3]}^#{values[:line3]}
-      2^#{dfn},^.114^#{values[:city]}^#{values[:city]}
-      2^#{dfn},^.115^#{values[:state_ien]}^#{values[:state]}
-      2^#{dfn},^.116^#{values[:zip]}^#{values[:zip]}
-      2^#{dfn},^.1112^#{values[:zip_plus4].delete("-")}^#{values[:zip_plus4]}
-    REPLY
-    values
-  end
-
-  def assert_logs_no_secrets(secrets)
-    out, err = capture_io { yield }
-    combined = out + err
-    secrets.each { |secret| refute_includes combined, secret.to_s, "logged or printed a field value" }
-  end
 
   def test_address_maps_each_field_number
-    seed_address(RpmsRpc.mock!)
+    client = replay(READS, "address_full")
 
-    result = RpmsRpc::Patient.address(42)
+    result = RpmsRpc::Patient.address(990_055)
 
-    expected = { dfn: 42, **ADDRESS_FIXTURE }
     assert_equal ADDRESS_KEYS, result.keys
-    assert_equal expected, result
+    assert_equal({ dfn: 990_055, line1: "485 NORTHFIELD ST", line2: "UNIT 4", line3: "BLDG C", city: "ANYWHERE",
+                   state: "MONTANA", state_ien: 27, zip: "59000", zip_plus4: "59000-1234" }, result)
+    assert_equal CapturedReplies.flow_calls(READS, "address_full"), sent(client)
   end
 
   # .1112 accepts 5 to 20 characters and ZIPOUT^VAFADDR prints 12345 or
-  # 12345-6789: the field holds the whole ZIP+4, never a 4-digit suffix.
+  # 12345-6789: the field holds the whole ZIP+4, never a 4-digit suffix. The
+  # reply carries 590001234 internal and 59000-1234 external.
   def test_address_publishes_the_whole_zip_plus_four_under_an_honest_key
-    seed_address(RpmsRpc.mock!, zip_plus4: "59101-1234")
+    replay(READS, "address_full")
 
-    result = RpmsRpc::Patient.address(42)
+    result = RpmsRpc::Patient.address(990_055)
 
-    assert_equal "59101-1234", result[:zip_plus4]
+    assert_equal "59000-1234", result[:zip_plus4]
     refute result.key?(:zip4)
   end
 
@@ -270,114 +247,72 @@ def test_brief_header_raises_any_other_m_error
     [ nil, 0, "-5", "", 4.5, "4.9", "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.address(dfn), dfn.inspect }
   end
 
-  def test_address_reads_in_ciav_vuecentric_and_restores_the_callers_context
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    seed_address(mock)
+  def test_address_contact_and_race_read_in_ciav_vuecentric_and_restore_the_callers_context
+    { "address_full" => -> { RpmsRpc::Patient.address(990_055) },
+      "contact_full" => -> { RpmsRpc::Patient.contact(990_055) } }.each do |flow, read|
+      client = replay(READS, flow)
+      read.call
 
-    RpmsRpc::Patient.address(42)
-
-    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-    refute_empty ddr_calls
-    ddr_calls.each do |call|
-      assert_equal "CIAV VUECENTRIC", call[:context],
-                   "address must read FileMan under CIAV VUECENTRIC"
+      assert_equal [ "CIAV VUECENTRIC", CALLER_CONTEXT ], binds(client), flow
+      assert_equal :create_context, client.calls[1][:rpc], "#{flow}: bound before the first read"
+      assert_equal CALLER_CONTEXT, client.current_context
     end
-    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+    client = replay(RACE, "race_on_file")
+    RpmsRpc::Patient.race(4)
+    assert_equal [ "CIAV VUECENTRIC", CALLER_CONTEXT ], binds(client), "race"
   end
 
-  def test_address_restores_the_callers_context_when_the_read_raises
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
+  # A lost wire: the replay client has no reply to give, so the read raises.
+  def test_address_contact_and_race_restore_the_callers_context_when_the_read_raises
+    { address: -> { RpmsRpc::Patient.address(990_055) }, contact: -> { RpmsRpc::Patient.contact(990_055) },
+      race: -> { RpmsRpc::Patient.race(4) } }.each do |name, read|
+      client = replay(READS, nil)
 
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.address(42) }
-    assert_equal caller_context, mock.current_context
-  end
-
-  def test_address_nil_state_ien_when_pointer_internal_is_not_a_positive_whole_number
-    dfn = 42
-    state_name = "EXAMPLE STATE"
-    [ "0", "12abc" ].each do |bad_internal|
-      RpmsRpc.reset!
-      mock = RpmsRpc.mock!
-      mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
-        [Data]
-        2^#{dfn},^.111^100 Example Street^100 Example Street
-        2^#{dfn},^.112^^
-        2^#{dfn},^.113^^
-        2^#{dfn},^.114^Exampleville^Exampleville
-        2^#{dfn},^.115^#{bad_internal}^#{state_name}
-        2^#{dfn},^.116^00000^00000
-        2^#{dfn},^.1112^000000000^00000-0000
-      REPLY
-
-      result = RpmsRpc::Patient.address(dfn)
-
-      assert_nil result[:state_ien], "internal #{bad_internal.inspect}"
-      assert_equal state_name, result[:state]
+      assert_raises(RuntimeError, name) { read.call }
+      assert_equal CALLER_CONTEXT, client.current_context, name
     end
   end
 
   def test_address_empty_fields_are_nil_not_raised_or_invented
-    mock = RpmsRpc.mock!
-    dfn = 42
-    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
-      [Data]
-      2^#{dfn},^.111^^
-      2^#{dfn},^.112^^
-      2^#{dfn},^.113^^
-      2^#{dfn},^.114^^
-      2^#{dfn},^.115^^
-      2^#{dfn},^.116^^
-      2^#{dfn},^.1112^^
-    REPLY
+    replay(READS, "address_empty")
 
-    result = RpmsRpc::Patient.address(dfn)
+    result = RpmsRpc::Patient.address(2)
 
     assert_equal ADDRESS_KEYS, result.keys
-    assert_equal({ dfn: 42, line1: nil, line2: nil, line3: nil, city: nil, state: nil, state_ien: nil, zip: nil,
+    assert_equal({ dfn: 2, line1: nil, line2: nil, line3: nil, city: nil, state: nil, state_ien: nil, zip: nil,
                    zip_plus4: nil }, result)
-
-    mock.seed(:ddr_gets_entry_data, gets_key_for(43, "2", ADDRESS_FIELDS), "[Data]")
-    assert_nil RpmsRpc::Patient.address(43)
   end
 
+  # GETS^DIQ answers [ERROR] for a DFN with no PATIENT entry.
   def test_address_nil_when_read_errors
-    mock = RpmsRpc.mock!
-    mock.seed(:ddr_gets_entry_data, gets_key_for(42, "2", ADDRESS_FIELDS), "[ERROR]")
-    assert_nil RpmsRpc::Patient.address(42)
-    assert_nil RpmsRpc::Patient.address(99)
+    replay(READS, "address_unknown")
+
+    assert_nil RpmsRpc::Patient.address(5)
   end
 
   def test_address_logs_no_field_values
-    values = seed_address(RpmsRpc.mock!)
-    secrets = values.values_at(:line1, :line2, :line3, :city, :state, :zip, :zip_plus4).map(&:to_s)
+    replay(READS, "address_full")
+    secrets = [ "485 NORTHFIELD ST", "UNIT 4", "BLDG C", "ANYWHERE", "MONTANA", "59000-1234" ]
 
-    assert_logs_no_secrets(secrets) { RpmsRpc::Patient.address(42) }
+    out, err = capture_io { RpmsRpc::Patient.address(990_055) }
+    secrets.each { |secret| refute_includes out + err, secret, "logged or printed a field value" }
   end
 
   # -- race (DDR GETS ENTRY DATA, PATIENT #2 field .06) ---------------------
+  #
+  # Replies captured for demo DFN 4 (.06 on file) and DFN 3 (none):
+  # test/fixtures/captured_replies/patient-race.yml.
 
-  RACE_FIELDS = ".06"
   RACE_KEYS = %i[dfn race].freeze
-  RACE_EXTERNAL = "EXAMPLE RACE CATEGORY"
-
-  def seed_race(mock, dfn: 42, internal: "7", external: RACE_EXTERNAL)
-    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", RACE_FIELDS), <<~REPLY.chomp)
-      [Data]
-      2^#{dfn},^.06^#{internal}^#{external}
-    REPLY
-    external
-  end
 
   def test_race_maps_each_field_number
-    seed_race(RpmsRpc.mock!)
+    client = replay(RACE, "race_on_file")
 
-    result = RpmsRpc::Patient.race(42)
+    result = RpmsRpc::Patient.race(4)
 
     assert_equal RACE_KEYS, result.keys
-    assert_equal({ dfn: 42, race: RACE_EXTERNAL }, result)
+    assert_equal({ dfn: 4, race: "AMERICAN INDIAN OR ALASKA NATIVE" }, result)
+    assert_equal CapturedReplies.flow_calls(RACE, "race_on_file"), sent(client)
   end
 
   def test_race_blank_or_nonpositive_id_sends_nothing
@@ -385,83 +320,24 @@ def test_brief_header_raises_any_other_m_error
     [ nil, 0, "-5", "", 4.5, "4.9", "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.race(dfn), dfn.inspect }
   end
 
-  def test_race_reads_in_ciav_vuecentric_and_restores_the_callers_context
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    seed_race(mock)
-
-    RpmsRpc::Patient.race(42)
-
-    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-    refute_empty ddr_calls
-    ddr_calls.each do |call|
-      assert_equal "CIAV VUECENTRIC", call[:context],
-                   "race must read FileMan under CIAV VUECENTRIC"
-    end
-    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
-  end
-
-  def test_race_restores_the_callers_context_when_the_read_raises
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
-
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.race(42) }
-    assert_equal caller_context, mock.current_context
-  end
-
-  def test_contact_reads_in_ciav_vuecentric_and_restores_the_callers_context
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    seed_contact(mock)
-
-    RpmsRpc::Patient.contact(42)
-
-    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-    refute_empty ddr_calls
-    ddr_calls.each do |call|
-      assert_equal "CIAV VUECENTRIC", call[:context],
-                   "contact must read FileMan under CIAV VUECENTRIC"
-    end
-    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
-  end
-
-  def test_contact_restores_the_callers_context_when_the_read_raises
-    mock = RpmsRpc.mock!
-    caller_context = mock.current_context
-    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
-
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.contact(42) }
-    assert_equal caller_context, mock.current_context
-  end
-
   def test_race_empty_fields_are_nil_not_raised_or_invented
-    mock = RpmsRpc.mock!
-    dfn = 42
-    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", RACE_FIELDS), <<~REPLY.chomp)
-      [Data]
-      2^#{dfn},^.06^^
-    REPLY
+    replay(RACE, "race_blank")
 
-    result = RpmsRpc::Patient.race(dfn)
-
-    assert_equal RACE_KEYS, result.keys
-    assert_equal({ dfn: 42, race: nil }, result)
-
-    mock.seed(:ddr_gets_entry_data, gets_key_for(43, "2", RACE_FIELDS), "[Data]")
-    assert_nil RpmsRpc::Patient.race(43)
+    assert_equal({ dfn: 3, race: nil }, RpmsRpc::Patient.race(3))
   end
 
+  # The [ERROR] GETS^DIQ answered for DFN 5's address read: the same reply
+  # any DDR GETS of a DFN with no PATIENT entry gets.
   def test_race_nil_when_read_errors
-    mock = RpmsRpc.mock!
-    mock.seed(:ddr_gets_entry_data, gets_key_for(42, "2", RACE_FIELDS), "[ERROR]")
-    assert_nil RpmsRpc::Patient.race(42)
-    assert_nil RpmsRpc::Patient.race(99)
+    use(CapturedReplies::ReplayCiaClient.new("DDR GETS ENTRY DATA" => [ CapturedReplies.raw(READS, "address_unknown/1") ]))
+
+    assert_nil RpmsRpc::Patient.race(5)
   end
 
   def test_race_logs_no_field_values
-    external = seed_race(RpmsRpc.mock!)
+    replay(RACE, "race_on_file")
 
-    assert_logs_no_secrets([ external ]) { RpmsRpc::Patient.race(42) }
+    out, err = capture_io { RpmsRpc::Patient.race(4) }
+    refute_includes out + err, "AMERICAN INDIAN OR ALASKA NATIVE", "logged or printed a field value"
   end
 end

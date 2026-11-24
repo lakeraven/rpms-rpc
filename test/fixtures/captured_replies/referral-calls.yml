@@ -1,0 +1,626 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb referral-calls.rb.
+---
+rpc: BMC ADD REFERRAL
+entry_point: SETREFRL^BMCRPC2
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-21T00:04:42Z'
+note: Run on a fresh throwaway container, flows in order. Setup files referrals 1
+  (11/01/2026) and 2 (11/02/2026) for demo patient 990002. 183555005 is the SNOMED
+  concept of the build's first referral purpose.
+captures:
+- name: for_patient/1
+  rpc: BMC SEARCH REFERRAL
+  inputs:
+  - '990002'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: for_patient 990002
+  raw_return: "5\0~`1^NOV 01, 2026^9000000000201^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^~`2^NOV 02, 2026^9000000000202^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^"
+  sha256: f56a314f1f8a34e8a05d4e4ef2b46b0a49a7543f1b620b61c4bd6431980a0e45
+- name: pending/1
+  rpc: BMC SEARCH REFERRAL
+  inputs:
+  - ''
+  - ''
+  - NOV 01, 2026
+  - NOV 30, 2026
+  - ''
+  - Active/Approved
+  context: pending 11/01/2026 to 11/30/2026
+  raw_return: "5\0~`1^NOV 01, 2026^9000000000201^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^~`2^NOV 02, 2026^9000000000202^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT
+    ONLY^^^^^^^^^^05/08/1965^^"
+  sha256: f56a314f1f8a34e8a05d4e4ef2b46b0a49a7543f1b620b61c4bd6431980a0e45
+- name: find/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: find referral 1
+  raw_return: "5\0[Data]\r90001^1^.01^3261101^\r90001^1^.02^9000000000201^\r"
+  sha256: 06cf2490bb1c0f53dcd7c7cfcafce6368b1b036c193082d42d39027045823116
+- name: find/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '1'
+  context: find referral 1
+  raw_return: "6\0~`1^NOV 01, 2026^9000000000201^990002^BRAVO,ALEX^^^<UNKNOWN>^^^^^DIRECT
+    ONLY^^^N^O^^^^^^^^^^^^^^^^^^^^^^<UNKNOWN>^^^^^^ACTIVE^^^~`D'~D~`M'~M~`B'~B~`C'~C"
+  sha256: 0a986a37f78fb32fc8ed332b676e5b3ee97d45ceade6a4475c319043e958cccd
+- name: print/1
+  rpc: BMC PRINT REFERRAL
+  inputs:
+  - '1'
+  context: print referral 1
+  raw_return: "5\0                  Referral for Contract Professional Services     NOV
+    01, 2026\r\n********************************************************************************\r\n
+    \                    Patient Identification, Address, Phone\r\nPatient Name:  BRAVO,ALEX
+    \                        ID Number:  DIC 990002\r\n                                                        Sex:
+    \ MALE\r\n     Address:  114 CEDARGATE ST                         DOB:  05/08/1965\r\n
+    \              ANYWHERE, MONTANA   59000           Hm Phone: 406-555-1002\r\n
+    \                                                Cell Phone: \r\n________________________________________________________________________________\r\nIN
+    HOUSE REFERRAL\r\nReferred to:   clinic\r\n                                        Referral:
+    9000000000201\r\nOUTPATIENT Services                     Appointment Date:  \r\n#
+    of Outpatient Visits: \r\n________________________________________________________________________________\r\nPurpose/Services
+    Requested: \r\n\r\nAdditional Medical Information Attached:   Not Documented by
+    Provider\r\n________________________________________________________________________________\r\nReferring
+    Provider (ELECTRONIC SIGNATURE): XXXXX\r\nOur records indicate that the patient
+    has no third party coverage as of today.\r\n\r\n********************************************************************************\r\n"
+  sha256: 981b0e74c4c954b372b779731078900b284d06b1fc9ed96ca507f55906758924
+- name: add/1
+  rpc: BMC ADD REFERRAL
+  inputs:
+  - 11/03/2026
+  - '990003'
+  - "N"
+  - O
+  - ''
+  - ''
+  - CARDIOLOGY CONSULT
+  - '20'
+  - ''
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - '183555005'
+  - Burns referral
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'add: a referral for demo patient 990003 with every required field'
+  raw_return: "5\0~`1^3"
+  sha256: 5284c26a833c964802f1ded059adf50b96d1c9f96662b4abd5fe6a7bb4f1e18c
+- name: add_missing/1
+  rpc: BMC ADD REFERRAL
+  inputs:
+  - 11/03/2026
+  - '990003'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'add: only the date and patient'
+  raw_return: "5\0~`0^Required field missing"
+  sha256: ae4a1aa0b8819664e9f7c4f6a456bf1662183846fb59ac1351a38a2fd2c492e6
+- name: add_short/1
+  rpc: BMC ADD REFERRAL
+  inputs:
+  - '990002'
+  - '44'
+  context: 'add: the patient and one more argument, a frame Referral.add now refuses,
+    sent raw'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rSETREFRL^BMCRPC2,
+    More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 7c14577aec0bef227a8672154c319c73ba2ff9918ab476758890c951bb84858b
+- name: update/1
+  rpc: BMC UPDATE REFERRAL
+  inputs:
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  - FOLLOW-UP CARDIOLOGY
+  - ''
+  - ''
+  - '2'
+  - Call before booking
+  - ''
+  - 30^12/01/2026@10:30
+  - ''
+  - "Y"
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'update referral 1: purpose, visits, scheduler notes, the face sheet flag
+    and an expected begin'
+  raw_return: "5\0~`1"
+  sha256: 0fe988f394454f5216091491f057c17b69064aeaf85099c329149f25ddcd79f1
+- name: find_updated/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: find referral 1 after update
+  raw_return: "5\0[Data]\r90001^1^.01^3261101^\r90001^1^.02^9000000000201^\r"
+  sha256: 06cf2490bb1c0f53dcd7c7cfcafce6368b1b036c193082d42d39027045823116
+- name: find_updated/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '1'
+  context: find referral 1 after update
+  raw_return: "6\0~`1^NOV 01, 2026^9000000000201^990002^BRAVO,ALEX^^^<UNKNOWN>^12/1/26
+    10:30 am^^FOLLOW-UP CARDIOLOGY^^DIRECT ONLY^^Call before booking^N^O^2^^^^^30^^YES^^^^^^^^^^^^^^<UNKNOWN>^^^^^^ACTIVE^^^~`D'~D~`M'~M~`B'~B~`C'~C"
+  sha256: e5f16d4e6a24cc3e1c594917857042537c7ea45d1ed580f314e531002b9a6c17
+- name: update_status/1
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '1'
+  - A1
+  context: update_status of referral 1 to A1
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: update_status_missing/1
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '999999'
+  - A1
+  context: update_status of IEN 999999, which no referral has
+  raw_return: "5\0~`0^Error updating referral:The entry does not exist."
+  sha256: b5b5227c177a8b9f6494deba8a86f1557f5f4f8adbe8463311050ed2ca2695c3
+- name: cancel/1
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '2'
+  - X
+  context: cancel referral 2
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: cancel_missing/1
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '999999'
+  - X
+  context: cancel IEN 999999, which no referral has
+  raw_return: "5\0~`0^Error updating referral:The entry does not exist."
+  sha256: b5b5227c177a8b9f6494deba8a86f1557f5f4f8adbe8463311050ed2ca2695c3
+- name: update_consultation_status/1
+  rpc: BMC CONSULTATION STATUS UPDATE
+  inputs:
+  - '1'
+  - '206'
+  - 11/19/2026@10:30
+  - R
+  context: update_consultation_status of referral 1 to R (REVIEWED) by 206 at 11/19/2026
+    10:30
+  raw_return: "5\0~`1^"
+  sha256: 549ec631e8bdc3a170af247f512617ce1da2e2b3eb91aefa1424b3792153e6e1
+- name: find_reviewed/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: find referral 1 after update_consultation_status
+  raw_return: "5\0[Data]\r90001^1^.01^3261101^\r90001^1^.02^9000000000201^\r"
+  sha256: 06cf2490bb1c0f53dcd7c7cfcafce6368b1b036c193082d42d39027045823116
+- name: find_reviewed/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '1'
+  context: find referral 1 after update_consultation_status
+  raw_return: "6\0~`1^NOV 01, 2026^9000000000201^990002^BRAVO,ALEX^^^<UNKNOWN>^12/1/26
+    10:30 am^^FOLLOW-UP CARDIOLOGY^^DIRECT ONLY^^Call before booking^N^O^2^^^^^30^^YES^^^^^^^^^^^^^^<UNKNOWN>^^^REVIEWED^NOV
+    19, 2026@10:30^PROFILE,MD^APPROVED^^^~`D'~D~`M'~M~`B'~B~`C'~C"
+  sha256: 7987a96116e289b83c544d5889fd7586995a8db29fef94436d1fef13b48ec7ce
+- name: update_consultation_status_again/1
+  rpc: BMC CONSULTATION STATUS UPDATE
+  inputs:
+  - '1'
+  - '206'
+  - 11/19/2026@10:30
+  - R
+  context: update_consultation_status of referral 1 to R again
+  raw_return: "5\0~`1^BRAVO,ALEX has already been reviewed by PROFILE,MD on NOV 19,
+    2026@10:30."
+  sha256: 15c26943fc3b8800165a71fbea094742819d83a6ea050a4c2da1b3b8f1cafd05
+- name: purposes/1
+  rpc: BMC GET PURPOSE OF REF API
+  inputs: []
+  context: purposes
+  raw_return: "5\0183555005^283668011^Burns referral~3457005^6837014^Patient referral~38670004^64351016^Patient
+    referral for alcoholism rehabilitation~103697008^167461015^Patient referral for
+    dental care~54395008^90411015^Patient referral for medical consultation~103699006^167464011^Patient
+    referral to dietitian~103698003^167462010^Patient referral to non-physician provider~103696004^167459012^Patient
+    referral to specialist~183583007^283707011^Refer to mental health worker~183569005^283686014^Refer
+    to terminal care consult~408289007^2155232012^Refer to weight management program~390864007^1484897012^Referral
+    for exercise therapy~306254002^1775694013^Referral to Accident and Emergency doctor~306259007^449223019^Referral
+    to adult intensive care specialist~306255001^449216015^Referral to anesthetist~306300002^449276012^Referral
+    to breast surgeon~306302005^449278013^Referral to cardiac surgeon~308471005^451824012^Referral
+    to cardiologist~183557002^283670019^Referral to cardiothoracic surgeon~308475001^451828010^Referral
+    to care of the elderly physician~306273003^449245018^Referral to chest physician~306291008^449265013^Referral
+    to child and adolescent psychiatrist~308449000^451785019^Referral to chiropractor~306272008^449244019^Referral
+    to clinical allergist~306279004^449251011^Referral to clinical geneticist~308473008^451826014^Referral
+    to clinical immunologist~306320001^449300015^Referral to clinical nurse specialist~306277002^449249012^Referral
+    to clinical physiologist~428471000124108^611271000124113^Referral to clinical
+    psychologist~428481000124106^611291000124114^Referral to clinical social worker~306311005^449291014^Referral
+    to colorectal surgeon~390857005^1484890014^Referral to community alcohol team~417096006^2549646014^Referral
+    to community drug and alcohol team~306303000^449279017^Referral to dental surgeon~308472003^451825013^Referral
+    to dermatologist~308480005^451834015^Referral to ear, nose and throat surgeon~306307004^449284011^Referral
+    to endocrine surgeon~306278007^449250012^Referral to endocrinologist~306257009^449220016^Referral
+    to family planning doctor~308476000^451830012^Referral to gastroenterologist~306308009^449286013^Referral
+    to gastrointestinal surgeon~308478004^451832016^Referral to general surgeon~308469005^451821016^Referral
+    to geneticist~306282009^449255019^Referral to genitourinary physician~308485000^451841014^Referral
+    to gynecologist~306312003^449292019^Referral to hand surgeon~183567007^283683018^Referral
+    to hematologist~306284005^449258017^Referral to infectious diseases physician~306258004^449222012^Referral
+    to intensive care specialist~406159004^2157865013^Referral to maxillofacial surgeon~310515004^454104011^Referral
+    to medical oncologist~306252003^2884180013^Referral to mental health counselor~306262005^449231012^Referral
+    to neonatologist~306286007^449260015^Referral to nephrologist~308474002^451827017^Referral
+    to neurologist~308482002^451837010^Referral to neurosurgeon~306287003^449261016^Referral
+    to nuclear medicine physician~428441000124100^611211000124116^Referral to nurse
+    anesthetist~428541000124104^611451000124119^Referral to nurse midwife~306338003^449322010^Referral
+    to nurse practitioner~428461000124101^611261000124118^Referral to nutrition professional~308484001^451840010^Referral
+    to obstetrician~306297007^449272014^Referral to obstetrician and gynecologist~306298002^449274010^Referral
+    to occupational health physician~308453003^451793019^Referral to occupational
+    therapist~183529009^283619011^Referral to oncologist~308479007^451833014^Referral
+    to ophthalmologist~308465004^451815015^Referral to optometrist~406158007^2157864012^Referral
+    to oral surgeon~306304006^449280019^Referral to orthodontist~308481009^451835019^Referral
+    to orthopedic surgeon~308455005^451797018^Referral to orthotist~308450000^451786018^Referral
+    to osteopath~306265007^449236019^Referral to pain management specialist~306288008^449262011^Referral
+    to palliative care physician~312487009^456215010^Referral to pediatric cardiologist~306305007^449281015^Referral
+    to pediatric dentist~415277000^2534208012^Referral to pediatric endocrinologist~429365000^2693252011^Referral
+    to pediatric gastroenterologist~306260002^449226010^Referral to pediatric intensive
+    care specialist~306263000^449232017^Referral to pediatric neurologist~306264006^449235015^Referral
+    to pediatric oncologist~425971006^2674228016^Referral to pediatric pulmonologist~308483007^451838017^Referral
+    to pediatric surgeon~183517000^283597019^Referral to pediatrician~454681000124103^753051000124111^Referral
+    to pharmaceutical manufacturer medication assistance program~390893007^1477208018^Referral
+    to physical activity program~183515008^283593015^Referral to physician~428451000124103^611231000124110^Referral
+    to physician assistant~308447003^451781011^Referral to physiotherapist~306315001^449295017^Referral
+    to plastic surgeon~308451001^451788017^Referral to podiatrist~308477009^451831011^Referral
+    to psychiatrist~308459004^451804013^Referral to psychologist~306299005^449275011^Referral
+    to radiologist~306256000^449219010^Referral to radiotherapist~306289000^449263018^Referral
+    to rehabilitation physician~306275005^449247014^Referral to respiratory physician~306290009^449264012^Referral
+    to rheumatologist~733901008^3475347015^Referral to self-management support service~431260004^2768649019^Referral
+    to specialist alcohol treatment service~308452008^451792012^Referral to speech
+    and language therapist~183541002^283636015^Referral to surgeon~306301003^449277015^Referral
+    to thoracic surgeon~449841000124108^710841000124119^Referral to tobacco use cessation
+    clinic~449861000124107^710881000124113^Referral to tobacco use cessation counseling
+    program~449851000124105^710861000124115^Referral to tobacco use cessation counselor~449871000124100^710901000124110^Referral
+    to tobacco use quit line~306316000^449296016^Referral to transplant surgeon~306317009^449297013^Referral
+    to trauma surgeon~306318004^449298015^Referral to urologist~307777008^451149013^Referral
+    to vascular surgeon\r\r"
+  sha256: 59736870b48c215df25800451af4eae3ff21bd49186d96fc3a7d11ba1722158e
+- name: reference_data/1
+  rpc: BMC GET REFERENCE DATA
+  inputs: []
+  context: reference_data
+  raw_return: "5\0~`59^ALCOHOL/DRUG USE & ALCOHOL/DRUG INDUCED ORGANIC MENTAL DISORDERS^OCT
+    01, 2015^~55^BLOOD, BLOOD FORMING ORGANS, IMMUNOLOGIC DISORDERS^OCT 01, 2015^~61^BURNS^OCT
+    01, 2015^~23^CARDIOVASCULAR DISORDERS^^OCT 01, 2015~24^CEREBROVASCULAR DISRDERS^^OCT
+    01, 2015~44^CIRCULATORY SYSTEM^OCT 01, 2015^~39^COMPLICATIONS OF PREGNANCY,CHILDBIRTH
+    AND PUERPERIUM^^OCT 01, 2015~14^CONGENITAL ANOMALIES^^OCT 01, 2015~27^DENTAL AND
+    ORAL SURGICAL DISORDERS^^OCT 01, 2015~33^DERMATOLOGIC DISORDERS^^OCT 01, 2015~45^DIGESTIVE
+    SYSTEM^OCT 01, 2015^~42^EAR, NOSE, MOUTH & THROAT^OCT 01, 2015^~49^ENDOCRINE,
+    NUTRITIONAL & METABOLIC DISEASES & DISORDERS^OCT 01, 2015^~3^ENDOCRINE, NUTRITIONAL,
+    AND METABOLIC DISEASES AND IMMUN DISORDERS^^OCT 01, 2015~41^EYE^OCT 01, 2015^~62^FACTORS
+    INFLUENCING HEALTH STATUS & OTHER CONTACTS WITH HEALTH SERVICE^OCT 01, 2015^~31^FEMALE
+    BREAST AND GENITAL TRACT DISORDERS^^OCT 01, 2015~52^FEMALE REPRODUCTIVE SYSTEM^OCT
+    01, 2015^~28^GASTROINTESTINAL DISORDERS^^OCT 01, 2015~19^HEMATOLOGICAL DISORDERS^^OCT
+    01, 2015~46^HEPATOBILIARY SYSTEM & PANCREAS^OCT 01, 2015^~64^HUMAN IMMUNODEFICIENCY
+    VIRUS INFECTIONS^OCT 01, 2015^~57^INFECTIOUS & PARASITIC DISEASES, SYSTEMIC OR
+    UNSPECIFIED SITES^OCT 01, 2015^~1^INFECTIOUS AND PARASITIC DISEASES^^OCT 01, 2015~36^INJURIES
+    AND POISONINGS^^OCT 01, 2015~60^INJURIES, POISONINGS & TOXIC EFFECTS OF DRUGS^OCT
+    01, 2015^~50^KIDNEY & URINARY TRACT^OCT 01, 2015^~30^MALE GENITAL ORGAN DISORDERS^^OCT
+    01, 2015~51^MALE REPRODUCTIVE SYSTEM^OCT 01, 2015^~58^MENTAL DISEASES & DISORDERS^OCT
+    01, 2015^~5^MENTAL DISORDERS^^OCT 01, 2015~63^MULTIPLE SIGNIFICANT TRAUMA^OCT
+    01, 2015^~34^MUSCULOSKELETAL AND CONNECTIVE TISSUE DISORDERS^^OCT 01, 2015~47^MUSCULOSKELETAL
+    SYSTEM & CONNECTIVE TISSUE^OCT 01, 2015^~56^MYELOPROLIFERATIVE DISEASES & DISORDERS,
+    POORLY DIFFERENTIATED NEOPLAS^OCT 01, 2015^~2^NEOPLASMS^^OCT 01, 2015~29^NEPHROLOGICAL
+    AND UROLOGICAL DISORDERS^^OCT 01, 2015~40^NERVOUS SYSTEM^OCT 01, 2015^~20^NEUROLOGICAL
+    DISORDERS^^OCT 01, 2015~54^NEWBORNS & OTHER NEONATES WITH CONDITIONS ORIGINATING
+    IN PERINA^OCT 01, 2015^~32^OBSTETRICAL CARE^^OCT 01, 2015~21^OPHTHALMOLOGICAL
+    DISORDERS^^OCT 01, 2015~35^OTHER PERINATAL CONDITIONS^^OCT 01, 2015~16^OTHER SYMPTOMS,
+    SIGNS, AND ILL-DEFINED CONDITIONS^^OCT 01, 2015~25^OTHER VASCULAR DISORDERS^^OCT
+    01, 2015~22^OTOLARYNGOLOGICAL DISORDERS^^OCT 01, 2015~53^PREGNANCY, CHILDBIRTH
+    & THE PUERPERIUM^OCT 01, 2015^~37^PREVENTIVE HEALTH CARE^^OCT 01, 2015~26^RESPIRATORY
+    DISORDERS^^OCT 01, 2015~43^RESPIRATORY SYSTEM^OCT 01, 2015^~38^SKIN AND SUBCUTANEOUS
+    TISSUE^^OCT 01, 2015~48^SKIN, SUBCUTANEOUS TISSUE & BREAST^OCT 01, 2015^~~`4^DIAGNOSTIC
+    IMAGING~7^DURABLE MEDICAL EQUIPMENT~1^EVALUATION AND/OR MANAGEMENT~2^NONSURGICAL
+    PROCEDURES~3^OPERATIONS/SURGERY~5^PATHOLOGY AND LABORATORY~6^TRANSPORTATION~~`1^Call-In~3^ER
+    Visit/Admission~5^Evaluation~7^Evaluation/Treatment~6^F/U Visit or F/U Surgery~~`A^ACTIVE~A1^APPROVED~C1^CLOSED-COMPLETED~X^CLOSED-NOT
+    COMPLETED~~`1^1A CORE-PREVENTIVE AND REHABILITATIVE SERVICES~2^1B CORE-MEDICAL/DENTAL/VISION/SURGICAL
+    SERVICES~3^1C CORE-REPRODUCTIVE AND MATERNAL/CHILD HEALTH SERVICES~4^1D CORE-BEHAVIORAL
+    HEALTH SERVICES~5^2A INTERMEDIATE-PREVENTIVE AND REHABILITATIVE SERVICES~6^2B
+    INTERMEDIATE-MEDICAL/DENTAL/VISION/SURGICAL SERVICES~7^2C INTERMEDIATE-REPRODUCTIVE
+    AND MATERNAL/CHILD HEALTH SERVICES~8^2D INTERMEDIATE-BEHAVIORAL HEALTH SERVICES~9^3A
+    ELECTIVE-PREVENTIVE AND REHABILITATIVE SERVICES~10^3B ELECTIVE-MEDICAL/DENTAL/VISION/SURGICAL
+    SERVICES~11^3C ELECTIVE-REPRODUCTIVE AND MATERNAL/CHILD HEALTH SERVICES~12^3D
+    ELECTIVE-BEHAVIORAL HEALTH SERVICES~13^4A EXCLUDED-PREVENTIVE AND REHABILITATIVE
+    SERVICES~14^4B EXCLUDED-MEDICAL/DENTAL/VISION/SURGICAL SERVICES~15^4C EXCLUDED-REPRODUCTIVE
+    AND MATERNAL/CHILD HEALTH SERVICES~16^4D EXCLUDED-BEHAVIORAL HEALTH SERVICES~102^XX
+    ~"
+  sha256: eaaf4321de982525cb2116b2894b720ba495ba6fb8874767cada5a2104e3dd51
+- name: users_providers/1
+  rpc: BMC GET USERS/PROVIDERS
+  inputs: []
+  context: users_providers
+  raw_return: "5\0-1^All~4^MANAGER,SYSTEM~204^PROFILE,MA~206^PROFILE,MD~205^PROFILE,RN~200^PROVIDER,TEST~\r"
+  sha256: 50759005d570035c1eb04a316b22c3768e8a643bb927367476d14e96c1a80a14
+- name: providers/1
+  rpc: BMC PROVIDERS
+  inputs: []
+  context: providers
+  raw_return: "5\04^MANAGER,SYSTEM\r204^PROFILE,MA\r206^PROFILE,MD\r205^PROFILE,RN\r200^PROVIDER,TEST\r"
+  sha256: 2e5e414d89f8bb6d105ca7968d3c5a63f6c3dad3f09fdaf4efb78801d81c4ecd
+- name: search_referred_to/1
+  rpc: BMC SEARCH REFERRED TO
+  inputs:
+  - UNSP
+  - C
+  context: search_referred_to UNSP for type C (a vendor)
+  raw_return: "5\0~`1^UNSPECIFIED^^1000000000^^,^,,"
+  sha256: cdeb88f03da2aaf12ebc6836644fd6c38c9fb8b9f06870a55b0ca863b96458df
+- name: rcis_templates/1
+  rpc: BMC GET RCIS TEMPLATE LIST
+  inputs: []
+  context: rcis_templates
+  raw_return: "5\0~`937^BREAST ULTRASOUND~931^CARDIOLOGY~938^DIABETES~939^OPTOMETRY~936^ULTRASOUND"
+  sha256: a0b656d8ba04c14492641c9730e4e4d6e236976b7648d7625b71de44d408fed0
+- name: rcis_template_detail/1
+  rpc: BMC GET RCIS TEMPLATE DETAIL
+  inputs:
+  - '937'
+  context: rcis_template_detail of template 937
+  raw_return: "5\0~`I^O^31^4^ROUTINE MAMMOGRAM^5~2A INTERMEDIATE-PREVENTIVE AND REHABILITATIVE
+    SERVICES^^^1^^^^^^"
+  sha256: c19b17eb4366e434e37da1b53c443acbcf90bda643d8074972efc1fc89a98ec6
+- name: patient_eligibility_status/1
+  rpc: BMC PATIENT ELIGIBILITY STATUS
+  inputs:
+  - '990001'
+  context: patient_eligibility_status of 990001
+  raw_return: "5\0DIRECT ONLY^"
+  sha256: ddb9fd311253cf389862ccae62589708e957f2dbdf743572622ac202d1ed27f1
+- name: patient_face_sheet/1
+  rpc: BMC PATIENT FACE SHEET
+  inputs:
+  - '990001'
+  context: patient_face_sheet of 990001
+  raw_return: "5\0T00120RHI_MSG^T01024WARN_TEXT^T02048REPORT_TEXT\x1E^PATIENT: ALPHA,CASEY\nCHART
+    #: 990001\n  \nThis patient does not have a complete set of mandatory data.\nThe
+    missing or invalid data fields are....\n  \n** missing or unspecified TRIBE\n**
+    missing CURRENT COMMUNITY\n  \nCopy down the information above in order to make
+    corrections.\n  ^ \r\n                     *** CONFIDENTIAL PATIENT INFORMATION
+    ***\r\n                                 DEMO IHS CLINIC\r\n                          AMBULATORY
+    CARE RECORD BRIEF\r\n                         ------------------------------\r\nNOV
+    21, 2026@00:04:39                                                 Page: 1\r\n===============================================================================\r\nPATIENT:
+    ALPHA,CASEY                                       CHART #: 990001\r\n===============================================================================\r\nCOMPUTER
+    FILE EST:                                LAST EDIT: NOV 19, 2026 (SM)\r\n-------------------------------------------------------------------------------\r\nCLASS:
+    INDIAN/ALASKA NATIVE                             BIRTH SEX: FEMALE\r\nCOMMUNITY:
+    STONE MESA                                    BIRTHDAY: MAY 26, 1952\r\n   COUNTY:
+    \                                                   AGE: 74 YRS\r\nCURRENT ADDRESS:\r\n
+    \    107 BIRCHWOOD ST\r\n     ANYWHERE, MONTANA 59000\r\nPHONE NUMBERS ---\r\nHOME:
+    406-555-1001         WORK: \r\nCELL:                      OTHER: \r\n \r\nPREFERRED
+    LANGUAGE:                            PREFERRED METHOD: \r\n-------------------------------------------------------------------------------\r\n***
+    NO NOTICE OF PRIVACY PRACTICES DATA ON THIS PATIENT ***\r\n-------------------------------------------------------------------------------\r\nTRIBE:
+    INDIAN - TRIBE UNSPECIFIED                 INDIAN QUANTUM: 1/2\r\nBIRTHPLACE:
+    \r\nRELIGION:                                      TRIBE ENROLL #: SYN990001\r\n-------------------------------------------------------------------------------\r\nFATHER:
+    \                                BIRTHPLACE: \r\nMOTHER:                                 BIRTHPLACE:
+    \r\n-------------------------------------------------------------------------------\r\nEM
+    CONTACT:                                        EM PHONE: \r\nEM ADDRESS:\r\n-------------------------------------------------------------------------------\r\n
+    \                      *** THIRD PARTY ELIGIBILITY ***\r\n \r\n-------------------------------------------------------------------------------\r\n
+    \   ***  ELIGIBILITY FOR CARE: DIRECT ONLY  *** \r\n \r\n\x1E\x1F"
+  sha256: 9d42283cc11684ff4010407a9b46cd19f1edca243e326c8b94b2ee2226d8e096
+- name: patient_health_summary/1
+  rpc: BMC PATIENT HEALTH SUMMARY
+  inputs:
+  - '990001'
+  - '7'
+  context: patient_health_summary of 990001, type 7 (ADULT REGULAR)
+  raw_return: "5\0T00120REPORT_TEXT\x1E \r\n******* CONFIDENTIAL PATIENT INFORMATION
+    -- 11/21/2026  0:04 AM  [MD] *******\r\n************ ALPHA,CASEY #990001    (ADULT
+    REGULAR SUMMARY)  pg 1 ************\r\n \r\n----------------------------- DEMOGRAPHIC
+    DATA -----------------------------\r\n \r\nALPHA,CASEY                       DOB:
+    MAY 26,1952 74 YRS  FEMALE  no blood type\r\nINDIAN - TRIBE UNSPECIFIED\r\n \r\n(H)
+    406-555-1001 \r\n \r\nSTONE MESA (107 BIRCHWOOD ST,ANYWHERE,MT,59000)  \r\n \r\nLAST
+    UPDATED: NOV 19,2026         ELIGIBILITY: DIRECT ONLY\r\n \r\nNOTICE OF PRIVACY
+    PRACTICES REC'D BY PATIENT?  \r\n                    DATE RECEIVED BY PATIENT:
+    \ \r\n                  WAS ACKNOWLEDGEMENT SIGNED?  \r\n \r\nHEALTH RECORD NUMBERS:
+    \ 990001  DEMO IHS CLINIC\r\nDESIGNATED PRIMARY CARE PROVIDER: <none identified>\r\n
+    \r\n \r\n----------------------- ALLERGIES (FROM PROBLEM LIST) -----------------------\r\n
+    \r\n \r\n                           ***** NONE RECORDED *****\r\n \r\nAllergy
+    List Reviewed On:                          By: \r\nAllergy List Updated On:                           By:
+    \r\nNo Active Allergies documented On:                 By:  \r\n \r\nProblem List
+    Reviewed On:                          By: \r\nProblem List Updated On:                           By:
+    \r\nNo Active Problems Documented On:                  By: \r\n \r\n---------
+    MEASUREMENT PANELS (OUTPATIENT) (max 5 visits or 2 years) ---------\r\n \r\n \r\n
+    \          HT    WT         BP      BMI       %RW            VU\r\n07/16/26   63
+    \     151    134/84   26.7      122%     \r\n \r\n \r\n \r\n---------------------------
+    ACTIVE PROBLEMS (ALL) ---------------------------\r\n \r\n             ENT.    MODIFIED\r\n
+    DIC1       11/19/26 11/19/26  *TYPE 2 DIABETES MELLITUS  (onset\r\n                                04/01/19)(Status:
+    CHRONIC)\r\n DIC2       11/19/26 11/19/26  *ESSENTIAL HYPERTENSION  (onset\r\n
+    \                               02/01/20)(Status: CHRONIC)\r\n \r\nProblem List
+    Reviewed On:                          By: \r\nProblem List Updated On:                           By:
+    \r\nNo Active Problems Documented On:                  By: \r\n \r\n \r\n-----------------------------
+    INACTIVE PROBLEMS -----------------------------\r\n \r\n \r\nProblem List Reviewed
+    On:                          By: \r\nProblem List Updated On:                           By:
+    \r\nNo Active Problems Documented On:                  By: \r\n \r\n \r\n--------------
+    CURRENT MEDICATIONS (max 6 visits or 6 months) --------------\r\n \r\n \r\n \r\nMedication
+    List Reviewed On:                       By:  \r\nMedication List Updated On:                        By:
+    \ \r\nNo Active Medications Documented On:               By:  \r\n \r\n---------------
+    IN HOSPITAL VISITS (max 10 visits or 2 years) ---------------\r\n \r\n \r\n------
+    OUTPATIENT/FIELD/TELEMEDICINE VISITS (max 6 visits or 2 years) ------\r\n \r\n07/16/26
+    \ DIC          GEN      TYPE 2 DIABETES MELLITUS\r\n                                ESSENTIAL
+    HYPERTENSION\r\n \r\n \r\n                        <<<  RCIS ACTIVE REFERRALS  >>>
+    \r\n \r\nNo Referred Care Referral records on file.\r\n \r\n------------ MOST
+    RECENT EXAMINATIONS (max 5 visits or 2 years) ------------\r\n \r\n \r\n-------------------------------
+    IMMUNIZATIONS -------------------------------\r\n \r\n   IMMUNIZATION FORECAST:\r\n
+    \r\n      *Immunization Forecasting disabled (see Site Parameters). #314\r\n   IMMUNIZATION
+    HISTORY:\r\n \r\n \r\n----------------------- HEALTH MAINTENANCE REMINDERS -----------------------\r\n
+    \r\n                          LAST        NEXT\r\n \r\nHEIGHT                    07/16/26
+    \ 07/16/27\r\nWEIGHT                    07/16/26  07/16/27\r\n \r\nPELVIC EXAM
+    \                        05/26/70\r\nBREAST EXAM                         05/26/72\r\n
+    \r\nRECTAL                              05/26/92\r\nVISUAL ACUITY EXAM                  05/26/16\r\n
+    \r\nTONOMETRY                           05/26/92\r\nIMMUNIZATIONS DUE * Immunization
+    Forecasting disabled (see Site Parameters). #314\r\n \r\nPHYSICAL EXAM                       05/26/70\r\n
+    \r\nTD-ADULT                            05/26/64\r\nALCOHOL USE SCREENING               05/26/65\r\n
+    \r\nTOBACCO USE SCREENING               05/26/65\r\n\f\r\n \r\nDIABETES PATIENT
+    CARE SUMMARY          Report Date:  11/21/2026\r\n \r\nPatient: ALPHA,CASEY                                               HRN:
+    990001\r\nAge:  74 (DOB 05/26/1952)              Sex: FEMALE\r\nCLASS/BEN: INDIAN/ALASKA
+    NATIVE        Designated PCP: \r\n \r\nDate of DM Diagnosis: 04/01/2019 (Problem
+    List)\r\nDiabetes type: (1 or 2): 2\r\n \r\nBMI: 26.7  Last Height:  63.00 inches
+    \   07/16/2026\r\n           Last Weight:  151 lbs         07/16/2026\r\n \r\nTobacco
+    Use:\r\n   Last Screened: \r\n   Current Status: Not Documented\r\n      Tobacco
+    cessation counseling/education received in the past year: N/A\r\n \r\nElectronic
+    Nicotine Delivery Systems (ENDS)\r\n   Last Screened:  Never\r\n   Current Status:
+    \r\n \r\nHTN Diagnosed ever:  Yes\r\nCVD Diagnosed ever:  No\r\nLast 3 BP:      134/84
+    \  07/16/2026\r\n \r\nACE Inhibitor or ARB prescribed (in past 6 months): No\r\nAspirin
+    or Other Anti-platelet/Anticoagulant prescribed (past 6 months):  No\r\nStatin
+    prescribed (in past 6 months):  No\r\n \r\nExams (in past 12 months):\r\n   Foot:
+    \   No\r\n   Eye:     No\r\n   Dental:  No\r\n \r\nDepression:\r\n   Screened
+    in past year:  No\r\n   Active diagnosis in past year: No\r\n \r\nImmunizations:\r\n
+    \  Influenza vaccine (since August 1st): No\r\n   Pneumococcal [PCV15, PCV20,
+    PCV21, or PPSV23] (ever):  No\r\n   Td/Tdap/DTAP/DT (in past 10 yrs):     No  \r\n
+    \  Tdap (ever):                          No  \r\n   Hepatitis B complete series
+    (ever):   No\r\n   Shingrix/RZV complete series (ever):  No\r\n   Respiratory
+    syncytial virus (RSV) vaccine (ever): No\r\n \r\nTuberculosis (TB):\r\n   TB diagnosis
+    (latent or active) documented ever: No\r\n   Last Documented TB Test: \r\n     TB
+    Test Result: \r\n \r\nHepatitis C (HCV)\r\n   Diagnosed with HCV ever: No\r\n
+    \  Screened for HCV ever: No\r\n \r\nRetinopathy Diagnosed (ever): No\r\n \r\nAmputation\r\n
+    \  Lower extremity (ever), any type (e.g., toe, partial foot, above or\r\n   below
+    knee):  No\r\n \r\nLaboratory Results (most recent):                     RPMS
+    LAB TEST NAME\r\n   A1C:                                               \r\n   Next
+    most recent A1C:                              \r\n \r\n   Serum Creatinine:                                  \r\n
+    \  eGFR:                                              \r\n   Quantitative UACR:
+    \                                \r\n \r\n   Total Cholesterol:                                 \r\n
+    \  LDL Cholesterol:                                   \r\n   HDL Cholesterol:
+    \                                  \r\n   Triglycerides:                                     \r\n
+    \r\nContinuous Glucose Monitoring (CGM) (most recent data)\r\n    < No data on
+    file >\r\n \r\nEducation Provided (in past yr): \r\n  Last Dietitian Visit (ever):
+    \ \r\n      <No Education Topics recorded in past year>\r\n \r\nALPHA,CASEY                       DOB:
+    5/26/1952      Chart #DIC 990001\r\n*** END  CONFIDENTIAL PATIENT INFORMATION
+    -- 11/21/2026  0:04 AM  [MD] *******\r\n\f\r\n\x1E\x1F"
+  sha256: 72a1c0d1509fdf0ac7f7eea31eb0dcfab01e037145cbe321270234656e78cf07
+- name: health_summary_types/1
+  rpc: BMC HEALTH SUMMARY TYPE
+  inputs: []
+  context: health_summary_types
+  raw_return: "5\0I00010HEALTH_SUMMARY_TYPE^T00030HEALTH_SUMMARY_TYPE_NM\x1E1^VPR
+    MINI\x1E2^VPR VISITS\x1E3^VPR REMINDERS\x1E6^IMMUNIZATION\x1E7^ADULT REGULAR\x1E8^PEDIATRIC\x1E9^DENTAL\x1E10^CHR\x1E17^PROBLEM
+    LIST\x1E23^BEHAVIORAL HEALTH\x1E24^DIABETES STANDARD\x1E42^VPR LABS\x1E53^EMERGENCY\x1E55^MEDICATIONS\x1E64^WELL
+    BABY\x1E73^FUTURE SCHEDULED APPOINTMENTS\x1E74^RENAL\x1E75^WELL CHILD EXAM\x1E76^ALL
+    REMINDERS\x1E\x1F"
+  sha256: 83f81b608ee3965bc1a5c082723c550cf4a08677189c8f3968dce62757fe5692
+- name: check_year_site_param/1
+  rpc: BMC CHK YEAR SITE PARAM
+  inputs: []
+  context: check_year_site_param
+  raw_return: "5\026"
+  sha256: a141fef8b4556e4eda138009a979a275efedfd7c0dfcf4f2467441b0dfd55b5f
+- name: add_c32_print_log/1
+  rpc: BMC ADD C32 PRINT LOG
+  inputs:
+  - '1'
+  - '206'
+  - 11/19/2026@1030
+  context: add_c32_print_log for referral 1 by 206, printed 11/19/2026 10:30
+  raw_return: "5\0~`1^1"
+  sha256: b92bc57396751bcad7bfd167e7a53e30c8d855846f3cb91594de6754d9b339de
+- name: add_c32_print_log_now/1
+  rpc: BMC ADD C32 PRINT LOG
+  inputs:
+  - '1'
+  context: add_c32_print_log for referral 1 with no user and no time
+  raw_return: "5\0~`1^2"
+  sha256: f756adce02f05e9fd187a42797f568c9656705dfab49401b825e2ccd29e7dcf5

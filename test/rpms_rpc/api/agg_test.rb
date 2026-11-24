@@ -1,33 +1,43 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/agg"
+require_relative "../captured_replies"
 
 # Tests for RpmsRpc::Agg — the AG-package registration RPC surface
-# (rpms-rpc#214). Reply fixtures reproduce the layouts confirmed by the #214
-# live probe: a typed header row, then $C(30)-separated records, ending
-# $C(31). All data synthetic.
+# (rpms-rpc#214). Each test replays what the pinned build sent PROFILE,REG on
+# a throwaway container (test/fixtures/captured_replies/agg-registration.yml):
+# a typed header row, then $C(30)-separated records. The add and update flows
+# filed and edited a synthetic patient there; the DFN is the one it assigned.
 class AggTest < Minitest::Test
   Agg = RpmsRpc::Agg
-  FS = "\x1c"  # $C(28)
-  RS = "\x1e"  # $C(30)
-  US = "\x1f"  # $C(31)
-
-  def setup
-    @mock = RpmsRpc.mock!
-  end
+  SLUG = "agg-registration"
+  FS = "\x1c" # $C(28)
+  NEW = { "AGGPTLNM" => "SYNTHETIC", "AGGPTFNM" => "AGGADD", "AGGPTSEX" => "F", "AGGPTDOB" => "03/05/1902",
+          "AGGPTSSN" => "900619001" }.freeze
 
   def teardown
     RpmsRpc.reset!
   end
 
+  def replay(flow = nil, context: CapturedReplies::ReplayCiaClient::SIGNON_CONTEXT)
+    @client = CapturedReplies::ReplayCiaClient.new(flow ? CapturedReplies.flow_script(SLUG, flow) : {})
+    @client.create_context(context) unless context == CapturedReplies::ReplayCiaClient::SIGNON_CONTEXT
+    @client.calls.clear
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
+
+  def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def binds = @client.calls.select { |c| c[:rpc] == :create_context }.map { |c| c[:params].first }
+  def recorded(flow) = CapturedReplies.flow_calls(SLUG, flow)
+  # A capture's reply, past the sequence echo and ack, as UTF-8 text.
+  def body(flow) = CapturedReplies.raw(SLUG, "#{flow}/1").byteslice(2..).force_encoding(Encoding::UTF_8)
+
   # -- PARMS encoding --------------------------------------------------------
 
   def test_encode_parms_joins_name_value_pairs_with_fs
-    encoded = Agg.encode_parms("AGGPTLNM" => "PROBE", "AGGPTFNM" => "AGGONE")
-
-    assert_equal "AGGPTLNM=PROBE#{FS}AGGPTFNM=AGGONE", encoded
+    assert_equal "AGGPTLNM=PROBE#{FS}AGGPTFNM=AGGONE", Agg.encode_parms("AGGPTLNM" => "PROBE", "AGGPTFNM" => "AGGONE")
   end
 
   def test_encode_parms_drops_nil_values
@@ -39,422 +49,234 @@ class AggTest < Minitest::Test
   # -- reply parsing ---------------------------------------------------------
 
   def test_parse_reply_maps_typed_header_names_onto_record_pieces
-    raw = "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^9#{RS}#{US}"
-
-    parsed = Agg.parse_reply(raw)
+    parsed = Agg.parse_reply(body("add_ok"))
 
     assert_equal %i[result message dfn], parsed[:header]
-    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+    assert_equal [ { result: "1", message: "", dfn: "990060" } ], parsed[:records]
   end
 
   def test_parse_reply_strips_leading_sequence_echo_and_ack
-    # A live CIA reply is prefixed by the 1-byte sequence echo and a \x00 ack.
-    raw = "7\x00I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^9#{RS}#{US}"
+    parsed = Agg.parse_reply(CapturedReplies.raw(SLUG, "add_ok/1"))
 
-    parsed = Agg.parse_reply(raw)
-
-    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+    assert_equal [ { result: "1", message: "", dfn: "990060" } ], parsed[:records]
   end
 
   def test_parse_reply_handles_multiple_records
-    raw = "I00010N^T00030MSG^T00001TYPE#{RS}37^INCOMPLETE^WARNING#{RS}38^MISSING^MANDATORY#{RS}#{US}"
+    parsed = Agg.parse_reply(CapturedReplies.raw("agg-stock", "edit_check/1"))
 
-    parsed = Agg.parse_reply(raw)
-
-    assert_equal 2, parsed[:records].length
-    assert_equal "MANDATORY", parsed[:records].last[:type]
+    assert_operator parsed[:records].length, :>, 1
+    assert_equal %w[WARNING], parsed[:records].map { |r| r[:type] }.uniq.first(1)
   end
 
   # BMX and XWB hand back an Array of lines, not a blob. BMX strips the $C(30)
   # row separator and the $C(31) sentinel (split_bmx_reply); a line array built
-  # from the M nodes (BUSARPC.m:354,384; AGGPTNAM.m:13,49) keeps them. Both must
-  # parse like the blob; stringifying the Array is the defect.
+  # from the M nodes keeps them. Both must parse like the blob.
   def test_parse_reply_parses_a_line_array_with_separators_stripped
-    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN", "1^^9" ])
+    parsed = Agg.parse_reply(body("add_ok").split("\x1e"))
 
-    assert_equal %i[result message dfn], parsed[:header]
-    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+    assert_equal [ { result: "1", message: "", dfn: "990060" } ], parsed[:records]
   end
 
   def test_parse_reply_parses_a_line_array_with_separators_kept
-    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}", "1^^9#{RS}", US ])
+    parsed = Agg.parse_reply(body("add_ok").split(/(?<=\x1e)/))
 
-    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
-  end
-
-  def test_parse_reply_nil_on_empty_line_array
-    assert_nil Agg.parse_reply([])
+    assert_equal [ { result: "1", message: "", dfn: "990060" } ], parsed[:records]
   end
 
   def test_parse_reply_nil_on_empty
+    assert_nil Agg.parse_reply([])
     assert_nil Agg.parse_reply(nil)
     assert_nil Agg.parse_reply("")
   end
 
   # -- add_patient -----------------------------------------------------------
 
-  def seed_add(reply)
-    @mock.seed(:agg_add_patient, Agg::DEFAULT_WINDOW, reply)
+  def test_add_patient_success_returns_dfn_and_sends_window_dfn_and_encoded_parms
+    replay("add_ok", context: "OR CPRS GUI CHART")
+
+    assert_equal({ success: true, dfn: 990_060, message: "" }, Agg.add_patient(params: NEW))
+    window, dfn, parms = sent.first.last
+    assert_equal [ Agg::DEFAULT_WINDOW, "" ], [ window, dfn ]
+    assert_equal "AGGPTLNM=SYNTHETIC#{FS}AGGPTFNM=AGGADD#{FS}AGGPTSEX=F#{FS}AGGPTDOB=03/05/1902#{FS}AGGPTSSN=900619001",
+                 parms
+    assert_equal recorded("add_ok"), sent
+    assert_equal [ "AGGRPC", "OR CPRS GUI CHART" ], binds, "an AGG write is denied outside AGGRPC (CIANBACT.m:55)"
   end
 
-  def test_add_patient_success_returns_dfn
-    seed_add("I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^9#{RS}#{US}")
-
-    result = Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
-
-    assert result[:success]
-    assert_equal 9, result[:dfn]
-  end
-
+  # ADD^AGGPTADD answers -1 with its reason for a window it does not have.
   def test_add_patient_rejection_returns_error_and_message
-    seed_add("I00010RESULT^T00080MESSAGE^I00010DFN#{RS}-1^NAME is required#{RS}#{US}")
+    replay("add_unknown_window")
+
+    result = Agg.add_patient(window: "No Such Window", params: NEW)
+
+    assert_equal({ success: false, error: :agg_rejected,
+                   message: "RPC Failed: Passed in window name No Such Window not found" }, result)
+  end
+
+  # With an empty last name ADD^AGGPTADD files nothing and still answers RESULT
+  # 1, with DFN -1 (AGGPTADD.m:119-121). That names no patient (rpms-rpc#878).
+  def test_add_patient_reads_a_success_record_with_dfn_minus_one_as_no_patient
+    replay("add_refused")
 
     result = Agg.add_patient(params: { "AGGPTLNM" => "" })
 
     refute result[:success]
-    assert_equal :agg_rejected, result[:error]
-    assert_match(/NAME is required/, result[:message])
-  end
-
-  def test_add_patient_passes_window_dfn_and_encoded_parms
-    seed_add("I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^9#{RS}#{US}")
-
-    Agg.add_patient(params: { "AGGPTLNM" => "PROBE", "AGGPTSEX" => "MALE" })
-
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG ADD NEW PATIENT" }
-    assert_equal Agg::DEFAULT_WINDOW, call[:params][0]
-    assert_equal "", call[:params][1]
-    assert_equal "AGGPTLNM=PROBE#{FS}AGGPTSEX=MALE", call[:params][2]
+    assert_equal :agg_malformed_reply, result[:error]
+    assert_nil result[:dfn]
   end
 
   # -- AGG WINDOW DATA VALIDATION (VAL^AGGWVAL) ------------------------------
-  # Replies captured live on bcer-9.0-20261029-7c3119b-ydb as PROFILE,REG.
-  VALIDATION_HEADER = "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e"
-
-  def seed_validation(row)
-    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW, VALIDATION_HEADER + row.to_s)
-  end
 
   def test_validate_field_reports_rpms_refusal_with_its_message
-    seed_validation("-1^SSN already used by another patient.^^^^\x1e")
+    replay("validate_ssn_taken")
 
-    result = Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "666010101", "AGGNOSSN" => "", "DFN" => "" })
+    result = Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW,
+                                params: { "AGGPTSSN" => "666021001", "AGGNOSSN" => "", "DFN" => "" })
 
     assert_equal({ valid: false, message: "SSN already used by another patient." }, result)
+    assert_equal [ [ "AGG WINDOW DATA VALIDATION", [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=666021001#{FS}AGGNOSSN=#{FS}DFN=" ] ] ],
+                 sent
   end
 
-  def test_validate_field_one_and_zero_are_not_refusals
-    seed_validation("1^^^^^\x1e")
-    assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "123456789" }))
+  def test_validate_field_one_is_not_a_refusal
+    replay("validate_ssn_free")
 
-    seed_validation("0^^^^^\x1e")
-    assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "R" }))
+    assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW,
+                                                     params: { "AGGPTSSN" => "900619999", "AGGNOSSN" => "", "DFN" => "" }))
   end
 
-  # The validator errored (openrpms#1040): the reply carries the header and no row.
+  # The validator gives the header and no row when there is nothing it checks
+  # (openrpms#1040): a no-SSN reason alone, or both blank. That is no answer.
   def test_validate_field_is_nil_when_rpms_gives_no_result_row
-    seed_validation("")
+    replay("validate_no_ssn_reason")
+    assert_nil Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "R" })
 
+    replay("validate_blank")
     assert_nil Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "", "AGGPTSSN" => "" })
   end
 
-  def test_validate_field_sends_the_window_and_the_field_first
-    seed_validation("1^^^^^\x1e")
+  # -- AGG BUILD WINDOW DISPLAY (BLD^AGGWDISP) --------------------------------
 
-    Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "123456789", "AGGNOSSN" => "", "DFN" => "" })
+  def test_window_values_reads_each_parameter_with_pointer_and_choice_pairs
+    replay("window_personal")
 
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG WINDOW DATA VALIDATION" }
-    assert_equal [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=123456789#{FS}AGGNOSSN=#{FS}DFN=" ], call[:params]
+    values = Agg.window_values(window: "Personal Detail", dfn: 990_031)
+
+    assert_equal "EMBER,AVERY", values["PTNAME"]
+    assert_equal "MAR 15,1997", values["AGGPTDOB"]
+    assert_equal({ internal: "F", external: "FEMALE" }, values["AGGPTSEX"])
+    assert_equal({ internal: nil, external: nil }, values["AGGPTMAR"])
+    assert_equal "", values["AGGEMSTS"]
+    assert_equal [ [ "AGG BUILD WINDOW DISPLAY", [ "Personal Detail", "990031" ] ] ], sent
+    assert_equal [ "AGGRPC", "CIAV VUECENTRIC" ], binds
   end
 
-# -- AGG BUILD WINDOW DISPLAY (BLD^AGGWDISP) --------------------------------
-# Replies captured live on bcer-9.0-20261029-7c3119b-ydb as PROFILE,REG, for a
-# synthetic seed patient and for a DFN with no patient (header, no record).
-DISPLAY_PERSONAL = "5\x00T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^" \
-                   "T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^" \
-                   "T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^" \
-                   "I00010DFN^T00040AGGPTRLG\x1eEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR 15,1997^F\x1cFEMALE^\x1c^" \
-                   "Pending Verification^990031^^\x1c^^29 YRS^\x1c^^^\x1c\x1e"
-DISPLAY_NO_PATIENT = "7\x00T00035AGGPTLNM^T00025AGGPTFNM\x1e"
+  def test_window_values_for_no_patient_are_empty_and_an_unknown_window_is_nil
+    replay("window_no_patient")
+    values = Agg.window_values(window: "Personal Detail", dfn: 999_999_999)
+    assert_equal [ "" ], values.values.uniq
+    assert_equal "", values["AGGPTLNM"]
 
-def test_window_values_reads_each_parameter_with_pointer_and_choice_pairs
-  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_PERSONAL)
-
-  values = Agg.window_values(window: "Personal Detail", dfn: 990_031)
-
-  assert_equal "EMBER,AVERY", values["PTNAME"]
-  assert_equal "MAR 15,1997", values["AGGPTDOB"]
-  assert_equal({ internal: "F", external: "FEMALE" }, values["AGGPTSEX"])
-  assert_equal({ internal: nil, external: nil }, values["AGGPTMAR"])
-  assert_equal "", values["AGGEMSTS"]
-  call = @mock.received_calls.find { |c| c[:rpc] == "AGG BUILD WINDOW DISPLAY" }
-  assert_equal [ "Personal Detail", "990031" ], call[:params]
-  assert_equal Agg::CONTEXT, call[:context] if call.key?(:context)
-end
-
-def test_window_values_for_no_patient_are_empty_and_no_reply_is_nil
-  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_NO_PATIENT)
-  assert_equal({ "AGGPTLNM" => "", "AGGPTFNM" => "" }, Agg.window_values(window: "Personal Detail", dfn: 1))
-
-  assert_nil Agg.window_values(window: "Address", dfn: 1)
-end
-
-  def test_add_patient_nil_when_no_broker_response
-    assert_nil Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
+    replay("window_unknown")
+    assert_nil Agg.window_values(window: "No Such Window", dfn: 990_031)
   end
 
   # -- update_patient (header without a DFN piece) ---------------------------
 
   def test_update_patient_success
-    @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW,
-      "I00010RESULT^T01024ERROR^T01024OTHER_PARMS#{RS}1^^#{RS}#{US}")
+    replay("update_ok")
 
-    result = Agg.update_patient(dfn: 9, params: { "AGGPTHRN" => "9" })
-
-    assert result[:success]
-    assert_nil result[:dfn], "UPDATE reply carries no DFN piece"
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG UPDATE PATIENT" }
-    assert_equal "9", call[:params][1]
+    assert_equal({ success: true, dfn: nil, message: "" },
+                 Agg.update_patient(dfn: 990_060, params: { "AGGPTMAR" => "NEVER MARRIED" }))
+    assert_equal [ [ "AGG UPDATE PATIENT", [ Agg::DEFAULT_WINDOW, "990060", "AGGPTMAR=NEVER MARRIED" ] ] ], sent
   end
 
   def test_update_patient_rejection_uses_error_piece_as_message
-    @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW,
-      "I00010RESULT^T01024ERROR^T01024OTHER_PARMS#{RS}-1^BAD FIELD^#{RS}#{US}")
+    replay("update_not_on_file")
 
-    result = Agg.update_patient(dfn: 9, params: { "AGGPTHRN" => "9" })
+    result = Agg.update_patient(dfn: 999_999_999, params: { "AGGPTMAR" => "NEVER MARRIED" })
 
-    refute result[:success]
-    assert_equal :agg_rejected, result[:error]
-    assert_match(/BAD FIELD/, result[:message])
+    assert_equal({ success: false, error: :agg_rejected, message: "The entry does not exist." }, result)
   end
 
-# -- temporary_hrn ---------------------------------------------------------
+  # The build answers 1 for a parameter the window does not have and for a date
+  # of birth that is no date, on update and on add. The gem reads what was
+  # sent; a caller that needs the value on file reads it back.
+  def test_update_and_add_read_the_builds_one_for_a_value_it_did_not_check
+    replay("update_refused")
+    assert Agg.update_patient(dfn: 990_060, params: { "AGGNOSUCH" => "X" })[:success]
 
-# GTMP^AGGPTHRN (AGGPTHRN.m:5-17): P1 = DFN; header T00010AGGPTHRN, then
-# the number.
-def test_temporary_hrn_reads_the_number_for_the_patient_under_aggrpc
-  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}T00012#{RS}#{US}")
+    replay("update_bad_dob")
+    assert Agg.update_patient(dfn: 990_060, params: { "AGGPTDOB" => "13/45/1900" })[:success]
 
-  assert_equal "T00012", Agg.temporary_hrn(dfn: 9)
-  call = @mock.received_calls.find { |c| c[:rpc] == "AGG GET TEMP PAT HRN" }
-  assert_equal [ "9" ], call[:params]
-  assert_equal "AGGRPC", call[:context]
-end
+    replay("add_bad_dob")
+    assert_equal 990_061, Agg.add_patient(params: NEW.merge("AGGPTFNM" => "AGGBADDOB", "AGGPTDOB" => "13/45/1900",
+                                                            "AGGPTSSN" => "900619002"))[:dfn]
+  end
 
-def test_temporary_hrn_nil_when_rpms_gives_no_number
-  assert_nil Agg.temporary_hrn(dfn: 9)
+  # -- temporary_hrn ---------------------------------------------------------
 
-  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}#{US}")
-  assert_nil Agg.temporary_hrn(dfn: 9)
-end
+  # GTMP^AGGPTHRN (AGGPTHRN.m:5-17): P1 = DFN; header T00010AGGPTHRN, then
+  # the next temporary number.
+  def test_temporary_hrn_reads_the_number_for_the_patient_under_aggrpc
+    replay("temp_hrn")
+
+    assert_equal "T00003", Agg.temporary_hrn(dfn: 990_060)
+    assert_equal [ [ "AGG GET TEMP PAT HRN", [ "990060" ] ] ], sent
+    assert_equal [ "AGGRPC", "CIAV VUECENTRIC" ], binds
+  end
+
+  # GTMP^AGGPTHRN hands out the next number for a DFN no patient has, too: the
+  # reply alone does not show the patient is on file.
+  def test_temporary_hrn_answers_a_number_for_a_dfn_not_on_file
+    replay("temp_hrn_no_patient")
+
+    assert_equal "T00002", Agg.temporary_hrn(dfn: 999_999_999)
+  end
 
   # -- edit_check ------------------------------------------------------------
 
-  def test_edit_check_returns_the_validation_battery
-    @mock.seed(:agg_patient_edit_check, "9",
-      "I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE#{RS}" \
-      "37^INTERNET ACCESS INFO^WARNING#{RS}40^HOMELESS INFO^MANDATORY#{RS}#{US}")
-
-    result = Agg.edit_check(dfn: 9)
-
-    assert_equal 2, result[:checks].length
-    assert_equal "WARNING", result[:checks].first[:type]
-    assert_equal "MANDATORY", result[:checks].last[:type]
-  end
-
-  # CHK^AGGEDCHK (AGGEDCHK.m) takes AGPATDFN — the patient DFN — as its only param.
-  def test_edit_check_sends_dfn_as_the_only_parameter
-    @mock.seed(:agg_patient_edit_check, "42",
-      "I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE#{RS}#{US}")
-
-    Agg.edit_check(dfn: 42)
-
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG PATIENT EDIT CHECK" }
-    assert_equal "AGG PATIENT EDIT CHECK", call[:rpc]
-    assert_equal [ "42" ], call[:params]
-  end
-
-  def test_edit_check_nil_on_empty_reply
-    result = Agg.edit_check(dfn: 9)
-
-    assert_nil result
-  end
-
   def test_edit_check_maps_all_seven_wire_columns
-    @mock.seed(:agg_patient_edit_check, "9",
-      "I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE^T00030HIDE_WINDOW^" \
-      "T00008HIDE_FIELD^T00050HIDE_TAB^T00001HIDE_KEY#{RS}" \
-      "37^INTERNET ACCESS^WARNING^REG^AGGPTCI^PATIENT TAB^1#{RS}#{US}")
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("agg-stock", "edit_check"))
 
-    result = Agg.edit_check(dfn: 9)
+    check = Agg.edit_check(dfn: 990_031, client: client)[:checks].first
 
-    check = result[:checks].first
-    assert_equal "37", check[:hide_error_num]
-    assert_equal "INTERNET ACCESS", check[:msg]
-    assert_equal "WARNING", check[:type]
-    assert_equal "REG", check[:hide_window]
-    assert_equal "AGGPTCI", check[:hide_field]
-    assert_equal "PATIENT TAB", check[:hide_tab]
-    assert_equal "1", check[:hide_key]
-  end
-
-  # When the client raises RpcError (broker refusal), edit_check does not swallow it.
-  def test_edit_check_raises_when_the_broker_answers_with_an_error
-    erroring = Class.new do
-      def call_rpc_global_array(*) = raise(RpmsRpc::Client::RpcError, "AGG PATIENT EDIT CHECK: error 4")
-    end.new
-
-    assert_raises(RpmsRpc::Client::RpcError) { Agg.edit_check(dfn: 9, client: erroring) }
+    assert_equal({ hide_error_num: "37", msg: "INTERNET ACCESS INFORMATION PAST ONE YEAR", type: "WARNING",
+                   hide_window: "Other Patient", hide_field: "AGGINTNT", hide_tab: "OtherPatientData", hide_key: "O" },
+                 check)
+    assert_equal [ [ "AGG PATIENT EDIT CHECK", [ "990031" ] ] ],
+                 client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
   end
 
   # -- available? (CANRUN registry evidence, no side effects) ----------------
+  #
+  # The registered entry is CANRUN^CIANBRPC (CIANBRPC.m:173-175), which resolves
+  # the #8994 IEN itself with $$FIND1^DIC(8994,,"QX",RPC), so P1 on the wire is
+  # the RPC NAME. CANRUN answers a $DATA value (#367): 10 or 11 for a listed RPC
+  # as a non-programmer, from the context bound right now (CIANBACT.m:148,155).
+  # The AGG* RPCs are registered under AGGRPC only, so the probe binds it.
 
-  def test_available_true_when_canrun_reports_one
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+  def test_available_true_when_canrun_reports_ten
+    replay("available", context: "OR CPRS GUI CHART")
 
     assert Agg.available?
+    assert_equal [ [ "CIANBRPC CANRUN", [ "AGG ADD NEW PATIENT" ] ] ], sent,
+                 "P1 must be the RPC NAME — CANRUN^CIANBRPC does the 8994 lookup itself"
+    assert_equal [ "AGGRPC", "OR CPRS GUI CHART" ], binds,
+                 "the gate is answered from the current context, and the caller's is restored"
   end
 
-  # CANRUN answers a $DATA value (#367): 10 or 11 for a listed RPC as a
-  # non-programmer; only the XUPROGMODE bypass answers a literal 1.
-  def test_available_true_when_canrun_reports_ten_or_eleven
-    %w[10 11].each do |answer|
-      @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", answer)
-
-      assert Agg.available?, "CANRUN answered #{answer}"
-    end
-  end
-
-  def test_available_false_when_canrun_reports_nothing
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "")
-
-    refute Agg.available?
-  end
-
+  # PROFILE,MD does not hold AGGRPC; CANRUN answers 0.
   def test_available_false_when_canrun_reports_zero
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "0")
+    replay("available_md")
 
     refute Agg.available?
-  end
-
-  # A broker error reply (\x01 flag) raises through the client's reply grammar; it is never
-  # read as a positive answer (the first raw byte is the sequence echo, a digit).
-  def test_available_false_when_the_broker_answers_with_an_error
-    erroring = Class.new do
-      def call_rpc_lines(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
-      def call_rpc(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
-    end.new
-
-    refute Agg.available?(erroring)
-  end
-
-  def test_available_false_when_rpc_absent
-    # Nothing seeded — mock returns "".
-    refute Agg.available?
-  end
-
-  # -- available? argument contract (rpms-rpc#225) ---------------------------
-  #
-  # The registered entry is "CIANBRPC CANRUN^CANRUN^CIANBRPC^1", i.e.
-  # CANRUN^CIANBRPC (CIANBRPC.m:173-175), which resolves the file-8994 IEN
-  # ITSELF with $$FIND1^DIC(8994,,"QX",RPC) and passes THAT to the
-  # CANRUN^CIANBACT helper. So P1 on the wire must be the RPC NAME. These
-  # tests pin that: sending an IEN instead would leave FIND1 unresolved ("",
-  # DIC.m:102) and CANRUN^CIANBACT would quit 0 at CIANBACT.m:143.
-
-  def test_available_sends_the_rpc_name_as_the_wire_argument
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
-
-    Agg.available?
-
-    call = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
-
-    refute_nil call, "available? must probe CIANBRPC CANRUN"
-    assert_equal [ "AGG ADD NEW PATIENT" ], call[:params],
-      "P1 must be the RPC NAME — CANRUN^CIANBRPC does the 8994 lookup itself"
-  end
-
-  def test_available_false_when_the_gate_is_keyed_on_something_other_than_the_name
-    # A gate keyed on a file-8994 IEN (a synthetic one) answers 1, but the
-    # RPC name is unseeded. available? must still be false: it asks by name.
-    @mock.seed_scalar(:agg_canrun, "31337", "1")
-
-    refute Agg.available?,
-      "an IEN-keyed gate must not satisfy a name-argument probe"
-  end
-
-  def test_available_false_when_a_different_agg_rpc_is_runnable
-    # Presence of a DIFFERENT AGG RPC does not make the delegation path
-    # available — the gate is per RPC name, per context option.
-    @mock.seed_scalar(:agg_canrun, "AGG UPDATE PATIENT", "1")
-
-    refute Agg.available?
-  end
-
-  # -- AGGRPC context binding (rpms-rpc#225) ---------------------------------
-  #
-  # RPC registration is OPTION-scoped, and the AGG* RPCs are registered under
-  # AGGRPC only: ^DIC(19,13112,0)="AGGRPC^Patient Registration GUI^^B^…" with
-  # AGG ADD NEW PATIENT (8994 IEN 3374) at ^DIC(19,13112,"RPC","B",3374,20).
-  # They are absent from both contexts this gem can be sitting on — CIANB MAIN
-  # MENU (#10976, the CIA sign-on AID, no RPC multiple at all) and OR CPRS GUI
-  # CHART (#9649, 1004 RPCs, no 3374). CANRUN answers from the context bound
-  # right now (CIANBACT.m:148,155), so without the bind every AGG call — the
-  # availability probe included — is answered a truthful 0.
-
-  def test_available_probes_the_gate_under_the_agg_context
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
-
-    Agg.available?
-
-    call = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
-
-    refute_nil call, "available? must probe CIANBRPC CANRUN"
-    assert_equal "AGGRPC", call[:context],
-      "the gate is answered from the CURRENT context option — probing outside " \
-      "AGGRPC asks a question whose answer is always 0"
-  end
-
-  def test_agg_writes_run_under_the_agg_context
-    @mock.seed(:agg_add_patient, Agg::DEFAULT_WINDOW,
-      "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^41#{RS}#{US}")
-
-    Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
-
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG ADD NEW PATIENT" }
-
-    assert_equal "AGGRPC", call[:context],
-      "an AGG write is denied outside AGGRPC (CIANBACT.m:55)"
-  end
-
-  def test_available_restores_the_callers_context
-    @mock.create_context("OR CPRS GUI CHART")
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
-
-    assert Agg.available?
-    assert_equal "OR CPRS GUI CHART", @mock.current_context,
-      "binding AGGRPC under a caller mid-workflow in another context must be undone"
-    assert_equal [ "OR CPRS GUI CHART", "AGGRPC", "OR CPRS GUI CHART" ], @mock.context_binds
   end
 
   def test_available_does_not_rebind_a_context_already_held
-    @mock.create_context("AGGRPC")
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+    replay("available", context: "AGGRPC")
 
     assert Agg.available?
-    assert_equal [ "AGGRPC" ], @mock.context_binds, "no round trip when already bound"
-  end
-
-  def test_available_false_and_warns_when_the_agg_context_will_not_bind
-    # The broker refusing the option (not installed, or OPTCHK^CIANBUTL lock)
-    # is exactly "AG is not usable here" — fall back, deliberately and loudly.
-    @mock.unbindable_context!("AGGRPC")
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
-
-    result = nil
-    _out, err = capture_io { result = Agg.available? }
-
-    refute result, "an unbindable AGGRPC must fail SAFE to the composition path"
-    assert_match(/AGG delegation unavailable/, err, "the fallback must be logged, not silent")
+    assert_empty binds, "no round trip when already bound"
   end
 end

@@ -10,6 +10,8 @@ require "rpms_rpc/api/ddr_fileman"
 # answers are dated multiples of #9000001 that AG cannot delete, so the spec
 # removes them with DDR FILER, leaving the patient as it found them.
 class PatientSocialStatusLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-11.2", "S-REG-11.3"
   writes!
 
   DFN = 990_008 # HOTEL,DREW, a synthetic seed patient

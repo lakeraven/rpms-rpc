@@ -102,7 +102,7 @@ module RpmsRpc
     # line 2 = session params "UID^netname^sitename", lines 3+ = greeting.
     # The reply carries the broker-assigned session UID but NOT the DUZ; the
     # broker saves DUZ into the session environment at sign-on, and it is
-    # asked for with CIAVCXUS VIMINFO, as VueCentric does (see #signon_duz).
+    # asked for with CIAVCXUS VIMINFO, as VueCentric does (see #signon_identity).
     #
     # A first sign-on MUST request session UID 0. AUTH^CIANBRPC branches on the
     # UID param (CIANBRPC.m:47-60): a non-zero UID is a RECONNECT to that session
@@ -167,7 +167,6 @@ module RpmsRpc
         end
 
         @authenticated = true
-        @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
         @current_context = application # ContextScope — AUTH bound it as the AID
@@ -176,8 +175,8 @@ module RpmsRpc
         # same fail-closed refusal as a missing DUZ - left to propagate it would
         # escape as an RpcError over a half-bound session (@authenticated and
         # @session_uid are already set here).
-        duz = begin
-          signon_duz
+        duz, name = begin
+          signon_identity
         rescue RpcRefusedError
           clear_signon_state
           raise ContextRefusedError, "CIA sign-on: this user may not use #{application}"
@@ -196,19 +195,30 @@ module RpmsRpc
         end
 
         @duz = duz
+        @signon_user = name
         bind_division(division)
         { success: true, user: @signon_user, duz: @duz.to_i, division: @division[:ien], greeting: greeting.strip }
       end
     end
 
-    # The DUZ of the user this connection just signed on as.
+    # The DUZ and NEW PERSON name of the user this connection just signed on
+    # as, [duz, name].
     #
     # Asked with CIAVCXUS VIMINFO, the first identity read VueCentric makes after
     # AUTH (captured from the CIA activity log, bcer-9.0-20260921-134e4f1-ydb,
     # 2026-09-23; cloud-rpms#55). No parameters; the reply is one line,
-    # "DUZ^NAME^timeouts^...", so the DUZ is piece 1. It runs in this
-    # connection's own broker process, so it can only describe this
-    # connection's user.
+    # "DUZ^NAME^timeouts^...": the DUZ is piece 1 and the name piece 2, the
+    # #200 .01 field (VIMINFO^CIAVCXUS sets it from $P(^VA(200,DUZ,0),U)). It
+    # runs in this connection's own broker process, so it can only describe
+    # this connection's user.
+    #
+    # The name comes from here, not from AUTH's greeting (#849). Kernel greets
+    # by NICK NAME (#200 field 13) when one is set and by the .01 name only
+    # otherwise (XUS1A.m:11, XUSRB5.m:101), so PROVIDER,TEST, whose nickname is
+    # TEST, is greeted "Good morning TEST" and a name read from the greeting
+    # was nil. Live on bcer-9.0-20261119-f67498c-ydb-demo:
+    #   PROV123  greeting "Good morning TEST"        VIMINFO 200^PROVIDER,TEST^...
+    #   PMD123   greeting "Good morning PROFILE,MD"  VIMINFO 206^PROFILE,MD^...
     #
     # It is in CIAV VUECENTRIC's RPC multiple, the option sign-on binds
     # (SIGNON_CONTEXT), so it answers for any user. XUS GET USER INFO, which
@@ -257,9 +267,11 @@ module RpmsRpc
       params
     end
 
-    def signon_duz
+    def signon_identity
       body = parse_cia_reply(call_rpc_raw("CIAVCXUS VIMINFO"))
-      body.split(/\r\n|\r|\n/).first.to_s.split("^").first.to_s[/\A\s*(\d+)\s*\z/, 1]
+      duz, name = body.split(/\r\n|\r|\n/).first.to_s.split("^")
+      name = name.to_s.strip
+      [ duz.to_s[/\A\s*(\d+)\s*\z/, 1], (name unless name.empty?) ]
     end
 
     # Bind the session's division, DUZ(2), the way VueCentric does (rpms-rpc#293).
@@ -524,12 +536,16 @@ module RpmsRpc
     end
 
     # Keep the broker session open: the {CIA} poll ACTION ("P", ACTP^CIANBACT,
-    # CIANBACT.m:32), the frame VueCentric sends between RPCs. The listener reads
-    # each frame with a 10 s timeout and ends a session that sends nothing for
-    # about 45 s (CIARETRY, CIANBLIS.m:152 and :223; measured on a 7c3119b build:
-    # idle 45 s still answers, idle 60 s is closed). A host that keeps a signed-in
-    # user's session polls at the interval RPMS returns; when the user's own idle
-    # limit passes, it stops polling and the broker ends the session.
+    # CIANBACT.m:32), the frame VueCentric sends between RPCs. Stock CIANBLIS
+    # reads each frame header with a 10 s timeout (DOACTION, $$TCPREAD(8,10));
+    # each empty read adds .5 to CIARETRY in concurrent mode (TCPREAD) and the
+    # session ends when CIARETRY>5 (QUIT): 11 empty reads, about 110 s
+    # (measured on IRIS: closed after 110.2 s, rpms-rpc#707). The YottaDB
+    # image's own CIA listener (openrpms ZBROKER) closes sooner, at 60 s, so a
+    # host polls well inside 60 s to hold a session on either engine. A host
+    # that keeps a signed-in user's session polls at the interval RPMS returns;
+    # when the user's own idle limit passes, it stops polling and the broker
+    # ends the session.
     #
     # Returns { interval: seconds (the CIANB POLLING INTERVAL parameter, default
     # 60), server_time: Time }. Raises ConnectionError when not connected.
@@ -689,7 +705,8 @@ module RpmsRpc
     # ACTD^CIANBACT (CIANBACT.m:24-27): it runs RESET^CIANBRPC() — the session
     # logout and cleanup — then sets CIADATA=1 and CIAQUIT=1. CIAQUIT makes the
     # listener's QUIT() return true (CIANBLIS.m:151-152), so the main loop stops
-    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the ~45 s retry drain.
+    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the idle retry drain
+    # (about 110 s stock, 60 s on the YottaDB listener; #poll).
     #
     # RESET^CIANBRPC quits immediately unless CIA("UID") is set
     # (CIANBRPC.m:102), and DOACTION only populates CIA("UID") from a UID field

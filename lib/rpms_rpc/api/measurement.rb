@@ -253,6 +253,27 @@ module RpmsRpc
     end
     shape :add, resource: "measurements", verb: "POST", path: "/patients/{dfn}/measurements"
 
+    # MEASUREMENT TYPE file (#9999999.07, ^AUTTMSR).
+    MEASUREMENT_TYPE_FILE = "9999999.07"
+
+    # Every measurement type on file, inactive ones included and flagged, so
+    # a code system can still resolve a historical code (rpms-rpc#917):
+    #
+    #   types => [{ ien:, code:, name:, abbreviation:, inactive: }, ...]
+    #
+    # code is CODE (.03, "01"), name DESCRIPTION (.02, "HEIGHT"),
+    # abbreviation TYPE (.01, "HT", the name BGOVMSR and BEHOVM use), and
+    # inactive is INACTIVE (.04) = 1. The file has no units field: units
+    # belong to the vital (Vital.template). Read through DDR LISTER; a read
+    # that cannot be had whole raises Client::RpcError.
+    def types
+      DdrFileman.list_all(file: MEASUREMENT_TYPE_FILE, fields: "@;.03;.02;.01;.04").map do |entry|
+        code, name, abbreviation, inactive = entry[:pieces]
+        { ien: entry[:ien].to_i, code: code.to_s, name: name.to_s, abbreviation: abbreviation.to_s, inactive: inactive == "1" }
+      end
+    end
+    shape :types, resource: "measurements", verb: "GET", path: "/measurements/types"
+
     private
 
     # Decorate BGOVMSR rows with service category + visit-date fallback

@@ -1,0 +1,50 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb er-visit.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-19T23:00:51Z'
+note: Run on a throwaway container. Setup files one ER VISIT (#9009080) for DFN 4
+  through DDR FILER before the flows run; the build ships none.
+captures:
+- name: on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9009080'
+    IENS: 1,
+    FIELDS: ".01;.02;.03;.05;.06;.07;.24;.25;1;6.1;6.2;6.6;12.2"
+    FLAGS: IE
+  context: 'visit(dfn: 4, visit_ien:): the ER visit setup filed'
+  raw_return: "5\0[Data]\r9009080^1^.01^3261119.214^NOV 19, 2026@21:40\r9009080^1^.02^4^DEMO,PATIENT
+    ONE\r9009080^1^.03^^\r9009080^1^.05^3^UNSCHEDULED\r9009080^1^.06^^\r9009080^1^.07^200^PROVIDER,TEST\r9009080^1^.24^2^2\r9009080^1^.25^176^PRIVATE
+    VEHICLE/WALK IN\r9009080^1^1^CHEST PAIN^CHEST PAIN\r9009080^1^6.1^164^HOME\r9009080^1^6.2^3261119.2315^NOV
+    19, 2026@23:15\r9009080^1^6.6^^\r9009080^1^12.2^3261119.2152^NOV 19, 2026@21:52\r"
+  sha256: b1c18ffc678f82472b5eb55f1d2a7c7d68d6f998d534f305af22a06081e6f02f
+- name: other_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9009080'
+    IENS: 1,
+    FIELDS: ".01;.02;.03;.05;.06;.07;.24;.25;1;6.1;6.2;6.6;12.2"
+    FLAGS: IE
+  context: 'visit(dfn: 5, visit_ien:): DFN 4''s ER visit asked for as DFN 5''s'
+  raw_return: "5\0[Data]\r9009080^1^.01^3261119.214^NOV 19, 2026@21:40\r9009080^1^.02^4^DEMO,PATIENT
+    ONE\r9009080^1^.03^^\r9009080^1^.05^3^UNSCHEDULED\r9009080^1^.06^^\r9009080^1^.07^200^PROVIDER,TEST\r9009080^1^.24^2^2\r9009080^1^.25^176^PRIVATE
+    VEHICLE/WALK IN\r9009080^1^1^CHEST PAIN^CHEST PAIN\r9009080^1^6.1^164^HOME\r9009080^1^6.2^3261119.2315^NOV
+    19, 2026@23:15\r9009080^1^6.6^^\r9009080^1^12.2^3261119.2152^NOV 19, 2026@21:52\r"
+  sha256: b1c18ffc678f82472b5eb55f1d2a7c7d68d6f998d534f305af22a06081e6f02f
+- name: not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9009080'
+    IENS: 999999,
+    FIELDS: ".01;.02;.03;.05;.06;.07;.24;.25;1;6.1;6.2;6.6;12.2"
+    FLAGS: IE
+  context: 'visit(dfn: 4, visit_ien: 999999): an ER visit the build does not have'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b

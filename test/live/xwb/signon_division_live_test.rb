@@ -25,12 +25,13 @@ module XwbSignonDivisionLive
 end
 
 class XwbSignonDivisionLiveTest < LiveSpec::Test
+  runs_as :provider
   include XwbSignonDivisionLive
   broker :xwb
   connect_only!
 
   def sign_on_as_persona(**)
-    client.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"), **)
+    client.authenticate(*sign_on_pair, **)
   end
 
   # No division named: the session acts in one of the user's divisions, and
@@ -38,12 +39,12 @@ class XwbSignonDivisionLiveTest < LiveSpec::Test
   def test_signon_binds_a_division_of_the_user
     result = sign_on_as_persona
     assert result[:success]
-    refute_empty client.divisions, "#{persona} has no DIVISION (#200 field 16), so sign-on should have refused"
+    refute_empty client.divisions, "#{role} has no DIVISION (#200 field 16), so sign-on should have refused"
     assert_includes client.divisions, client.division
     assert_equal client.division[:ien], result[:division]
     assert_equal client.division[:ien], server_division(client),
       "the server's DUZ(2) is not the division the client says it bound"
-    puts "\n#{persona}: division #{client.division.inspect}"
+    puts "\n#{role}: division #{client.division.inspect}"
   end
 
   # Naming the user's division signs on in it, through XUS DIVISION SET.

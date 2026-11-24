@@ -57,11 +57,19 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
 
   def raw(name) = CapturedReplies.raw(SLUG, name)
 
+  # The lock polls without their half-second pauses.
+  def without_lock_pauses(mod)
+    mod.define_singleton_method(:save_guard_pause) { nil }
+    yield
+  ensure
+    mod.singleton_class.remove_method(:save_guard_pause)
+  end
+
   # The captured conversation of one save; any capture can stand in for one
   # step (say, the busy lock for the lock).
-  def replay(lock: "lock", visit: "visit", type: "type_active", save: "save", readback: "readback")
+  def replay(lock: "lock", visit: "visit", type: "type_active", save: "save", readback: "readback", polls: 1)
     @client = ContextReplay.new(
-      DDR_LOCK => [ raw(lock), raw("unlock") ],
+      DDR_LOCK => [ *[ raw(lock) ] * polls, raw("unlock") ],
       DDR_GETS => [ raw(visit) ],
       DDR_LISTER => [ raw(type), raw(readback) ],
       RPC => [ raw(save) ]
@@ -123,6 +131,9 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     BH.save_health_factors(**kwargs)
 
     expected = %w[lock visit type_active save readback unlock].map { |n| self.class.capture(n).fetch("inputs") }
+    # The gem polls the lock with a zero timeout (#629); the build answers an
+    # uncontended lock the same way at any timeout.
+    expected[0] = [ expected[0].first.merge("TIMEOUT" => "0") ]
     assert_equal expected, @client.calls.select { |c| c[:rpc].is_a?(String) }.map { |c| c[:params] }
   end
 
@@ -141,9 +152,12 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   # --- refusals the build sends -----------------------------------------------
 
   def test_a_lock_another_session_holds_is_refused_before_any_read_or_write
-    replay(lock: "lock_held_elsewhere")
+    attempts = BH::SaveGuard::LOCK_ATTEMPTS
+    replay(lock: "lock_held_elsewhere", polls: attempts)
 
-    err = assert_refused_before_write(/was not acquired/i, **kwargs)
+    err = without_lock_pauses(BH) { assert_refused_before_write(/was not acquired/i, **kwargs) }
+
+    assert_equal attempts, lock_calls.length, "the lock is polled until the attempts run out"
 
     refute_match(/may have been filed|outcome unknown/i, err.message, "nothing was sent, so the outcome is known")
     assert_empty(@client.calls.select { |c| c[:rpc] == DDR_GETS })

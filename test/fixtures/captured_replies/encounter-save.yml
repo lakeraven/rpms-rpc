@@ -1,0 +1,235 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb encounter-save.rb.
+---
+rpc: BEHOENPC SAVE
+entry_point: SAVE^BEHOENPC
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-22T11:31:30Z'
+note: Run on a fresh throwaway container. Setup reads DEMO PRIMARY CARE, the server's
+  NOW and the first HEALTH FACTOR; the flows file onto synthetic DFN 990054. SNOMED
+  35489007 maps to F32.9 on the pinned build.
+captures:
+- name: save/1
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '990054'
+  - 10;3261122.1131;A
+  - ''
+  - '0'
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "5\0DEMO PRIMARY CARE^DPC^^206^PROFILE,MD^^^^"
+  sha256: 1cd49851fd9faa0a9140c0bda8dbf977177260ec372d64ea58fd74d1de0d4294
+- name: save/2
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: save/3
+  rpc: BGOVHF GET
+  inputs:
+  - 990054^^
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: save/4
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^10;3261122.1131;A
+    2: VST^DT^3261122.1131
+    3: VST^PT^990054
+    4: VST^HL^10
+    5: VST^VC^A
+    6: PRV^206^^^^1
+    7: POV+^F32.9^^^^1^^^35489007^SYNTH CAPTURE depressive disorder
+    8: CPT+^A0021^^^^^1
+    9: HF+^25^^^^206
+  - '0'
+  - '10'
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "8\00"
+  sha256: b60798d62504d6dc8f8efafeb88a3bf63c83f1053f14d505daa1cf957e83a4a8
+- name: save/5
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '990054'
+  - 10;3261122.1131;A
+  - ''
+  - '0'
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "9\0DEMO PRIMARY CARE^DPC^^206^PROFILE,MD^119^^0"
+  sha256: 78ae1f5a3eebdc4de7351b7be7022810558a0c82c35b4420df2e21c0c23534ba
+- name: save/6
+  rpc: BGOVPOV GET
+  inputs:
+  - 119^^
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "1\0204^11/22/2026^000012^DEMO IHS CLINIC^F32.9^^Depressive disorder
+    | SYNTH CAPTURE depressive disorder^^^^^^^^~^PRIMARY^PROFILE,MD^119^0^^Depressive
+    disorder^ SYNTH CAPTURE depressive disorder^||^152^^Major depressive disorder,
+    single episode, unspecified^504091^^^|\r"
+  sha256: 00f4994da0436f5395f60ad574ddf5fc3a234c4187d93b9b316082faedf1297f
+- name: save/7
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "2\011/22/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^12^119^1^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 0e6cad232add5fae4e671a384615b850bd8208ffd1ba77f12e204bfcd48f1b2c
+- name: save/8
+  rpc: BGOVHF GET
+  inputs:
+  - 990054^^
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "3\0STAGED DIABETES MANAGEMENT^0-FOOD AND EXERCISE^11/22/2026^^^119^2^25^^0^11/22/2026^^^0\r"
+  sha256: 2409f3220ae891e77098f9f0e1b8e46dfae2da28fe58d5ab31cfcba8ad085598
+- name: save/9
+  rpc: BEHOENCX GETPRV
+  inputs:
+  - '990054'
+  - ";;;119"
+  - ''
+  context: 'save: a visit with one diagnosis (F32.9, SNOMED 35489007), CPT A0021 and
+    a health factor; PROBLST^BEHOENP2 files a problem for the concept and links the
+    V POV to it'
+  raw_return: "4\0206^PROFILE,MD^1^3261122.1131\r"
+  sha256: fc4011ff52d6e1d84ab638e7abfa30ebf381f9f039bb2d769d7a4fcbbac818a2
+- name: save_again/1
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '990054'
+  - 10;3261122.1131;A
+  - ''
+  - '0'
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "5\0DEMO PRIMARY CARE^DPC^^206^PROFILE,MD^119^^0"
+  sha256: 318adf0d40b5512b4acf70c9aedc8d6c4ef8c89130346cc3a41c4854d78947d8
+- name: save_again/2
+  rpc: BGOVPOV GET
+  inputs:
+  - 119^^
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "6\0204^11/22/2026^000012^DEMO IHS CLINIC^F32.9^^Depressive disorder
+    | SYNTH CAPTURE depressive disorder^^^^^^^^~^PRIMARY^PROFILE,MD^119^0^^Depressive
+    disorder^ SYNTH CAPTURE depressive disorder^||^152^^Major depressive disorder,
+    single episode, unspecified^504091^^^|\r"
+  sha256: 0f356f36946782a12165b6c5f9467e18d6bb4899072ba8e172e4de92ef7d1e9e
+- name: save_again/3
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "7\011/22/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^12^119^1^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 352b7cd54386fdd175976f7084ba43ded1206f9dd7543618432c69b14fc6acf9
+- name: save_again/4
+  rpc: BGOVHF GET
+  inputs:
+  - 990054^^
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "8\0STAGED DIABETES MANAGEMENT^0-FOOD AND EXERCISE^11/22/2026^^^119^2^25^^0^11/22/2026^^^0\r"
+  sha256: de72aa03e06eedc6efa03ab412e1c918b6e305f2e21ebd8667550d6dbac79cc0
+- name: save_again/5
+  rpc: BEHOENCX GETPRV
+  inputs:
+  - '990054'
+  - ";;;119"
+  - ''
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "9\0206^PROFILE,MD^1^3261122.1131\r"
+  sha256: 1cbbd82e8a0c7485716af1ad73e9de3d18a665bc0b30d9719190f8b72180c220
+- name: save_again/6
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^10;3261122.1131;A
+    2: VST^DT^3261122.1131
+    3: VST^PT^990054
+    4: VST^HL^10
+    5: VST^VC^A
+    6: PRV^206^^^^1
+    7: POV+^F32.9^^^^1^^^35489007^SYNTH CAPTURE depressive disorder
+  - '0'
+  - '10'
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "1\00"
+  sha256: ee3d96c33ea92b08916ea5544f876b971831bf03f0a280f8e781e5c0fd444382
+- name: save_again/7
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '990054'
+  - 10;3261122.1131;A
+  - ''
+  - '0'
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "2\0DEMO PRIMARY CARE^DPC^^206^PROFILE,MD^119^^0"
+  sha256: 0034c1b720ac848308a030289afc50626b680f67cd8b7ca2a478c2dd2c562aa2
+- name: save_again/8
+  rpc: BGOVPOV GET
+  inputs:
+  - 119^^
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "3\0204^11/22/2026^000012^DEMO IHS CLINIC^F32.9^^Depressive disorder
+    | SYNTH CAPTURE depressive disorder^^^^^^^^~^PRIMARY^PROFILE,MD^119^0^^Depressive
+    disorder^ SYNTH CAPTURE depressive disorder^||^152^^Major depressive disorder,
+    single episode, unspecified^504091^^^|\r205^11/22/2026^000012^DEMO IHS CLINIC^F32.9^^Depressive
+    disorder | SYNTH CAPTURE depressive disorder^^^^^^^^~^PRIMARY^PROFILE,MD^119^0^^Depressive
+    disorder^ SYNTH CAPTURE depressive disorder^||^152^^Major depressive disorder,
+    single episode, unspecified^504091^^^|\r"
+  sha256: 4d4aed49da6edae473e977940e68744c38efa6f19691ade3417b68ad110a53f0
+- name: save_again/9
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "4\011/22/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^12^119^1^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 9817ffccd7691a19be9b38facca1bba76b4fea275b2e1e014b3c9c9f58e67d93
+- name: save_again/10
+  rpc: BGOVHF GET
+  inputs:
+  - 990054^^
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "5\0STAGED DIABETES MANAGEMENT^0-FOOD AND EXERCISE^11/22/2026^^^119^2^25^^0^11/22/2026^^^0\r"
+  sha256: bb2eaea43641340ee239cfeae90e285f8e32624ab44ce9725ce848f6215d1b7d
+- name: save_again/11
+  rpc: BEHOENCX GETPRV
+  inputs:
+  - '990054'
+  - ";;;119"
+  - ''
+  context: 'save: the same diagnosis again on the same visit; a new V POV, linked
+    to the problem the first save filed'
+  raw_return: "6\0206^PROFILE,MD^1^3261122.1131\r"
+  sha256: 036f4b4b9237ea1717c91f298f7fb386efeae072bd6489a15e2394b68106c63d

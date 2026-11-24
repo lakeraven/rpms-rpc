@@ -4,6 +4,8 @@ require "prism"
 require "json"
 require "yaml"
 require_relative "../../lib/rpms_rpc/conformance/build_surface"
+require_relative "../../lib/rpms_rpc/conformance/release_inventory"
+require_relative "../../test/live/live_env"
 
 # API coverage (rpms-rpc#358, ADR 0010 assertion 2): which public methods of the API modules a live
 # spec proves. Generated from the code each run; there is no hand-maintained list.
@@ -27,17 +29,13 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 #               as undeclared). The summary's undeclared is the count of "undeclared" entries.
 #
 # "proven" is static: a live spec calls the method. Whether that spec passes is `rake test:live`'s
-# answer, run per persona. Lives under tools/ so it never ships in the gem.
+# answer, run per test role. Lives under tools/ so it never ships in the gem.
 module ApiCoverage
   STATUSES = %w[proven not_in_contract].freeze
-  # The live harness (test/live/live_helper.rb) signs on as whichever persona the run's PERSONA names,
-  # and runs every spec under it; a spec has no way to declare a persona of its own. So every live
-  # spec runs as both personas ADR 0010 names.
-  PERSONAS = %w[least-privilege programmer].freeze
   RPC_SENDERS = /\Acall_rpc/ # call_rpc, call_rpc_raw, call_rpc_lines, call_rpc_global_array
   # Methods followed into when a public method calls them: module functions under lib/rpms_rpc/,
   # except DataMapper (its mappings are resolved, not followed) and the broker clients.
-  NOT_FOLLOWED = %w[data_mapper.rb client.rb cia_client.rb xwb_client.rb bmx_client.rb mock_client.rb].freeze
+  NOT_FOLLOWED = %w[data_mapper.rb client.rb cia_client.rb xwb_client.rb bmx_client.rb].freeze
 
   # What one method body references, before any resolution.
   #   mappings    DataMapper mapping names it names (DataMapper.x, DataMapper[:x], a :x argument to a
@@ -162,19 +160,58 @@ module ApiCoverage
   end
 
   # `RpmsRpc::Module.method` call sites in live spec sources: { "RpmsRpc::Patient" => { find: ["test/live/x.rb:12"] } }.
+  # A spec may name the module through a constant (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.x`) or a
+  # one-line helper with no parameters (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.x`); both resolve
+  # to the module, per file (rpms-rpc#765).
   def live_call_sites(files, root:)
     out = Hash.new { |h, k| h[k] = Hash.new { |hh, kk| hh[kk] = [] } }
     files.sort.each do |f|
-      walk(Prism.parse_file(f).value) do |n|
+      program = Prism.parse_file(f).value
+      consts, helpers = module_aliases(program)
+      walk(program) do |n|
         next unless n.is_a?(Prism::CallNode)
 
-        const = const_name(n.receiver)
+        const = live_receiver(n.receiver, consts, helpers)
         next unless const&.start_with?("RpmsRpc::")
 
         out[const][n.name] << "#{rel(f, root)}:#{n.location.start_line}"
       end
     end
     out
+  end
+
+  # { "BH" => "RpmsRpc::BehavioralHealth" } for constants, { maint: "RpmsRpc::SchedulingMaintenance" } for helpers.
+  def module_aliases(program)
+    consts = {}
+    helpers = {}
+    walk(program) do |n|
+      case n
+      when Prism::ConstantWriteNode
+        target = const_name(n.value)
+        consts[n.name.to_s] = target if target&.start_with?("RpmsRpc::")
+      when Prism::DefNode
+        next if n.receiver || n.parameters
+
+        body = n.body.is_a?(Prism::StatementsNode) && n.body.body.size == 1 ? n.body.body.first : n.body
+        target = const_name(body)
+        helpers[n.name] = target if target&.start_with?("RpmsRpc::")
+      end
+    end
+    [ consts, helpers ]
+  end
+
+  def live_receiver(node, consts, helpers)
+    if node.is_a?(Prism::CallNode) && node.receiver.nil? && node.arguments.nil? && node.block.nil?
+      return helpers[node.name]
+    end
+
+    name = const_name(node)
+    return unless name
+
+    head, rest = name.split("::", 2)
+    return name unless consts.key?(head)
+
+    [ consts[head], rest ].compact.join("::")
   end
 
   def rel(path, root) = path.delete_prefix("#{File.expand_path(root)}/")
@@ -340,19 +377,20 @@ module ApiCoverage
   # --- the report ----------------------------------------------------------------------------
 
   # The whole report for a source checkout at root, with lib/rpms_rpc loaded:
-  # { entries:, registry_tag: }. The build is the pinned release in data/rpc_coverage/config.yml.
-  def build(root)
-    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
-    registry_path = File.expand_path(cfg.fetch("registry"), root)
-    surface = RpmsRpc::Conformance::BuildSurface.load(File.dirname(registry_path), cfg.fetch("release"))
-    raise "no #8994 names in #{registry_path}" if surface.names.empty?
+  # { entries:, registry_tag: }. SURFACE is the build each RPC is looked up on (registered, entry point,
+  # reach): by default the openrpms release this checkout tests against (`rake openrpms:fetch`,
+  # rpms-rpc#724); nil reports the names alone, with registered/entry_point/reach left nil, which is
+  # all required_rpcs.json needs.
+  def build(root, surface: :current)
+    surface = RpmsRpc::Conformance::ReleaseInventory.current.surface if surface == :current
+    raise "no #8994 names in #{surface.tag}" if surface && surface.names.empty?
 
     methods = public_methods_of(RpmsRpc, File.join(root, "lib/rpms_rpc/api"))
     raise "found no public API methods under lib/rpms_rpc/api (was it loaded?)" if methods.empty?
 
     resolver = Resolver.new(lib_dir: File.join(root, "lib"), mappings: mapping_rpcs)
     live = live_call_sites(Dir[File.join(root, "test/live/**/*.rb")], root: root)
-    { entries: entries(methods, resolver: resolver, live: live, surface: surface), registry_tag: surface.tag }
+    { entries: entries(methods, resolver: resolver, live: live, surface: surface), registry_tag: surface&.tag }
   end
 
   # { mapping name => RPC name } for every loaded DataMapper mapping.
@@ -361,7 +399,7 @@ module ApiCoverage
   end
 
   # One entry per public method. methods: [[module, name]]; live: live_call_sites output;
-  # surface: the pinned build's RpmsRpc::Conformance::BuildSurface.
+  # surface: the build's RpmsRpc::Conformance::BuildSurface, or nil for names only.
   def entries(methods, resolver:, live:, surface:)
     methods.map do |mod, m|
       r = resolver.resolve(mod, m)
@@ -373,12 +411,12 @@ module ApiCoverage
         arity: mod.method(m).arity,
         params: mod.method(m).parameters.map { |kind, name| { name: name.to_s, kind: kind.to_s } },
         rpcs: r[:rpcs].map do |x|
-          rpc = surface[x[:name]]
-          { name: x[:name], registered: !rpc.nil?, entry_point: rpc&.entry_point, reach: rpc&.reach, via: x[:via] }
+          rpc = surface&.[](x[:name])
+          { name: x[:name], registered: surface ? !rpc.nil? : nil, entry_point: rpc&.entry_point, reach: rpc&.reach, via: x[:via] }
         end,
         unresolved: r[:unresolved],
         live_specs: specs,
-        personas: specs.empty? ? [] : PERSONAS,
+        roles: roles_of(specs),
         status: specs.empty? ? "not_in_contract" : "proven",
         shape: shape,
         shape_status: shape_status(shape, r[:rpcs])
@@ -414,8 +452,15 @@ module ApiCoverage
     }
   end
 
+  # The test roles the live specs at these call sites run as (each spec's `runs_as`), in table order.
+  def roles_of(call_sites, root: File.expand_path("../..", __dir__))
+    files = call_sites.map { |site| site.split(":").first }.uniq
+    declared = files.flat_map { |file| LiveSpec.declared_roles(File.join(root, file)) }
+    LiveSpec::ROLES.names.select { |name| declared.include?(name) }.map(&:to_s)
+  end
+
   def document(entries, registry_tag:)
-    { schema: 1, registry: registry_tag, personas: PERSONAS, summary: summary(entries), methods: entries }
+    { schema: 2, registry: registry_tag, roles: LiveSpec::ROLES.names.map(&:to_s), summary: summary(entries), methods: entries }
   end
 
   def report_lines(entries)
@@ -444,15 +489,52 @@ module ApiCoverage
       .select { |group| group.size > 1 }
   end
 
-  # The release's RPC list for RpmsRpc::Compatibility (#366): every RPC each public API module
-  # sends, sorted, in lib/rpms_rpc/required_rpcs.json. `rake rpc:required_rpcs` writes it;
-  # test/api_coverage/required_rpcs_test.rb fails when it is stale.
-  def required_rpcs(entries, build:)
+  CONTRACT = "rpms-rpc-contract.v1"
+
+  # Where the replies a parser is tested against live: captures replayed through the real reply
+  # parser, and wire captures gated against a mapping. Repo paths; neither ships in the gem.
+  REPLY_DIRS = %w[test/fixtures/captured_replies test/fixtures/wire_captures].freeze
+
+  # The release's RPC list and contract, in lib/rpms_rpc/required_rpcs.json. `rake rpc:required_rpcs`
+  # writes it; test/api_coverage/required_rpcs_test.rb fails when it is stale.
+  #   modules  every RPC each public API module sends, sorted: what RpmsRpc::Compatibility checks (#366)
+  #   rpcs     the contract the openrpms release gate checks a candidate against (#724), one entry per
+  #            RPC: the public methods that send it with each one's retry-safety class (read, or a
+  #            write; unclassified when retry_safety.yml has no entry), and the captured replies its
+  #            parser is tested against (none yet is an empty list)
+  def required_rpcs(entries, root: nil, retry_safety: RpmsRpc::RetrySafety.table)
     modules = entries.group_by { |e| e[:module] }.filter_map do |mod, es|
       names = es.flat_map { |e| e[:rpcs].map { |r| r[:name] } }.uniq.sort
       [ mod, names ] unless names.empty?
     end
-    { "build" => build, "modules" => modules.sort.to_h }
+    { "contract" => CONTRACT, "modules" => modules.sort.to_h,
+      "rpcs" => contract_rpcs(entries, replies: root ? captured_replies(root) : {}, retry_safety: retry_safety) }
+  end
+
+  # { RPC name => { "methods" => { "Module.method" => class }, "replies" => [paths] } }, sorted.
+  def contract_rpcs(entries, replies:, retry_safety:)
+    by_rpc = Hash.new { |h, k| h[k] = {} }
+    entries.each do |e|
+      label = "#{e[:module]}.#{e[:method]}"
+      e[:rpcs].each { |r| by_rpc[r[:name]][label] = (retry_safety[label] || :unclassified).to_s }
+    end
+    by_rpc.sort.to_h do |name, methods|
+      [ name, { "methods" => methods.sort.to_h, "replies" => replies.fetch(name, []) } ]
+    end
+  end
+
+  # { RPC name => [repo paths of the files holding a reply captured for it] }. A captured-replies
+  # file names its RPC at the top and may record a flow, each capture naming the RPC it sent.
+  def captured_replies(root)
+    out = Hash.new { |h, k| h[k] = [] }
+    REPLY_DIRS.each do |dir|
+      Dir[File.join(root, dir, "*.yml")].sort.each do |file|
+        doc = YAML.safe_load_file(file)
+        names = [ doc["rpc"], *Array(doc["captures"]).map { |c| c["rpc"] } ].compact.uniq
+        names.each { |n| out[n] << rel(file, root) }
+      end
+    end
+    out.transform_values(&:sort)
   end
 
   def required_rpcs_json(doc) = "#{JSON.pretty_generate(doc)}\n"

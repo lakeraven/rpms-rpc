@@ -12,6 +12,7 @@ require "rpms_rpc/api/agg"
 # The spec reads the raw answer and holds available? to it, so it is true on
 # any build and for any persona; it reads only.
 class AggAvailableLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
   def test_available_agrees_with_the_canrun_answer
     answer = begin
       lines = client.with_context(RpmsRpc::Agg::CONTEXT) do
@@ -25,7 +26,7 @@ class AggAvailableLiveTest < LiveSpec::Test
 
     expected = !answer.nil? && answer.positive?
     assert_equal expected, RpmsRpc::Agg.available?(client),
-                 "CANRUN answered #{answer.inspect} for #{persona}"
-    puts "\n#{persona}: CANRUN #{RpmsRpc::Agg::ADD_RPC} in #{RpmsRpc::Agg::CONTEXT} = #{answer.inspect}, available? #{expected}"
+                 "CANRUN answered #{answer.inspect} for #{role}"
+    puts "\n#{role}: CANRUN #{RpmsRpc::Agg::ADD_RPC} in #{RpmsRpc::Agg::CONTEXT} = #{answer.inspect}, available? #{expected}"
   end
 end

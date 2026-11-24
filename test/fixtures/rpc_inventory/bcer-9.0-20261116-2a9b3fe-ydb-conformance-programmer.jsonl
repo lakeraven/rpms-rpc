@@ -1,0 +1,112 @@
+{"id":"vim-info","rpc":"CIAVCXUS VIMINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.34}
+{"id":"progmode-key","rpc":"ORWU HASKEY","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"patient-list","rpc":"ORWPT LIST ALL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":44,"pass":true,"detail":null,"secs":0.31,"captured":{"dfn":"990051"}}
+{"id":"patient-appointments","rpc":"ORWPT APPTLST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"progress-notes","rpc":"TIU DOCUMENTS BY CONTEXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"orders","rpc":"ORWORR AGET","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"problem-list","rpc":"ORQQPL LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.31,"captured":{"problem":"133"}}
+{"id":"template-roots","rpc":"TIU TEMPLATE GETROOTS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":4,"pass":true,"detail":null,"secs":0.31,"captured":{"template":"3198"}}
+{"id":"hospital-locations","rpc":"BSDX HOSPITAL LOCATION","context":"BSDXRPC","expect":"answered","verdict":"answered","rows":10,"pass":true,"detail":null,"secs":0.31,"captured":{"location":"7"}}
+{"id":"user-info","rpc":"XUS GET USER INFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":8,"pass":true,"detail":null,"secs":0.31}
+{"id":"vim-registry","rpc":"CIAVMCFG GETREG","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2480,"pass":true,"detail":null,"secs":0.42}
+{"id":"vim-info-2","rpc":"CIAVCXUS VIMINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"site-info","rpc":"BEHOSICX SITEINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":11,"pass":true,"detail":null,"secs":0.34}
+{"id":"person-search","rpc":"ORWU NEWPERS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"cprs-user-info","rpc":"ORWU USERINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"community-alerts","rpc":"BQI GET COMM ALERTS SPLASH","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"orders-expired-start","rpc":"ORWOR EXPIRED","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"patient-select","rpc":"ORWPT SELECT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"patient-id-info","rpc":"ORWPT ID INFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"patient-info","rpc":"BEHOPTCX PTINFO","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"patient-bdp","rpc":"BEHOPTPC GETBDP","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"patient-cwad","rpc":"BEHOCACV CWAD","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"allergies","rpc":"ORQQAL LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"vitals","rpc":"ORQQVI VITALS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.31}
+{"id":"medications","rpc":"ORQQPS LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.33}
+{"id":"immunization-summary","rpc":"BEHOCIR GETTXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"imaging-exams","rpc":"ORWRA IMAGING EXAMS1","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"patient-tribal-fields","rpc":"DDR GETS ENTRY DATA","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":8,"pass":true,"detail":null,"secs":0.31}
+{"id":"admissions","rpc":"ORWPT ADMITLST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"inpatient-location","rpc":"ORWPT INPLOC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"phr-status","rpc":"BEHOCCD PHR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.35}
+{"id":"phr-counts","rpc":"BEHOCIR GETNUM","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"order-sheets","rpc":"ORWOR SHEETS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.3}
+{"id":"orders-unsigned","rpc":"ORWOR UNSIGN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.3}
+{"id":"problem-provider-list","rpc":"ORQQPL PROVIDER LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.31}
+{"id":"reminders-list","rpc":"ORQQPX REMINDERS LIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.42}
+{"id":"bh-visits","rpc":"AMHG GET VISITS","context":"AMHGRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"bh-treatment-plans","rpc":"AMHG GET TREATMENT PLANS","context":"AMHGRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"bh-suicide-forms","rpc":"AMHG GET SUICIDE FORMS","context":"AMHGRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"allergy-defaults","rpc":"ORWDAL32 DEF","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":38,"pass":true,"detail":null,"secs":0.34}
+{"id":"symptom-search","rpc":"ORWDAL32 SYMPTOMS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":44,"pass":true,"detail":null,"secs":0.39}
+{"id":"problem-lex-search","rpc":"ORQQPL PROBLEM LEX SEARCH","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":101,"pass":true,"detail":null,"secs":2.42}
+{"id":"refusal-reasons","rpc":"BGOREF GETREA","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":21,"pass":true,"detail":null,"secs":0.37}
+{"id":"tribes","rpc":"DDR LISTER","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":807,"pass":true,"detail":null,"secs":0.37}
+{"id":"order-sheets-all","rpc":"ORWOR TSALL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":5,"pass":true,"detail":null,"secs":0.31}
+{"id":"clinic-setup","rpc":"BSDX CLINIC SETUP","context":"BSDXRPC","expect":"answered","verdict":"answered","rows":7,"pass":true,"detail":null,"secs":0.31}
+{"id":"appointments","rpc":"BSDX ALL APPOINTMENTS","context":"BSDXRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"referral-purposes","rpc":"BMC GET PURPOSE OF REF API","context":"BMCRPC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.34}
+{"id":"health-summary-types","rpc":"BMC HEALTH SUMMARY TYPE","context":"BMCRPC","expect":"answered","verdict":"answered","rows":20,"pass":true,"detail":null,"secs":0.31}
+{"id":"reminders-applicable","rpc":"ORQQPXRM REMINDERS APPLICABLE","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":5,"pass":true,"detail":null,"secs":0.36}
+{"id":"encounter-diagnoses","rpc":"ORWPCE DIAG","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"encounter-procedures","rpc":"ORWPCE PROC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"problem-audit-history","rpc":"ORQQPL AUDIT HIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"template-items","rpc":"TIU TEMPLATE GETITEMS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":7,"pass":true,"detail":null,"secs":0.31}
+{"id":"template-boilerplate","rpc":"TIU TEMPLATE GETBOIL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.3}
+{"id":"template-text","rpc":"TIU TEMPLATE GETTEXT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.33}
+{"id":"ref-edit-cianbrpc-divget","rpc":"CIANBRPC DIVGET","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":2,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-1","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmcfg-gettempl","rpc":"CIAVMCFG GETTEMPL","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":140,"pass":true,"detail":null,"secs":0.32}
+{"id":"ref-edit-ciavmrpc-getpar-2","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-3","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-4","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-5","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.37}
+{"id":"ref-edit-ciavmrpc-getpar-6","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behoptcx-last","rpc":"BEHOPTCX LAST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"ref-edit-orqqpx-new-reminders-active","rpc":"ORQQPX NEW REMINDERS ACTIVE","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behouscx-haskeys-1","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behouscx-haskeys-2","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behouscx-haskeys-3","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-behouscx-haskeys-4","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-behouscx-haskeys-5","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-bgoutl-chksec-1","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-2","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-bgoutl-chksec-3","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-getparm","rpc":"BGOUTL GETPARM","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-4","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-5","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-6","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-bgoutl-chksec-7","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behouscx-haskeys-6","rpc":"BEHOUSCX HASKEYS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getparli-1","rpc":"CIAVMRPC GETPARLI","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":3,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-7","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-ciavmrpc-getpar-8","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-8","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-9","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-10","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getparli-2","rpc":"CIAVMRPC GETPARLI","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":11,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-9","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-orwordg-ien-1","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwordg-ien-2","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-orwordg-ien-3","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwordg-ien-4","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwordg-ien-5","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwordg-ien-6","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwordg-ien-7","rpc":"ORWORDG IEN","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-orwdxc-on","rpc":"ORWDXC ON","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-bgoutl-chksec-11","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-12","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getpar-10","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bgoutl-chksec-13","rpc":"BGOUTL CHKSEC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-behoxq-alrlist","rpc":"BEHOXQ ALRLIST","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":0,"pass":true,"detail":null,"secs":0.32}
+{"id":"ref-edit-bgovped2-topic","rpc":"BGOVPED2 TOPIC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":6,"pass":true,"detail":null,"secs":0.31}
+{"id":"ref-edit-orwu-dt","rpc":"ORWU DT","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bmc-get-reference-data","rpc":"BMC GET REFERENCE DATA","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.32}
+{"id":"ref-edit-bmc-get-users-providers","rpc":"BMC GET USERS/PROVIDERS","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bmc-health-summary-type","rpc":"BMC HEALTH SUMMARY TYPE","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":20,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-bmc-get-purpose-of-ref-api","rpc":"BMC GET PURPOSE OF REF API","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.34}
+{"id":"ref-edit-ciavmrpc-getpar-11","rpc":"CIAVMRPC GETPAR","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.3}
+{"id":"ref-edit-ciavmrpc-getparli-3","rpc":"CIAVMRPC GETPARLI","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":15,"pass":true,"detail":null,"secs":0.3}
+{"id":"reminder-dialog-access","rpc":"BEHOTIU RDLGACC","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.49}
+{"id":"vaccine-duplicate-allowed","rpc":"BGOVIMM6 DUPALLOW","context":"CIAV VUECENTRIC","expect":"answered","verdict":"answered","rows":1,"pass":true,"detail":null,"secs":0.31}
+{"id":"snomed-type-ahead","rpc":"BSTS SEARCH TYPE AHEAD","context":"BSTSRPC","expect":"answered","verdict":"answered","rows":11,"pass":true,"detail":null,"secs":0.4}

@@ -5,6 +5,7 @@ require "json"
 require "rpms_rpc"
 require_relative "../../tools/openapi/client_api"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../rpms_rpc/release_under_test"
 
 # rpms-rpc#471: catalog HTTP verbs for save, send, and retry-safety alignment (SPEC only).
 class OpenApiCatalogWriteVerbsTest < Minitest::Test
@@ -16,7 +17,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
 
   def method(mod, name, params = [], rpc: "SYNTH RPC")
     { "module" => "RpmsRpc::#{mod}", "method" => name, "arity" => params.size, "params" => params, "rpcs" => [ rpc(rpc) ],
-      "unresolved" => [], "live_specs" => [], "personas" => [], "status" => "not_in_contract" }
+      "unresolved" => [], "live_specs" => [], "roles" => [], "status" => "not_in_contract" }
   end
 
   def at(m, retry_table: nil)
@@ -27,7 +28,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
   def method_key(m) = "#{m['module']}.#{m['method']}"
 
   def catalog_rule(m, retry_table: nil)
-    doc = { "schema" => 1, "methods" => [ m ] }
+    doc = { "schema" => 2, "methods" => [ m ] }
     cat = retry_table ? Api.catalog(doc, retry_table: retry_table) : Api.catalog(doc)
     cat[:entries].fetch(0)[:op]["x-rpms"]["rule"]
   end
@@ -104,7 +105,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
   READ_GET_ROUTES = File.join(__dir__, "../fixtures/openapi/read_get_catalog_routes.tsv").freeze
 
   def test_baseline_write_class_method_stays_get_in_the_catalog
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.surface(self))
     catalog = catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
     entry = catalog[[ "RpmsRpc::Referral", "find" ]]
     refute_nil entry, "expected Referral.find in OpenAPI catalog"
@@ -120,7 +121,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
       key, route = line.split("\t", 2)
       [ key, route ]
     end
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.surface(self))
     retry_table = RpmsRpc::RetrySafety.table
     catalog = catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
     actual = {}
@@ -165,7 +166,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
 
   def test_retry_class_post_aliases_sharing_an_rpc_are_not_folded
     methods, retry_table = retry_post_pair
-    entries = Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table)[:entries]
+    entries = Api.catalog({ "schema" => 2, "methods" => methods }, retry_table: retry_table)[:entries]
 
     assert_equal %w[SyntheticFinder.lookup SyntheticFinder.search], entries.map { |e| e[:op]["operationId"] }.sort,
                  "each POST alias keeps its own operation"
@@ -176,7 +177,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
 
   def test_retry_class_post_aliases_keep_their_required_body_arguments
     methods, retry_table = retry_post_pair
-    entries = Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table)[:entries]
+    entries = Api.catalog({ "schema" => 2, "methods" => methods }, retry_table: retry_table)[:entries]
     by_id = entries.to_h { |e| [ e[:op]["operationId"], e[:op] ] }
 
     assert_equal [ "pattern" ], body_properties(by_id.fetch("SyntheticFinder.search"))
@@ -189,7 +190,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
     search = method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND")
     lookup = method("SyntheticFinder", "lookup", req("term"), rpc: "SYNTH FIND")
     retry_table = RpmsRpc::RetrySafety.table.merge(method_key(search) => :read, method_key(lookup) => :read)
-    entries = Api.catalog({ "schema" => 1, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
+    entries = Api.catalog({ "schema" => 2, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
 
     assert_equal [ "GET" ], entries.map { |e| e[:addr][:verb].upcase }.uniq
     assert_equal 1, entries.size, "GET query aliases of one query remain one operation"
@@ -204,7 +205,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
     search = method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND")
     lookup = method("SyntheticFinder", "lookup", req("payload"), rpc: "SYNTH FIND")
     retry_table = RpmsRpc::RetrySafety.table.merge(method_key(search) => :read, method_key(lookup) => :non_idempotent_write)
-    entries = Api.catalog({ "schema" => 1, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
+    entries = Api.catalog({ "schema" => 2, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
     by_id = entries.to_h { |e| [ e[:op]["operationId"], e ] }
 
     assert_equal 2, entries.size
@@ -224,7 +225,7 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
       method("SyntheticFinder", "search_by_name", req("payload"), rpc: "SYNTH FIND")
     ]
     retry_table = RpmsRpc::RetrySafety.table.merge(methods.to_h { |m| [ method_key(m), :non_idempotent_write ] })
-    error = assert_raises(OpenApi::Refused) { Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table) }
+    error = assert_raises(OpenApi::Refused) { Api.catalog({ "schema" => 2, "methods" => methods }, retry_table: retry_table) }
 
     assert_match(/are both POST \/synthetic-finders\/by-name/, error.message)
   end

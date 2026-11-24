@@ -9,6 +9,9 @@ require "rpms_rpc/api/ddr_fileman"
 # RpmsRpc::BehavioralHealth.save_progress_note over AMHG SAVE PROGRESS NOTES
 # (PN^AMHGSVF, rpms-rpc#539). WRITES on a disposable container only.
 class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
+  runs_as :bh_provider
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
+  needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
   DFN = 990_033
@@ -75,6 +78,12 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
     assert_equal CHIEF_COMPLAINT, scalars.fetch("2101")
     assert_equal placement_ien.to_s, scalars.fetch(".17")
     assert_equal REFERRED_TO, scalars.fetch(".18")
+    assert_equal CHIEF_COMPLAINT, RpmsRpc::BehavioralHealth.visit_chief_complaint(visit_ien), "AMHG GET VISIT CC reads the filed complaint"
+    info = RpmsRpc::BehavioralHealth.visit_information(visit_ien)
+    assert_equal visit_ien.to_s, info[:ien].to_s
+    assert_equal provider, info.dig(:primary_provider, :ien), "AMHG GET VISIT INFORMATION names the provider filed"
+    assert_equal [ PROGRAM, clinic_ien.to_s, type_ien.to_s ], [ info[:program], info.dig(:clinic, :ien), info.dig(:type_of_contact, :ien) ]
+    assert_equal visit_ien.to_s, RpmsRpc::BehavioralHealth.visit_activity(visit_ien)[:ien].to_s, "AMHG GET VISIT ACTIVITY answers the visit"
 
     RpmsRpc::BehavioralHealth.save_progress_note(
       record_ien: visit_ien,
@@ -104,8 +113,9 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
     assert_equal "", cleared.fetch("2101")
     assert_equal "", cleared.fetch(".17")
     assert_equal "", cleared.fetch(".18")
+    assert_nil RpmsRpc::BehavioralHealth.visit_chief_complaint(visit_ien), "a cleared complaint reads back as none"
 
-    puts "\n#{persona}: BH visit #{visit_ien} progress note saved on DFN #{DFN} " \
+    puts "\n#{role}: BH visit #{visit_ien} progress note saved on DFN #{DFN} " \
          "(placement #{placement_ien}, multiline SOAP verified via AMHG GET VISIT SOAP)"
   end
 

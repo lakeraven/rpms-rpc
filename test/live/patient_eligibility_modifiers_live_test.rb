@@ -9,6 +9,8 @@ require "rpms_rpc/api/ddr_fileman"
 # with DDR FILER because AG's GUI has no window for it. Each write is read back
 # through FileMan, and the spec removes what it adds.
 class PatientEligibilityModifiersLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-07.3"
   writes!
 
   DFN = 990_008 # HOTEL,DREW, a synthetic seed patient

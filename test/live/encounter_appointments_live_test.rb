@@ -9,6 +9,7 @@ require "rpms_rpc/api/encounter"
 # listing it as a visit (rpms-rpc#679). ORWPT APPTLST is in CIAV VUECENTRIC;
 # the spec reads only.
 class EncounterAppointmentsLiveTest < LiveSpec::Test
+  runs_as :provider
   CONTEXT = "CIAV VUECENTRIC"
   NO_PATIENT = 1 # no PATIENT (#2) entry on the pinned build: VAERR 1
   DEMO = 4 # DEMO,PATIENT ONE on the pinned build: no appointment in APPTLST's window

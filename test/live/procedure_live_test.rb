@@ -7,7 +7,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Procedure.for_patient reads the patient's V CPT entries through BGOVCPT GET
 # (GET^BGOVCPT, FOIA GUI Objects BGOVCPT.m:24-31 for the row layout), the read
 # VueCentric's procedure component uses. It is in CIAV VUECENTRIC, the option
-# sign-on binds, for PROV123 and the programmer alike.
+# sign-on binds, for the provider and the operator alike.
 #
 # The spec asserts that the call answers for each demo patient, then checks
 # one row against the V CPT entry it came from (file 9000010.18, read with
@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 # the gem's contract, so the spec finds one with DDR LISTER rather than naming
 # a DFN. The spec reads only; it files nothing.
 class ProcedureLiveTest < LiveSpec::Test
+  runs_as :provider
   DEMO_DFNS = %w[3 990001 990027].freeze
 
   def test_for_patient_answers_for_each_demo_patient
@@ -39,7 +40,7 @@ class ProcedureLiveTest < LiveSpec::Test
     assert_equal fields.dig(".03", :internal), row[:visit_ien], "visit disagrees with V CPT #{v_cpt_ien} field .03"
     quantity = fields.dig(".16", :internal)
     assert_equal (quantity.to_s.empty? ? nil : quantity.to_i), row[:quantity], "quantity disagrees with V CPT #{v_cpt_ien} field .16"
-    puts "\n#{persona}: DFN #{dfn} V CPT #{v_cpt_ien} -> #{row.slice(:date, :cpt_code, :name, :provider).inspect}"
+    puts "\n#{role}: DFN #{dfn} V CPT #{v_cpt_ien} -> #{row.slice(:date, :cpt_code, :name, :provider).inspect}"
   end
 
   private

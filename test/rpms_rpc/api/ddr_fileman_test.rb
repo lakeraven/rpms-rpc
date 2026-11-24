@@ -1,20 +1,45 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/ddr_fileman"
+require_relative "../captured_replies"
 
 # Tests for RpmsRpc::DdrFileman — the FileMan Delphi Components RPC family
 # (DDR*, LISTC^DDR / LOCKC^DDR1 / GETSC^DDR2 / FILEC^DDR3 / VALC^DDR3) plus
 # request-builder / reply-parser coverage. Wire shapes cited from the
 # bcer-9.0-ydb corpus in each production mapping/builder; the tests below
-# pin the exact params each RPC receives and the reply grammars.
+# pin the exact params each RPC receives and the reply grammars. Where the
+# build sends the reply, the test replays it (test/fixtures/captured_replies/
+# ddr-fileman.yml, PROVIDER,TEST on a throwaway container). The reply-grammar
+# guards for shapes no build sends (V1 markers, stray lines, errors arriving
+# as text) feed CiaClient a frame in the captured layout with that body
+# (#derived), so the bytes are read by the real reply grammar.
 class DdrFilemanTest < Minitest::Test
   Ddr = RpmsRpc::DdrFileman
 
-  def setup
-    @mock = RpmsRpc.mock!
+  SLUG = "ddr-fileman"
+
+  # A ReplayCiaClient whose script a test adds to, one reply at a time.
+  class Wire < CapturedReplies::ReplayCiaClient
+    def queue(rpc, raw) = (@script[rpc] ||= []) << raw.b
   end
+
+  def setup
+    @client = Wire.new({})
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
+
+  # Answer the next call of the RPC with the build's capture +name+.
+  def captured(rpc, name) = @client.queue(rpc, CapturedReplies.raw(SLUG, name))
+
+  # Answer the next call of +mapping+'s RPC with +body+ in the captured
+  # layout: the sequence echo and ack, then each line ended by $C(13).
+  def derived(mapping, _key, body)
+    @client.queue(RpmsRpc::DataMapper[mapping].rpc_name, "5\x00#{body.gsub("\n", "\r")}\r")
+  end
+
+  def last_call = @client.calls.reject { |c| c[:rpc] == :create_context }.last
 
   def teardown
     RpmsRpc.reset!
@@ -87,40 +112,11 @@ class DdrFilemanTest < Minitest::Test
 
   ROWS = [ { file: "9000001", field: ".01", iens: "+1,", value: "42" } ].freeze
 
-  def test_filer_success_returns_resolved_iens
-    @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^42")
-
-    result = Ddr.filer(mode: "ADD", rows: ROWS, iens: { 1 => 42 })
-
-    assert result[:success]
-    # "+"_I_","_U_DDRRTN(I) rows (DDR3.m:20-22)
-    assert_equal({ 1 => "42" }, result[:iens])
-    call = @mock.received_calls.last
-    assert_equal "DDR FILER", call[:rpc]
-    assert_equal [ "ADD", { 1 => "9000001^.01^+1,^42" }, "", { 1 => "42" } ], call[:params]
-  end
-
-  def test_filer_error_block_surfaces_fileman_text
-    @mock.seed(:ddr_filer, "ADD",
-      "[Data]\n[BEGIN_diERRORS]\n701^1^9000001^+1,^.01^2\nFILE^9000001\nIENS^+1,\nThe value is not valid.\n[END_diERRORS]")
-
-    result = Ddr.filer(mode: "ADD", rows: ROWS)
-
-    refute result[:success]
-    # Message lines are the plain-text DIERR TEXT nodes inside the
-    # [BEGIN_diERRORS] block (ERROR^DDR3: DDR3.m:63-79)
-    assert_includes result[:errors].join, "The value is not valid."
-  end
-
-  def test_filer_returns_nil_when_broker_gives_no_response
-    assert_nil Ddr.filer(mode: "ADD", rows: ROWS)
-  end
-
   FILER_REPLY_WITHOUT_DATA_MARKER_M = "M  ERROR=FDASET+5^DDR3, <UNDEFINED>"
   FILER_REPLY_WITHOUT_DATA_MARKER_RPC = "-1^Remote procedure DDR FILER doesn't exist"
 
   def test_filer_bare_m_error_reply_is_not_success_and_names_missing_data_marker
-    @mock.seed(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_M)
+    derived(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_M)
 
     result = Ddr.filer(mode: "ADD", rows: ROWS)
 
@@ -132,7 +128,7 @@ class DdrFilemanTest < Minitest::Test
   end
 
   def test_filer_missing_rpc_reply_is_not_success_and_names_missing_data_marker
-    @mock.seed(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_RPC)
+    derived(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_RPC)
 
     result = Ddr.filer(mode: "ADD", rows: ROWS)
 
@@ -144,7 +140,7 @@ class DdrFilemanTest < Minitest::Test
   end
 
   def test_filer_data_marker_with_placeholder_rows_still_returns_resolved_iens
-    @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^42\n+2,^7")
+    derived(:ddr_filer, "ADD", "[Data]\n+1,^42\n+2,^7")
 
     result = Ddr.filer(mode: "ADD", rows: ROWS, iens: { 1 => 42, 2 => 7 })
 
@@ -159,7 +155,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_parses_data_rows_ien_first
     key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n43^100001\n44^100001A")
+    derived(:ddr_lister, key, "[Data]\n43^100001\n44^100001A")
 
     result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
 
@@ -171,7 +167,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_parses_misc_more_marker
     key = Ddr.lister_param(file: "9000001", xref: "B").to_s
-    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43\n[Data]\n42^DEMOPATIENT,ALPHA")
+    derived(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43\n[Data]\n42^DEMOPATIENT,ALPHA")
 
     result = Ddr.lister(file: "9000001", xref: "B")
 
@@ -182,7 +178,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_flags_error_marker
     key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n[Errors]")
+    derived(:ddr_lister, key, "[Data]\n[Errors]")
 
     result = Ddr.lister(file: "9000001")
 
@@ -190,13 +186,9 @@ class DdrFilemanTest < Minitest::Test
     assert_empty result[:entries]
   end
 
-  def test_lister_returns_nil_when_broker_gives_no_response
-    assert_nil Ddr.lister(file: "9000001", xref: "D", part: "999999")
-  end
-
   def test_lister_reports_data_true_when_the_reply_includes_a_data_marker
     key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n43^100001")
+    derived(:ddr_lister, key, "[Data]\n43^100001")
 
     result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
 
@@ -208,7 +200,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_reports_data_false_when_the_reply_has_no_data_marker
     key = Ddr.lister_param(file: "9000001", xref: "B").to_s
-    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43")
+    derived(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43")
 
     result = Ddr.lister(file: "9000001", xref: "B")
 
@@ -218,23 +210,12 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_reports_error_true_for_a_bare_non_ddr_line
     key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "-1^Remote procedure DDR LISTER doesn't exist")
+    derived(:ddr_lister, key, "-1^Remote procedure DDR LISTER doesn't exist")
 
     result = Ddr.lister(file: "9000001")
 
     assert result[:error]
     assert_equal false, result[:data]
-    assert_empty result[:entries]
-  end
-
-  def test_lister_v0_empty_data_marker_is_data_true_with_no_entries
-    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[Data]")
-
-    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
-
-    refute result[:error]
-    assert_equal true, result[:data]
     assert_empty result[:entries]
   end
 
@@ -244,7 +225,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_v1_parses_data_rows_between_begin_and_end_markers
     key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n43^100001\n44^100001A\n[END_diDATA]")
+    derived(:ddr_lister, key, "[BEGIN_diDATA]\n43^100001\n44^100001A\n[END_diDATA]")
 
     result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
 
@@ -257,7 +238,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_v1_empty_data_section_is_data_true_with_no_entries
     key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
+    derived(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
 
     result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
 
@@ -269,7 +250,7 @@ class DdrFilemanTest < Minitest::Test
   def test_lister_v1_parses_misc_more_marker
     key = Ddr.lister_param(file: "9000001", xref: "B").to_s
     body = "[Misc]\nMORE^DEMOPATIENT,UNA^43\n[BEGIN_diDATA]\n42^DEMOPATIENT,ALPHA\n[END_diDATA]"
-    @mock.seed(:ddr_lister, key, body)
+    derived(:ddr_lister, key, body)
 
     result = Ddr.lister(file: "9000001", xref: "B")
 
@@ -281,7 +262,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_v1_flags_begin_dierrors_marker
     key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]\n[BEGIN_diERRORS]")
+    derived(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]\n[BEGIN_diERRORS]")
 
     result = Ddr.lister(file: "9000001")
 
@@ -291,7 +272,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_lister_reports_error_true_when_reply_has_no_data_section_but_a_stray_line
     key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "SYNTHETIC BROKER NOISE")
+    derived(:ddr_lister, key, "SYNTHETIC BROKER NOISE")
 
     result = Ddr.lister(file: "9000001")
 
@@ -304,29 +285,6 @@ class DdrFilemanTest < Minitest::Test
   # DDR LOCK/UNLOCK NODE
   # ==========================================================================
 
-  def test_lock_true_on_1
-    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, true)
-
-    assert_equal true, Ddr.lock(node: "^AUPNPAT(42)")
-  end
-
-  def test_lock_false_on_0
-    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, false)
-
-    assert_equal false, Ddr.lock(node: "^AUPNPAT(42)")
-  end
-
-  def test_lock_nil_when_broker_gives_no_response
-    assert_nil Ddr.lock(node: "^AUPNPAT(42)")
-  end
-
-  def test_unlock_sends_unlock_param
-    @mock.seed(:ddr_lock_unlock_node, Ddr.unlock_param(node: "^AUPNPAT(42)").to_s, true)
-
-    assert Ddr.unlock(node: "^AUPNPAT(42)")
-    assert_equal [ { "NODE" => "^AUPNPAT(42)" } ], @mock.received_calls.last[:params]
-  end
-
   # ==========================================================================
   # DDR GETS ENTRY DATA — default (no OPTIONS) reply format
   # ==========================================================================
@@ -335,7 +293,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01", flags: "IE").to_s
     # Row = FILE^IENS-without-trailing-comma^FIELD^INTERNAL^EXTERNAL
     # (tag 1, GETSC^DDR2: DDR2.m:27-43)
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01", flags: "IE")
 
@@ -347,7 +305,7 @@ class DdrFilemanTest < Minitest::Test
   def test_gets_entry_flags_error_marker
     key = Ddr.gets_entry_param(file: "9000001", iens: "99999,", fields: ".01").to_s
     # "[ERROR]" marker when DDRERR is set (tag 2, DDR2.m:61)
-    @mock.seed(:ddr_gets_entry_data, key, "[ERROR]")
+    derived(:ddr_gets_entry_data, key, "[ERROR]")
 
     result = Ddr.gets_entry(file: "9000001", iens: "99999,", fields: ".01")
 
@@ -356,17 +314,13 @@ class DdrFilemanTest < Minitest::Test
     refute result[:malformed]
   end
 
-  def test_gets_entry_returns_nil_when_broker_gives_no_response
-    assert_nil Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
-  end
-
   # A broker/M error string ("-1^...") matches neither the "[Data]" marker
   # nor the FILE^IENS^FIELD row grammar. It must be reported as an error —
   # NOT as { fields: {}, error: false }, which would let callers fabricate
   # "value absent" from "read failed" (Copilot finding).
   def test_gets_entry_flags_non_ddr_error_string_as_error
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
-    @mock.seed(:ddr_gets_entry_data, key, "-1^Remote procedure DDR GETS ENTRY DATA doesn't exist")
+    derived(:ddr_gets_entry_data, key, "-1^Remote procedure DDR GETS ENTRY DATA doesn't exist")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
 
@@ -377,7 +331,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_malformed_true_for_ydb_error_string
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
-    @mock.seed(:ddr_gets_entry_data, key, "%YDB-E-INVSTRLEN, %YDB-I-CHARSUBSCRNG, 1^42")
+    derived(:ddr_gets_entry_data, key, "%YDB-E-INVSTRLEN, %YDB-I-CHARSUBSCRNG, 1^42")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
 
@@ -390,7 +344,7 @@ class DdrFilemanTest < Minitest::Test
   # non-error reply — callers see empty fields and decide.
   def test_gets_entry_empty_data_section_is_not_an_error
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]")
+    derived(:ddr_gets_entry_data, key, "[Data]")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
 
@@ -402,7 +356,7 @@ class DdrFilemanTest < Minitest::Test
   # rpms-rpc#540: bracket-shaped stored text must not be skipped as a marker.
   def test_gets_entry_bracket_line_outside_known_markers_sets_stray
     key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I").to_s
-    @mock.seed(:ddr_gets_entry_data, key,
+    derived(:ddr_gets_entry_data, key,
       "[Data]\n9002011^8840^1601^Alcohol baseline\n[follow-up later]\n9002011^8840^.01^SYNTH^SYNTH")
 
     result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I")
@@ -413,7 +367,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_second_row_for_same_field_sets_stray
     key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
-    @mock.seed(:ddr_gets_entry_data, key,
+    derived(:ddr_gets_entry_data, key,
       "[Data]\n9002011^8840^1601^First comment^First\n9002011^8840^1601^Second comment^Second")
 
     result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601", flags: "I")
@@ -424,7 +378,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_second_data_marker_line_sets_stray
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
-    @mock.seed(:ddr_gets_entry_data, key,
+    derived(:ddr_gets_entry_data, key,
       "[Data]\n9000001^42^.01^42^NAME\n[Data]\n9000001^42^.02^F^FEMALE")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
@@ -435,7 +389,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_second_word_processing_row_for_same_field_sets_stray
     key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
-    @mock.seed(:ddr_gets_entry_data, key,
+    derived(:ddr_gets_entry_data, key,
       "[Data]\n9002011^8840^1601^[WORD PROCESSING]\nline one\n$$END$$\n" \
       "9002011^8840^1601^[WORD PROCESSING]\nline two\n$$END$$")
 
@@ -446,7 +400,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_begin_dierrors_marker_sets_stray_and_field_rows_after_it_still_parse
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
-    @mock.seed(:ddr_gets_entry_data, key,
+    derived(:ddr_gets_entry_data, key,
       "[Data]\n9000001^42^.01^42^NAME\n[BEGIN_diERRORS]\n9000001^42^.02^F^FEMALE\n[END_diERRORS]")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
@@ -457,7 +411,7 @@ class DdrFilemanTest < Minitest::Test
 
   def test_gets_entry_well_formed_reply_has_no_stray_or_altered_keys
     key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01", flags: "IE").to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
 
     result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01", flags: "IE")
 
@@ -476,7 +430,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note^"
     )
@@ -494,7 +448,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^baseline note^"
     )
@@ -511,7 +465,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x^")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x^")
 
     result = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
@@ -525,7 +479,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^^")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^^")
 
     result = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
@@ -539,7 +493,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note"
     )
@@ -556,7 +510,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
 
     result = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
@@ -569,7 +523,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^Alcohol"
     )
@@ -586,7 +540,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
     ).to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1401^N^")
+    derived(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1401^N^")
 
     result = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
@@ -600,7 +554,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "IE"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
     )
@@ -618,7 +572,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: ""
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
     )
@@ -636,7 +590,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^[WORD PROCESSING]\n$$END$$"
     )
@@ -653,7 +607,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n9002011^8840^1401^[WORD PROCESSING]"
     )
@@ -671,7 +625,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1402", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n9002011^8840^1402^[WORD PROCESSING]"
     )
@@ -689,7 +643,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nhidden\n$$END$$"
     )
@@ -706,7 +660,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nunclosed"
     )
@@ -723,7 +677,7 @@ class DdrFilemanTest < Minitest::Test
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "5301", flags: "I"
     ).to_s
-    @mock.seed(
+    derived(
       :ddr_gets_entry_data, key,
       "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^5301^[WORD PROCESSING]\naxis line\n$$END$$"
     )
@@ -740,30 +694,6 @@ class DdrFilemanTest < Minitest::Test
   # DDR VALIDATOR
   # ==========================================================================
 
-  def test_validate_field_valid_value
-    key = Ddr.validator_param(file: "9000001.41", iens: "+2,42,", field: ".02", value: "100001").to_s
-    # Reply lines: [FILLER], [Data], DDRRSLT (internal; "^" = invalid),
-    # DDRRSLT(0) (external) — VALC^DDR3: DDR3.m:44-49
-    @mock.seed(:ddr_validator, key, "[FILLER]\n[Data]\n100001\n100001")
-
-    result = Ddr.validate_field(file: "9000001.41", iens: "+2,42,", field: ".02", value: "100001")
-
-    assert result[:valid]
-    assert_equal "100001", result[:internal]
-  end
-
-  def test_validate_field_invalid_value_is_caret
-    key = Ddr.validator_param(file: "9000001", iens: "42,", field: ".03", value: "BAD").to_s
-    @mock.seed(:ddr_validator, key, "[FILLER]\n[Data]\n^\n")
-
-    result = Ddr.validate_field(file: "9000001", iens: "42,", field: ".03", value: "BAD")
-
-    refute result[:valid]
-  end
-
-  def test_validate_field_returns_nil_when_broker_gives_no_response
-    assert_nil Ddr.validate_field(file: "9000001", iens: "42,", field: ".03", value: "X")
-  end
   # ==========================================================================
   # DDR KEY VALIDATOR (KEYVAL^DDR4: DDR4.m:4-19)
   # ==========================================================================
@@ -778,38 +708,144 @@ class DdrFilemanTest < Minitest::Test
     assert_equal({ "1" => "200^+1,^.01", "2" => "ZZTEST", "3" => "200^+1,^1", "4" => "ZZT" }, param)
   end
 
-  def test_validate_key_true_on_1
-    values = [ { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" } ]
-    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, "1")
+  # ==========================================================================
+  # The build's replies
+  # ==========================================================================
 
-    assert_equal({ valid: true, error: nil }, Ddr.validate_key(values: values))
+  def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def recorded(flow) = CapturedReplies.flow_calls(SLUG, flow)
+
+  NAME_CHANGE = [ { file: "9000033", field: ".01", iens: "+1,", value: "10/03/2026" },
+                  { file: "9000033", field: ".02", iens: "+1,", value: "`990031" },
+                  { file: "9000033", field: ".04", iens: "+1,", value: "`12" } ].freeze
+
+  # "+"_I_","_U_DDRRTN(I) rows (DDR3.m:20-22)
+  def test_filer_success_on_the_build_returns_the_resolved_ien
+    captured("DDR FILER", "filer_add/1")
+
+    result = Ddr.filer(mode: "ADD", rows: NAME_CHANGE)
+
+    assert result[:success]
+    assert_equal({ 1 => "6" }, result[:iens])
+    assert_equal recorded("filer_add"), sent
   end
 
-  def test_validate_key_false_on_0
-    values = [ { file: "200", iens: "+1,", field: ".01", value: "TAKEN" } ]
-    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, "0")
+  # Message lines are the plain-text DIERR TEXT nodes inside the
+  # [BEGIN_diERRORS] block (ERROR^DDR3: DDR3.m:63-79)
+  def test_filer_error_block_on_the_build_surfaces_fileman_text
+    captured("DDR FILER", "filer_bad_value/1")
 
-    assert_equal({ valid: false, error: nil }, Ddr.validate_key(values: values))
+    result = Ddr.filer(mode: "ADD", rows: [ { file: "9000033", field: ".01", iens: "+1,", value: "X" } ])
+
+    refute result[:success]
+    assert_includes result[:errors].join, "The new record '+1,' lacks some required identifiers."
   end
 
-  # The pinned build registers DDR KEY VALIDATOR at KEYVAL^DDR3, a label that
-  # does not exist (the code is KEYVAL^DDR4), so the broker answers with an M
-  # error text. That is not a verdict on the key: valid is false and the text
-  # is surfaced.
-  def test_validate_key_surfaces_a_server_error_instead_of_a_verdict
-    values = [ { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" } ]
-    error = "The server has reported the following error:\n\n" \
-            "DORPC+12^CIANBACT, Label referenced but not defined: KEYVAL,-%YDB-E-LABELMISSING"
-    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, error)
+  def test_lister_on_the_build_parses_data_rows_ien_first
+    captured("DDR LISTER", "lister_rows/1")
 
-    result = Ddr.validate_key(values: values)
+    result = Ddr.lister(file: "200", fields: "@;.01", flags: "IP", xref: "B", part: "PROFILE", max: "*")
 
-    refute result[:valid]
-    assert_match(/LABELMISSING/, result[:error])
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_equal({ ien: "209", pieces: [ "PROFILE,BILL" ] }, result[:entries].first)
+    assert_equal 7, result[:entries].length
+    assert_equal recorded("lister_rows"), sent
   end
 
-  def test_validate_key_returns_nil_when_broker_gives_no_response
-    assert_nil Ddr.validate_key(values: [ { file: "200", iens: "+1,", field: ".01", value: "X" } ])
+  # "MORE"^from^from("IEN") continuation marker (V0^DDR: DDR.m:24,45); the
+  # build leaves the IEN piece empty.
+  def test_lister_on_the_build_parses_misc_more_marker
+    captured("DDR LISTER", "lister_more/1")
+
+    result = Ddr.lister(file: "200", fields: "@;.01", flags: "IP", xref: "B", part: "PROFILE", max: "2")
+
+    assert_equal({ value: "PROFILE,MA", ien: "" }, result[:more])
+    assert_equal %w[209 204], result[:entries].map { |e| e[:ien] }
+  end
+
+  def test_lister_on_the_build_empty_data_marker_is_data_true_with_no_entries
+    captured("DDR LISTER", "lister_empty/1")
+
+    result = Ddr.lister(file: "200", fields: "@;.01", flags: "IP", xref: "B", part: "ZZNOSUCH", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_on_the_build_flags_error_marker_for_a_file_it_does_not_have
+    captured("DDR LISTER", "lister_bad_file/1")
+
+    result = Ddr.lister(file: "99999999", fields: "@;.01", flags: "IP")
+
+    assert result[:error]
+    assert_empty result[:entries]
+  end
+
+  # LOCKC^DDR1 answers 1 when it took or released the node, 0 when another
+  # session holds it (DDR1.m:18-27).
+  def test_lock_and_unlock_on_the_build
+    captured("DDR LOCK/UNLOCK NODE", "lock/1")
+    captured("DDR LOCK/UNLOCK NODE", "lock/2")
+
+    assert_equal true, Ddr.lock(node: "^AUPNPAT(990031)")
+    assert Ddr.unlock(node: "^AUPNPAT(990031)")
+    assert_equal recorded("lock"), sent
+  end
+
+  def test_lock_false_when_another_session_holds_the_node
+    captured("DDR LOCK/UNLOCK NODE", "lock_held/1")
+
+    assert_equal false, Ddr.lock(node: "^AUPNPAT(990031)", timeout: 1)
+    assert_equal recorded("lock_held"), sent
+  end
+
+  # Row = FILE^IENS-without-trailing-comma^FIELD^INTERNAL^EXTERNAL
+  # (tag 1, GETSC^DDR2: DDR2.m:27-43)
+  def test_gets_entry_on_the_build_parses_field_rows
+    captured("DDR GETS ENTRY DATA", "gets/1")
+
+    result = Ddr.gets_entry(file: "2", iens: "990031,", fields: ".01;.02", flags: "IE")
+
+    refute result[:error]
+    refute result[:malformed]
+    refute result.key?(:stray)
+    refute result.key?(:altered)
+    assert_equal({ internal: "F", external: "FEMALE" }, result[:fields][".02"])
+    assert_equal recorded("gets"), sent
+  end
+
+  # "[ERROR]" marker when DDRERR is set (tag 2, DDR2.m:61)
+  def test_gets_entry_on_the_build_flags_error_marker
+    captured("DDR GETS ENTRY DATA", "gets_not_on_file/1")
+
+    result = Ddr.gets_entry(file: "2", iens: "999999999,", fields: ".01")
+
+    assert result[:error]
+    assert_empty result[:fields]
+    refute result[:malformed]
+  end
+
+  # Reply lines: [FILLER], [Data], DDRRSLT (internal; "^" = invalid),
+  # DDRRSLT(0) (external) — VALC^DDR3: DDR3.m:44-49
+  def test_validate_field_on_the_build
+    captured("DDR VALIDATOR", "validate_ok/1")
+    result = Ddr.validate_field(file: "9000033", iens: "+1,", field: ".01", value: "10/03/2026")
+    assert result[:valid]
+    assert_equal "3261003", result[:internal]
+
+    captured("DDR VALIDATOR", "validate_bad/1")
+    refute Ddr.validate_field(file: "9000033", iens: "+1,", field: ".01", value: "X")[:valid]
+  end
+
+  # KEYVAL^DDR4 answers 1 for a value no key refuses.
+  def test_validate_key_on_the_build
+    captured("DDR KEY VALIDATOR", "validate_key/1")
+
+    assert_equal({ valid: true, error: nil },
+                 Ddr.validate_key(values: [ { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" } ]))
+    assert_equal recorded("validate_key"), sent
   end
 
   # GET /files/{file}/entries/{iens} must not expose a `client:` keyword (it

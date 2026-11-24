@@ -7,13 +7,14 @@ require_relative "../captured_replies"
 
 # Referral.find (BMC GET REFERRAL, GTRFBYID^BMCRPC1) on the replies a fresh
 # rpms-ydb container sent (test/fixtures/captured_replies/bmc-get-referral.yml),
-# replayed through CiaClient: the refusal cases, per ADR 0009. The record read
-# is not pinned here: on the pinned build the only referral a fresh container
-# can get (the minimal one test/live/referral_cancel_live_test.rb files) has no
-# referral number, and GTRFBYID answers an M error for it.
+# replayed through CiaClient, per ADR 0009. find checks the entry with DDR
+# GETS ENTRY DATA first, because the routine raises an M error both for an IEN
+# not on file and for a referral with no REFERRAL # (.02) (#767); the find_*
+# flows are what find sent for each case, and m_error / no_such_referral are
+# what the routine answers when it is called for them anyway.
 #
-# This file used to seed three referral hashes into MockClient and read them
-# back, which asserted the fake and nothing RPMS sent (rpms-rpc#622).
+# It replaced hand-seeded referral rows, which proved nothing RPMS sent
+# (rpms-rpc#622).
 class ReferralLifecycleTest < Minitest::Test
   SLUG = "bmc-get-referral"
   RPC = "BMC GET REFERRAL"
@@ -22,35 +23,56 @@ class ReferralLifecycleTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  def replay(name)
-    client = CapturedReplies::ReplayCiaClient.new(RPC => [ CapturedReplies.raw(SLUG, name) ])
+  def replay_flow(name)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script(SLUG, name))
     RpmsRpc.configure { |cfg| cfg.client = client }
     client
   end
 
-  def sent(name) = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == name }.fetch("inputs")
+  def sent_rpcs(client) = client.calls.map { |c| c[:rpc] }
 
-  # An M error inside GTRFBYID is never a referral, nor "no referral".
-  def test_an_m_error_inside_the_read_raises
-    client = replay("m_error")
-
-    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Referral.find("1") }
-    assert_includes error.message, "GTRFBYID+31^BMCRPC1"
-    assert_equal [ sent("m_error") ], client.calls.select { |c| c[:rpc] == RPC }.map { |c| c[:params] }
+  # Called for a referral with no number, GTRFBYID dies at +31; called for an
+  # IEN not on file, the broker answers an M error in OUT^CIANBACT. These are
+  # the replies find no longer asks for.
+  def test_the_routine_raises_for_both_cases_find_now_checks_first
+    { "m_error" => "GTRFBYID+31^BMCRPC1", "no_such_referral" => "OUT+5^CIANBACT" }.each do |name, where|
+      client = CapturedReplies::ReplayCiaClient.new(RPC => [ CapturedReplies.raw(SLUG, name) ])
+      error = assert_raises(RpmsRpc::Client::RpcMError) { client.call_rpc(RPC, "1") }
+      assert_includes error.message, where
+    end
   end
 
-  # For an IEN no referral has, GTRFBYID sets its message as the result
-  # (BMCRPC1.m:57), and on the pinned build the broker answers an M error in
-  # OUT^CIANBACT for that reply. It raises, rather than reading as a record.
-  def test_an_ien_with_no_referral_raises_rather_than_reading_as_a_record
-    replay("no_such_referral")
+  def test_a_referral_not_on_file_is_nil_and_bmc_get_referral_is_not_sent
+    client = replay_flow("find_not_on_file")
 
-    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Referral.find("999999999") }
-    assert_includes error.message, "OUT+5^CIANBACT"
+    assert_nil RpmsRpc::Referral.find("999999999")
+    assert_equal CapturedReplies.flow_calls(SLUG, "find_not_on_file").map(&:first), sent_rpcs(client) - [ :create_context ]
+    refute_includes sent_rpcs(client), RPC
+  end
+
+  def test_a_referral_with_no_number_is_nil_and_bmc_get_referral_is_not_sent
+    client = replay_flow("find_no_number")
+
+    assert_nil RpmsRpc::Referral.find("1")
+    refute_includes sent_rpcs(client), RPC
+  end
+
+  def test_a_numbered_referral_reads_as_its_record
+    client = replay_flow("find_numbered")
+
+    record = RpmsRpc::Referral.find("2")
+
+    assert_equal CapturedReplies.flow_calls(SLUG, "find_numbered"), client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+    assert_equal "2", record[:ien]
+    assert_equal "9000000000002", record[:referral_number]
+    assert_equal 990_001, record[:patient_dfn]
+    assert_equal [ "N", "O" ], record.values_at(:type, :visit_type)
+    assert_equal "ACTIVE", record[:status]
+    assert_empty record[:diagnoses]
   end
 
   def test_a_nil_ien_reaches_no_wire
-    client = replay("m_error")
+    client = replay_flow("find_numbered")
 
     assert_nil RpmsRpc::Referral.find(nil)
     assert_empty client.calls

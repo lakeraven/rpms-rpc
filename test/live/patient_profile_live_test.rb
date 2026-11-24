@@ -11,6 +11,8 @@ require "rpms_rpc/api/patient"
 # through DDR GETS ENTRY DATA. A languages entry cannot be deleted through AG, so
 # run on a disposable container.
 class PatientProfileLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-08.1", "S-REG-08.2", "S-REG-08.3", "S-REG-08.4", "S-REG-10.1", "S-REG-12.2", "S-REG-12.3", "S-REG-12.4"
   writes!
 
   DFN = 990_008 # HOTEL,DREW, a synthetic seed patient

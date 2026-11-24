@@ -3,6 +3,7 @@
 require "digest"
 require "yaml"
 require_relative "core"
+require_relative "test_roles"
 require_relative "fileman_date_parser"
 require_relative "wire_capture/evidence"
 require_relative "wire_capture/note_write_flow"
@@ -15,7 +16,7 @@ module RpmsRpc
   # "is the RPC registered / what return TYPE does it declare" down to the
   # FIELD-LEVEL layout of an actual return. The failure class this closes:
   # a DataMapper mapping authored from belief passes green against mocks
-  # that mirror the same belief (MockClient formats seeds THROUGH the
+  # that mirror the same belief (a fake that formats its seeds THROUGH the
   # mapping), so code and test agree with each other while proving nothing
   # about the real system. ORQQVI VITALS shipped declaring
   # TYPE^VALUE^UNITS^DATE when the real wire is IEN^TYPE^DATETIME^value
@@ -50,9 +51,14 @@ module RpmsRpc
     SOURCES = [ "live-capture", "no-data", "routine-cite" ].freeze
     KINDS = [ "fields", "scalar", "text_blob", "lines" ].freeze
 
-    # Access codes README.md documents as synthetic dev personas. A capture
-    # may record one of these as signed_on_as and nothing else.
-    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+    # The accounts a capture may sign on as: the test roles' (RpmsRpc::TestRoles),
+    # synthetic demo users of the build. A capture records the access code as
+    # signed_on_as and nothing else.
+    SYNTHETIC_ACCOUNTS = TestRoles.access_codes.freeze
+    # What a committed fixture may name as signed_on_as: those, and PROV123
+    # (PROVIDER,TEST), which captured fixtures before tests signed on as roles
+    # and is no test role now. Its fixtures stay readable as the evidence they are.
+    FIXTURE_ACCOUNTS = (SYNTHETIC_ACCOUNTS + %w[PROV123]).freeze
 
     # BMX recordset column: a type letter, a 5-digit width, then the name
     # (I00020APPOINTMENTID, T00020ERRORID). A header row is one whose every
@@ -167,7 +173,7 @@ module RpmsRpc
       payload_rows(raw).reject(&:empty?).any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
 
-    # A PROV123 booking probe is evidence only as a refusal. A broker error
+    # A persona's booking probe is evidence only as a refusal. A broker error
     # is not one. The first data row has to map through
     # :scheduling_add_appointment to an appointment id <= 0 and a non-empty
     # error. The mapping is loaded here, on this path only.
@@ -465,8 +471,8 @@ module RpmsRpc
       end
 
       def validate_write_capture!
-        unless SYNTHETIC_PERSONAS.include?(@signed_on_as.to_s)
-          fail!("signed_on_as must be a synthetic persona")
+        unless FIXTURE_ACCOUNTS.include?(@signed_on_as.to_s)
+          fail!("signed_on_as must be a synthetic account")
         end
         entries = @read_back
         fail!("write fixture requires non-empty read_back") if !entries.is_a?(Array) || entries.empty?
@@ -500,8 +506,8 @@ module RpmsRpc
         raw = probe["raw_return"].to_s
         actual = Digest::SHA256.hexdigest(raw)
         fail!("persona_probe sha256 does not match raw_return (#{actual})") unless actual == probe["sha256"]
-        unless SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
-          fail!("persona_probe signed_on_as must be a synthetic persona")
+        unless FIXTURE_ACCOUNTS.include?(probe["signed_on_as"].to_s)
+          fail!("persona_probe signed_on_as must be a synthetic account")
         end
         fail!("persona_probe must be a booking refusal") unless WireCapture.persona_probe_refusal?(raw)
       end
@@ -811,7 +817,7 @@ module RpmsRpc
               "lines until the next '~' (ORWPS.m:45-48). Text blob — :medication_active " \
               "does not split caret pieces.",
         pieces: [],
-        note: "No active medications in the seed. An empty reply is no-data, not a layout."
+        note: "DFN 2 carries the seeded outpatient ASPIRIN prescription (SEEDCHRT). An empty reply is no-data, not a layout."
       ),
       CatalogEntry.new(
         rpc: "ORWPT SELECT", mapping: :patient_select, kind: "fields", mode: :live,
@@ -983,11 +989,11 @@ module RpmsRpc
       # (BEHOENCX.m:107-111), and even a 3-piece VSTR runs FNDVIS with
       # IN("NEVER ADD")=1 (BEHOENCX.m:80). The inputs name the one visit the
       # rung carries at build time (visit IEN 1 of the build's test patient,
-      # DFN 2, at hospital location 6) by DFN and extended VSTR. The capture
-      # runs as PROV123 on the pinned build.
+      # DFN 2, at hospital location 10, the seed clinic DEMO PRIMARY CARE)
+      # by DFN and extended VSTR. The capture runs as PROV123 on the pinned build.
       CatalogEntry.new(
         rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields", mode: :live,
-        inputs: [ "2", "6;3260825.09;A;1", "", "0" ],
+        inputs: [ "2", "10;3260825.09;A;1", "", "0" ],
         cite: "FETCH^BEHOENCX (BEHOENCX.m:24-47): header lines 30-31 LOCNAME^LOCABBR^" \
               "ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT; pieces 1-2 " \
               "^SC(LOC,0) (line 41), 3 ^DPT(DFN,.101) (42), 4 PRV (43), 5 ^VA(200,PRV,0) " \
@@ -1197,9 +1203,9 @@ module RpmsRpc
         inputs: [ "<note ien>" ].freeze,
         cite: "TGET^TIUSRVR1 (REMOTE PROCEDURE registration for TIU GET RECORD TEXT: " \
               "tag TGET, routine TIUSRVR1, in " \
-              "data/fingerprints/references/bcer-9.0-20261012-e7923a4-ydb.yml and " \
-              "data/inventories/bcer-9.0-20261012-e7923a4-ydb/" \
-              "bcer-9.0-20261012-e7923a4-ydb-broker_8994.txt). Text blob. This repo " \
+              "data/fingerprints/references/bcer-9.0-20261119-f67498c-ydb.yml and " \
+              "data/inventories/bcer-9.0-20261119-f67498c-ydb/" \
+              "bcer-9.0-20261119-f67498c-ydb-rpcs.json). Text blob. This repo " \
               "does not cite TGET line numbers",
         pieces: [],
         note: "Read-back of the note just written. Catalog input is a note-IEN " \
@@ -1276,9 +1282,8 @@ module RpmsRpc
           Piece.new(position: 0, attributes: [ "appointment_id" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "error" ])
         ],
-        note: "Booked as the setup persona. PROV123 cannot book on this seed " \
-              "(DUZ(2) has no #40.8 division, so $$DIV^BSDU is 0); persona_probe is " \
-              "that refusal. The read-back, not this reply, proves the appointment."
+        note: "Booked as PSCH123, the scheduling persona (rpms-rpc#626). The read-back, " \
+              "not this reply, proves the appointment."
       ),
       CatalogEntry.new(
         rpc: "BSDX CHECKIN APPOINTMENT", mapping: :scheduling_checkin_appointment,
@@ -1289,7 +1294,7 @@ module RpmsRpc
         pieces: [
           Piece.new(position: 0, attributes: [ "error" ])
         ],
-        note: "Checked in as PROV123. The sent time is one minute before the server " \
+        note: "Checked in as PSCH123. The sent time is one minute before the server " \
               "minute, at minute precision, so the clamp does not rewrite it. " \
               "The read-back of #9002018.4 .03 is the proof."
       ),
@@ -1303,7 +1308,7 @@ module RpmsRpc
         pieces: [
           Piece.new(position: 0, attributes: [ "error" ])
         ],
-        note: "Cancelled as PROV123 with type PC and a coded #409.2 reason. The " \
+        note: "Cancelled as PSCH123 with type PC and a coded #409.2 reason. The " \
               "reply is an empty ERRORID row (no-data) and proves nothing; #2.98 " \
               "field 16 is the proof, and it is unproven when the sent reason is " \
               "blank or 14."
@@ -1318,7 +1323,7 @@ module RpmsRpc
           Piece.new(position: 0, attributes: [ "result" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "error" ])
         ],
-        note: "No-show as PROV123. The read-back proves #9002018.4 .1 and #2.98 " \
+        note: "No-show as PSCH123. The read-back proves #9002018.4 .1 and #2.98 " \
               "status N; the reply's success flag is not that proof."
       )
     ].freeze

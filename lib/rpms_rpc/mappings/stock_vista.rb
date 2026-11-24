@@ -75,10 +75,13 @@ module RpmsRpc
     end
 
     # ORWPT APPTLST — patient appointments (multi-line)
-    # Format: APPTTIME^LOCIEN^LOCNAME^EXTSTATUS
+    # Format: APPTTIME^LOCIEN^LOCNAME^EXTSTATUS (APPTLST^ORWPT: ORWPT.m:151-162).
+    # APPTTIME is the appointment's FileMan date and time (piece 1 of
+    # ^UTILITY("VASD",$J,n,"I")), so it maps to a Time; read as a date it
+    # lost the hour (#221).
     DataMapper.define(:patient_appointments) do |m|
       m.rpc "ORWPT APPTLST"
-      m.field 0, :datetime,     :fileman_date
+      m.field 0, :datetime,     :fileman_datetime
       m.field 1, :location_ien, :integer
       m.field 2, :location
       m.field 3, :status
@@ -148,9 +151,6 @@ module RpmsRpc
       m.field 9, :priority
       # Piece 13 (ORQQPL.m:15-16). The wire token is "#", not a boolean;
       # after_row turns that marker into inactive_icd true/false.
-      # format_row writes the same branch back out for MockClient: piece 13
-      # "#" (what after_row keys on) and piece 9 "#" (the transcribed marker
-      # on that branch). An active row leaves piece 13 empty.
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
         # Piece 13 "#" is the inactive-ICD branch, whatever piece 4 holds.
@@ -165,16 +165,6 @@ module RpmsRpc
         row[:inactive_icd] = inactive
         row
       end
-      m.format_row do |parts, attrs|
-        case attrs[:inactive_icd]
-        when true
-          parts[8] = "#"
-          parts[12] = "#"
-        when false
-          parts[12] = ""
-        end
-        parts
-      end
     end
 
     # ORQQPL coverage — problem-list lookups + audit; the gem's problem writes
@@ -185,17 +175,18 @@ module RpmsRpc
     # these mappings will get raw strings + simple keyed rows respectively.
 
     # Best-effort field positions pending broker trace capture for
-    # problem_audit_history / problem_comments / problem_detail /
-    # problem_clinic_search / problem_lex_search / problem_provider_list /
-    # problem_edit_load — wire formats below mirror the closest analogous
-    # ORQQPL RPC (problem_list) and the standard VistA "IEN^DESCRIPTION..."
-    # convention. Refine when trace capture lands.
+    # problem_clinic_search / problem_provider_list / problem_edit_load —
+    # wire formats below mirror the closest analogous ORQQPL RPC
+    # (problem_list) and the standard VistA "IEN^DESCRIPTION..." convention.
+    # Refine when trace capture lands. problem_audit_history,
+    # problem_comments, problem_detail and problem_lex_search are read from
+    # captured replies (#821, #872).
 
+    # HIST^ORQQPL2: a count line, then "date^text" rows (Problem.audit_history).
     DataMapper.define(:problem_audit_history) do |m|
       m.rpc "ORQQPL AUDIT HIST"
-      m.field 0, :event
-      m.field 1, :date, :fileman_date
-      m.field 2, :actor
+      m.field 0, :date
+      m.field 1, :text
     end
 
     DataMapper.define(:problem_check_duplicate) do |m|
@@ -212,11 +203,11 @@ module RpmsRpc
       m.field 1, :description
     end
 
+    # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): a display report in Y(I), one
+    # text line per node (ORQQPL.m:26-59), not caret rows.
     DataMapper.define(:problem_detail) do |m|
       m.rpc "ORQQPL DETAIL"
-      m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.text_blob :detail_text
     end
 
     DataMapper.define(:problem_edit_load) do |m|
@@ -236,17 +227,21 @@ module RpmsRpc
       m.rpc "ORQQPL INIT USER"
     end
 
+    # GETCOMM^ORQQPL2: one line per active note, its text alone (Problem.comments).
     DataMapper.define(:problem_comments) do |m|
       m.rpc "ORQQPL PROB COMMENTS"
-      m.field 0, :date, :fileman_date
-      m.field 1, :author
-      m.field 2, :comment
+      m.field 0, :comment
     end
 
+    # LEXSRCH^ORQQPL1: "lexicon IEN^text^ICD code^ICD IEN^coding system", then
+    # a match-count line (Problem.lex_search).
     DataMapper.define(:problem_lex_search) do |m|
       m.rpc "ORQQPL PROBLEM LEX SEARCH"
-      m.field 0, :code, :string, terminology: :icd10
+      m.field 0, :ien
       m.field 1, :description
+      m.field 2, :code
+      m.field 3, :code_ien
+      m.field 4, :coding_system
     end
 
     DataMapper.define(:problem_problem_list) do |m|
@@ -281,6 +276,37 @@ module RpmsRpc
 
     DataMapper.define(:problem_user_list) do |m|
       m.rpc "ORQQPL USER PROB LIST"
+    end
+
+    # GMV GET VITAL TYPE IEN — TYPE^GMVUTL8 (GMVUTL8.m:30-37): the FILE
+    # 120.51 IEN for a vital type NAME (the "B" index, not the
+    # abbreviation), or -1 / 0 when there is none.
+    DataMapper.define(:gmv_vital_type_ien) do |m|
+      m.rpc "GMV GET VITAL TYPE IEN"
+      m.context "OR CPRS GUI CHART"
+      m.scalar :type_ien
+    end
+
+    # GMV ADD VM — EN1^GMVDCSAV(RESULT,GMVDATA) (GMVDCSAV.m:14-30): one
+    # FILE 120.5 row per call. GMVDATA is
+    # DATETIME^DFN^TYPE_IEN;READING;O2^LOCATION_IEN^DUZ*QUAL:QUAL.
+    # A clean save leaves RESULT empty; a FileMan error adds
+    # "ERROR: <text>" lines (MSG/FMERROR, GMVDCSAV.m:80-97).
+    DataMapper.define(:gmv_add_vm) do |m|
+      m.rpc "GMV ADD VM"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :message
+    end
+
+    # GMV EXTRACT REC — GETVM^GMVGETD (GMVGETD.m:17-31), param
+    # DFN^END^ABBREVIATION^START. Rows are "<120.5 IEN>^MM/DD/YY@HH:MM
+    # <type> <reading>..." (GMVGETD2.m:9-36); none in range is the single
+    # row "0^NO ... ENTERED WITHIN THIS PERIOD" (GMVGETD.m:28).
+    DataMapper.define(:gmv_extract_rec) do |m|
+      m.rpc "GMV EXTRACT REC"
+      m.context "OR CPRS GUI CHART"
+      m.field 0, :ien
+      m.field 1, :text
     end
 
     # ORQQVI VITALS — the patient's MOST RECENT vital per type, optionally
@@ -573,6 +599,105 @@ module RpmsRpc
       m.text_blob :detail_text
     end
 
+    # ORQQPXRM REMINDER CATEGORIES — CATEGORY^ORQQPXRM(ORY,ORPT,ORLOC) ->
+    # CATEGORY^PXRMRPCA (PXRMRPCA.m): the categories the PXRM CPRS LOOKUP
+    # CATEGORIES parameter names at USR^LOC^SRV^DIV^SYS^PKG, each followed
+    # by its CPRS reminders (GETLST^PXRMRPCA), as a tree:
+    #   UNIQUE ID ^ C ^ CATEGORY NAME ^ PARENT ID ^
+    #   UNIQUE ID ^ R ^ PRINT NAME ^ PARENT ID ^ REMINDER IEN ^ DIALOG (1/0)
+    # "^Error: text" when the parameter read fails. Read by
+    # Reminders.categories.
+    DataMapper.define(:reminder_categories) do |m|
+      m.rpc "ORQQPXRM REMINDER CATEGORIES"
+      m.field 0, :id, :integer
+    end
+
+    # ORQQPXRM REMINDERS UNEVALUATED — LIST^ORQQPXRM(ORY,ORPT,ORLOC) ->
+    # GETLIST^ORQQPX(.ORY,ORLOC): the cover-sheet reminders for the user's
+    # location, service, division, system and package, not evaluated; one
+    # REMINDER DEFINITION (#811.9) IEN per line. ORPT is not read.
+    DataMapper.define(:reminders_unevaluated) do |m|
+      m.rpc "ORQQPXRM REMINDERS UNEVALUATED"
+      m.field 0, :ien, :integer
+    end
+
+    # ORQQPXRM EDUCATION SUMMARY — EDL^ORQQPXRM(ORY,OREM) -> EDL^PXRMRPCB:
+    # the EDUCATION TOPICS (#9999999.09) among a reminder's findings, direct
+    # or through a reminder term (#811.5):
+    #   TOPIC IEN ^ NAME ^ PRINT NAME
+    DataMapper.define(:reminder_education_topics) do |m|
+      m.rpc "ORQQPXRM EDUCATION SUMMARY"
+      m.field 0, :ien,        :integer
+      m.field 1, :name
+      m.field 2, :print_name
+    end
+
+    # ORQQPXRM REMINDER WEB — WEB^ORQQPXRM(ORY,ORREM) -> WEB^PXRMRPCA: the
+    # reminder's own web sites (#811.9 multiple 50), then the general ones
+    # (CLINICAL REMINDER PARAMETERS #800, multiple 1), each alphabetical:
+    #   1 ^ UNIQUE ID ^ URL ^ TITLE
+    #   2 ^ UNIQUE ID ^ DESCRIPTION LINE      (zero or more)
+    # Read by Reminders.web_references.
+    DataMapper.define(:reminder_web_references) do |m|
+      m.rpc "ORQQPXRM REMINDER WEB"
+      m.field 0, :line_type, :integer
+    end
+
+    # ========================================================================
+    # CONSULTS (ORQQCN*)
+    # ========================================================================
+
+    # ORQQCN LIST — LIST^ORQQCN(ORY,ORPT,ORSDT,OREDT,ORSERV,ORSTATUS)
+    # (ORQQCN.m:3) -> OER^GMRCSLM1 with GMRCOER=2 (GMRCSLM1.m:76-90):
+    #   IEN ^ REQUEST DATE ^ STATUS ABBR ^ TO SERVICE ^ Consult|PROCEDURE ^
+    #   "*" (significant findings) ^ TITLE ^ ORDER IEN ^ TYPE (C,P,M,I,R)
+    # or "< PATIENT DOES NOT HAVE ANY CONSULTS/REQUESTS  ON FILE. >" (:93).
+    # Read by Consult.for_patient.
+    DataMapper.define(:consult_list) do |m|
+      m.rpc "ORQQCN LIST"
+      m.field 0, :ien, :integer
+    end
+
+    # ORQQCN GET CONSULT — GETCSLT^ORQQCN1(ORY,ORIEN,SHOWADD) (ORQQCN1.m:63):
+    # line 0 the REQUEST/CONSULTATION (#123) zero node, piece 14 "DUZ;NAME";
+    # then each linked result. "-1^Invalid consult" for an IEN not on file.
+    # Read by Consult.find.
+    DataMapper.define(:consult_record) do |m|
+      m.rpc "ORQQCN GET CONSULT"
+      m.field 0, :entered_at
+    end
+
+    # ORQQCN CANEDIT — CANEDIT^ORQQCN1(Y,GMRCO) (ORQQCN1.m:117):
+    # $$EDRESOK^GMRCEDT2, "1" or "0^reason".
+    DataMapper.define(:consult_resubmittable) do |m|
+      m.rpc "ORQQCN CANEDIT"
+      m.scalar :answer
+    end
+
+    # ========================================================================
+    # LABORATORY (ORWLRR*)
+    # ========================================================================
+
+    # ORWLRR NEWOLD — NEWOLD^ORWLRR(ORY,DFN) -> NEWOLD^LR7OGMU: NEWEST^OLDEST,
+    # the FileMan dates of the patient's newest and oldest LAB DATA (#63)
+    # results; "^" when there is none.
+    DataMapper.define(:lab_result_date_range) do |m|
+      m.rpc "ORWLRR NEWOLD"
+      m.field 0, :newest
+    end
+
+    # ORWLRR INTERIMG — INTERIMG^ORWLRR(ORY,DFN,DATE1,DIR,FORMAT) ->
+    # INTERIMG^LR7OGM: one specimen from DATE1, DIR 1 older or -1 newer.
+    # With FORMAT 1 a chemistry specimen is the header TEST COUNT^CH^
+    # COLLECTED^SPECIMEN IEN^SPECIMEN^ACCESSION^PROVIDER (CH^LR7OGMC,
+    # GRID^LR7OGMG), TEST COUNT rows TEST IEN^NAME^VALUE^FLAG^UNITS^RANGE
+    # (LOINC piece 15), then report text. Nothing when the patient has no
+    # lab data that way. Read by Lab.specimen.
+    DataMapper.define(:lab_specimen) do |m|
+      m.rpc "ORWLRR INTERIMG"
+      m.field 0, :count
+    end
+
     # ========================================================================
     # SCALAR / BOOLEAN RPCs
     # ========================================================================
@@ -843,6 +968,37 @@ module RpmsRpc
       m.field 0, :order_id
     end
 
+    # ORWORDG IEN — IEN^ORWORDG(VAL,X) (ORWORDG.m:54): the DISPLAY GROUP
+    # (#100.98) IEN for a name, from its B index; "" when none.
+    DataMapper.define(:order_display_group_ien) do |m|
+      m.rpc "ORWORDG IEN"
+      m.scalar :ien
+    end
+
+    # OREVNTX PAT — PAT^OREVNTX(ORY,DFN): the patient's waiting delayed-order
+    # events, a count line then PATIENT EVENT (#100.2) IEN ^ "Delayed <event>".
+    # Read by Order.delayed_events.
+    DataMapper.define(:order_delayed_events) do |m|
+      m.rpc "OREVNTX PAT"
+      m.field 0, :event_ien, :integer
+    end
+
+    # ORWORR GET4LST — GET4V11^ORWORR(LST,TXTVW,ORYD,IFNLST) -> GETFLDS: per
+    # order "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^Sig^Nrs^Clk^PrvID^PrvNam^Act^
+    # Flagged^DCType^ChartRev^DEA^^DigSig^LOC" then "t" text lines. Read by
+    # Order.details.
+    DataMapper.define(:order_details) do |m|
+      m.rpc "ORWORR GET4LST"
+      m.field 0, :order_id
+    end
+
+    # ORWDXC ON — ON^ORWDXC(VAL) (ORWDXC.m:4): "E" when order checking is
+    # enabled (ORK SYSTEM ENABLE/DISABLE at DIV^SYS^PKG), otherwise "D".
+    DataMapper.define(:order_checking_state) do |m|
+      m.rpc "ORWDXC ON"
+      m.scalar :state
+    end
+
     # AGET(REF,DFN,FILTER,GROUPS,DTFROM,DTTHRU,EVENT) (ORWORR.m:25). GET1^ORWORR1
     # writes IFN;ACT^DGrp^ActTm^PtEvtID^EvtName (ORWORR1.m:11) under a .1
     # header TOT^TXTVW^ORYD (ORWORR1.m:13) that Order.list drops. Order text
@@ -880,9 +1036,8 @@ module RpmsRpc
       m.text_blob :history_text
     end
 
-    # ORWOR ACTION TEXT — text describing the user-facing action available
-    # on an order (release, sign, discontinue, etc). Takes ORDER_IEN and
-    # the action code; returns a free-text blob.
+    # ACTXT(ORY,ORIFN) (ORWOR.m:139): one actual, IFN;ACT. ACT^ORQ20 writes
+    # each later action's activity lines into ^TMP("ORACTXT",$J,n).
     DataMapper.define(:order_action_text) do |m|
       m.rpc "ORWOR ACTION TEXT"
       m.text_blob :action_text
@@ -905,8 +1060,8 @@ module RpmsRpc
       m.field 1, :label
     end
 
-    # ORWOR TSALL — site-level catalog of order sheets, independent of
-    # patient. One row per sheet: IEN^NAME.
+    # TSALL(LST) (ORWOR.m:44-46): the site's active treating specialties,
+    # file 45.7, not order sheets. One row per specialty: IEN^NAME.
     DataMapper.define(:order_sheets_all) do |m|
       m.rpc "ORWOR TSALL"
       m.field 0, :ien, :integer
@@ -931,6 +1086,22 @@ module RpmsRpc
       m.field 2, :preferred_name
     end
 
+    # ORWDAL32 ALLERGY MATCH — ALLSRCH^ORWDAL32 as built (IHS/MSC/MGH mods,
+    # OR*3.0*233). One header row per source file it searched,
+    #   SOURCE ^ FILE NAME ^^^ TOP ^ +
+    # then that file's matches,
+    #   IEN ^ NAME ^ ROOT ^ ALLERGY TYPE ^ SOURCE
+    # ROOT is the cross-reference walked, without its leading caret
+    # (GMRD(120.82,"B")). Read by RpmsRpc::Allergen.search (#762).
+    DataMapper.define(:allergen_match) do |m|
+      m.rpc "ORWDAL32 ALLERGY MATCH"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :root
+      m.field 3, :type
+      m.field 4, :source
+    end
+
     # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
     # no params and returns a typed-tree response: lines starting with "~"
     # are category headers, lines starting with "i" are items belonging to
@@ -948,16 +1119,23 @@ module RpmsRpc
     # ========================================================================
     # IMAGING (ORWRA IMAGING*, MAG*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
 
+    # ORWRA IMAGING EXAMS1 — EXAMS1^ORWRA. GET^ORWRA writes each exam row as
+    # SITE ^ ID ^ (9999999.9999-ID) ^ the EN1^RAO7PC1 row, SITE being
+    # "name;station" because EXAMS1 asks for it (ORWRA.m, GET). The exam ID is
+    # the inverse exam date, a dash and the case IEN; the RAO7PC1 row starts
+    # procedure ^ case number ^ report status ^ abnormal alert flag
+    # (RAO7PC1A.m, SETDATA). The reply's first node is BEG^END^MAX, which
+    # Image.exams_for_patient drops. Proven live on a filed exam (#766).
     DataMapper.define(:image_exams) do |m|
       m.rpc "ORWRA IMAGING EXAMS1"
-      m.field 0, :ien, :integer
-      m.field 1, :exam_type
-      m.field 2, :datetime, :fileman_datetime
-      m.field 3, :status
-      m.field 4, :modality
-      m.field 5, :description
+      m.field 0, :site                          # $$SITE^VASITE name;station
+      m.field 1, :exam_id                       # inverse date-case IEN
+      m.field 2, :datetime, :fileman_datetime   # 9999999.9999-ID: the exam date/time
+      m.field 3, :procedure                     # RAD/NUC MED PROCEDURE (#71) name
+      m.field 4, :case_number                   # EXAMINATIONS (#70.03) .01
+      m.field 5, :status                        # report status, "No Report" when none
+      m.field 6, :abnormal                      # abnormal alert flag: Y or empty
     end
 
     # ========================================================================

@@ -3,6 +3,7 @@
 require_relative "../shape"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
+require_relative "../server_clock"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -183,12 +184,13 @@ module RpmsRpc
         duz = signed_on_duz
         next invalid("a signed-on DUZ is required") unless duz
 
+        now = ServerClock.now
         filed = added(DdrFileman.filer(mode: "ADD", rows: flag_rows("+1,", text, type, review_days, notification_days, active)))
         next filed unless filed.is_a?(Hash) && filed[:success]
 
         ien = filed[:ien]
         written = file_description(ien, description, clear: false)
-        written = record_history(ien, duz, [ NEW_FLAG_REASON ]) if written.is_a?(Hash) && written[:success]
+        written = record_history(ien, duz, [ NEW_FLAG_REASON ], now) if written.is_a?(Hash) && written[:success]
         next filed if written.is_a?(Hash) && written[:success]
 
         rolled = outcome(DdrFileman.filer(mode: "EDIT", rows: [ row(FLAG_FILE, ".01", "#{ien},", "@") ]))
@@ -220,11 +222,12 @@ module RpmsRpc
         duz = signed_on_duz
         next invalid("a signed-on DUZ is required") unless duz
 
+        now = ServerClock.now
         filed = outcome(DdrFileman.filer(mode: "EDIT", rows: flag_rows("#{ien.to_i},", text, type, review_days, notification_days, active)))
         next filed unless filed.is_a?(Hash) && filed[:success]
 
         written = file_description(ien.to_i, description, clear: true)
-        written = record_history(ien.to_i, duz, reason) if written.is_a?(Hash) && written[:success]
+        written = record_history(ien.to_i, duz, reason, now) if written.is_a?(Hash) && written[:success]
         next filed if written.is_a?(Hash) && written[:success]
 
         partial("the flag was changed, but its history entry was not filed (#{written ? written[:message] : 'no reply'})")
@@ -288,8 +291,11 @@ module RpmsRpc
       outcome(DdrFileman.filer(mode: "EDIT", rows: [ row(FLAG_FILE, DESCRIPTION_FIELD, "#{ien},", value) ], iens: iens))
     end
 
-    def record_history(ien, duz, reason)
-      now = canonical(FilemanDateParser.to_fileman(Time.now))
+    # .02 is now on the server's clock (ServerClock, read before the flag is
+    # filed so a failed read files nothing), as DGPF stamps it with $$NOW^XLFDT
+    # (DGPFLF4.m:119).
+    def record_history(ien, duz, reason, at)
+      now = canonical(FilemanDateParser.to_fileman(at))
       rows = [ row(HISTORY_FILE, ".01", "+1,", ien), row(HISTORY_FILE, ".02", "+1,", now), row(HISTORY_FILE, ".03", "+1,", duz) ]
       filed = added(DdrFileman.filer(mode: "ADD", rows: rows))
       return filed unless filed.is_a?(Hash) && filed[:success]

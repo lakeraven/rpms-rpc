@@ -1,0 +1,47 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb problem-detail.rb.
+---
+rpc: ORQQPL DETAIL
+entry_point: DETAIL^ORQQPL
+release_tag: bcer-9.0-20261119-f67498c-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-19T22:56:52Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: unknown_problem
+  inputs:
+  - '2'
+  - '999999999'
+  context: 'problem 999999999, not on file: DETAIL^GMPLUTL2 leaves ORGMPL("NARRATIVE")
+    undefined'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rDETAIL+5^ORQQPL,
+    Undefined local variable: ORGMPL(\"NARRATIVE\"),150373850,-%YDB-E-LVUNDEF\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 6930f61c78ed57b28fe7e800f9f93b4a4988b898f1e2ec3cb6055ed4ac2f66c1
+- name: details_seed/1
+  rpc: ORQQPL DETAIL
+  inputs:
+  - '2'
+  - '1'
+  context: details of problem 1 for its patient, DFN 2
+  raw_return: "5\0*TYPE 2 DIABETES MELLITUS (Invalid Code (not found in the ICD-9-CM
+    system))\r*** The ICD code Invalid Code (not found in the ICD-9-CM system) is
+    currently inactive. ***\r \r   Onset: 4/10/23\r  Status: ACTIVE\r SC Cond: UNKNOWN\rExposure:
+    None\r \rProvider: DEMO,DOCTOR\r  Clinic: \r \rRecorded: 11/19/26, by DEMO,DOCTOR\r
+    Entered: 11/19/26, by DEMO,DOCTOR\r Updated: 11/19/26\r \r \r"
+  sha256: 411350f502f8183ce864a1f3e078904aa8e9237b1c2f51f8209f17e0bd27d7a2
+- name: details_other_patient/1
+  rpc: ORQQPL DETAIL
+  inputs:
+  - '4'
+  - '1'
+  context: details of problem 1 for DFN 4, not its patient
+  raw_return: "5\0*TYPE 2 DIABETES MELLITUS (Invalid Code (not found in the ICD-9-CM
+    system))\r*** The ICD code Invalid Code (not found in the ICD-9-CM system) is
+    currently inactive. ***\r \r   Onset: 4/10/23\r  Status: ACTIVE\r SC Cond: UNKNOWN\rExposure:
+    None\r \rProvider: DEMO,DOCTOR\r  Clinic: \r \rRecorded: 11/19/26, by DEMO,DOCTOR\r
+    Entered: 11/19/26, by DEMO,DOCTOR\r Updated: 11/19/26\r \r \r"
+  sha256: 411350f502f8183ce864a1f3e078904aa8e9237b1c2f51f8209f17e0bd27d7a2

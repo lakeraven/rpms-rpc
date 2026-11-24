@@ -8,6 +8,7 @@ require "rpms_rpc/api/practitioner"
 # KEY parameter). On the demo build PROFILE,MD holds PROVIDER and
 # PROFILE,SCHED does not (openrpms SEEDPERS). It reads only.
 class PractitionerSearchKeyLiveTest < LiveSpec::Test
+  runs_as :provider
   def test_a_provider_search_lists_providers_and_not_other_users
     everyone = RpmsRpc::Practitioner.search("PROFILE").map { |r| r[:name].to_s.upcase }
     providers = RpmsRpc::Practitioner.search("PROFILE", key: "PROVIDER").map { |r| r[:name].to_s.upcase }

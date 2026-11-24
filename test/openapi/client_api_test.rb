@@ -15,7 +15,7 @@ class OpenApiClientApiTest < Minitest::Test
 
   def method(mod, name, params = [], rpc: "ORWPT SELECT", proven: false)
     { "module" => "RpmsRpc::#{mod}", "method" => name, "arity" => params.size, "params" => params, "rpcs" => [ rpc(rpc) ],
-      "unresolved" => [], "live_specs" => proven ? [ "test/live/x_test.rb:1" ] : [], "personas" => [],
+      "unresolved" => [], "live_specs" => proven ? [ "test/live/x_test.rb:1" ] : [], "roles" => [],
       "status" => proven ? "proven" : "not_in_contract" }
   end
 
@@ -31,7 +31,7 @@ class OpenApiClientApiTest < Minitest::Test
   end
 
   def ops(methods, retry_table: nil)
-    doc = { "schema" => 1, "methods" => methods }
+    doc = { "schema" => 2, "methods" => methods }
     cat = retry_table ? Api.catalog(doc, retry_table: retry_table) : Api.catalog(doc)
     cat[:entries]
   end
@@ -99,7 +99,7 @@ class OpenApiClientApiTest < Minitest::Test
   end
 
   def test_one_document_with_a_tag_per_collection
-    d = Api.document({ "schema" => 1, "registry" => "bcer-0.0", "methods" => [
+    d = Api.document({ "schema" => 2, "registry" => "bcer-0.0", "methods" => [
       method("Authentication", "user_info", req("duz"), proven: true), method("UserManagement", "find", req("duz")),
       method("BehavioralHealth::Groups", "groups")
     ] }, gem: GEM)
@@ -129,7 +129,7 @@ class OpenApiClientApiTest < Minitest::Test
   def test_only_rpc_backed_methods_become_operations_and_a_clash_is_refused
     helper = method("Patient", "age_from", req("dob")).merge("rpcs" => [])
     ghost = method("Patient", "ghost", req("dfn")).merge("rpcs" => [ rpc("ZZ GHOST").merge("registered" => false) ])
-    cat = Api.catalog({ "schema" => 1, "methods" => [ helper, ghost, method("Patient", "find", req("dfn")) ] })
+    cat = Api.catalog({ "schema" => 2, "methods" => [ helper, ghost, method("Patient", "find", req("dfn")) ] })
     assert_equal({ "no_rpc" => [ "Patient.age_from" ], "unresolved" => [], "unregistered" => [ "Patient.ghost" ] }, cat[:excluded])
     assert_equal 1, cat[:entries].size
     assert_raises(OpenApi::Refused) { ops([ method("Patient", "find", req("dfn")), method("Patient", "fetch", req("dfn")) ]) }

@@ -33,8 +33,12 @@ jobs:
       - name: Run tests
         # Every source file already says frozen_string_literal: true; the flag
         # makes a file that forgets it fail here rather than on a default flip (#47).
+        # OPENRPMS_OFFLINE=1: this job is hermetic, so the tests that judge the gem against the latest
+        # openrpms release (name gate, callable gate, ...) skip here, each saying so; the Release gate job
+        # in openrpms-release.yml runs them with the release fetched (rpms-rpc#724).
         env:
           RUBYOPT: --enable-frozen-string-literal
+          OPENRPMS_OFFLINE: "1"
         run: bundle exec rake test
 
   lint:

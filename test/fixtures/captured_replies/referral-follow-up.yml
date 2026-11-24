@@ -1,0 +1,586 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb referral-follow-up.rb.
+---
+rpc: BMC UPDATE REFERRAL
+entry_point: UPDREFRL^BMCRPC2
+release_tag: bcer-9.0-20261124-60d39b6-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-24T05:34:50Z'
+note: Run on a fresh throwaway container. Setup files referrals 1 (A), 2 (A, .34 =
+  1) and 3 (cancelled, X) for DFN 990001.
+captures:
+- name: follow_up/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: follow_up/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "6\0[Data]\r90001^1^.15^A^\r90001^1^.34^^\r90001^1^401^^\r90001^1^402^^\r90001^1^403^^\r90001^1^404^^\r90001^1^405^^\r90001^1^406^^\r90001^1^407^^\r90001^1^408^^\r90001^1^409^^\r90001^1^410^^\r90001^1^411^^\r90001^1^412^^\r90001^1^1106^^\r90001^1^1302^^\r90001^1^1303^^\r"
+  sha256: dba1cc867987b24fa93710d19707fff9ceda39444e5bed19f8857ab26aa53901
+- name: follow_up/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",1,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: follow_up/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '1'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=1,$P(^(0),U,5)="C"
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: follow_up/5
+  rpc: BMC UPDATE REFERRAL
+  inputs:
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - "^12/04/2026@093"
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Seen by cardiology
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "9\0~`1"
+  sha256: 8c75721c33e460359217c72341dfaedcbdb2b01efad7e0eb85dbf76150096982
+- name: follow_up/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "1\0[Data]\r90001^1^.15^A^\r90001^1^.34^0^\r90001^1^401^^\r90001^1^402^^\r90001^1^403^^\r90001^1^404^^\r90001^1^405^^\r90001^1^406^^\r90001^1^407^^\r90001^1^408^^\r90001^1^409^^\r90001^1^410^^\r90001^1^411^^\r90001^1^412^^\r90001^1^1106^3261204.093^\r90001^1^1302^^\r90001^1^1303^^\r"
+  sha256: ac9aa4a9213ad230a74eb6f58827523961d37581a3b2689ad154facb42f71729
+- name: follow_up/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",1,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "2\0[Data]\r"
+  sha256: 1a81148e05f4de2f1b02fdb920c73d67728946fdde9d39bcf6f07954bb30752f
+- name: follow_up/8
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '1'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=1,$P(^(0),U,5)="C"
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "3\0[Data]\r1^3261124^1^C\r"
+  sha256: cfee7e4a35e8e55e2f18bbfffc235f572bb2dbc95a306189e0a89146103f76f9
+- name: follow_up/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 1,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "4\0[Data]\r90001.03^1^1^[WORD PROCESSING]\rSeen by cardiology\r$$END$$\r"
+  sha256: 222047b480b0e79276c5e55dcdd7dbd30d44c53ab2b55ecbe82f1265ae3df35e
+- name: follow_up/10
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+  context: 'record_follow_up of referral 1: 12/4/2026 09:30 and a case note'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: note_only/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: note_only/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "6\0[Data]\r90001^1^.15^A^\r90001^1^.34^0^\r90001^1^401^^\r90001^1^402^^\r90001^1^403^^\r90001^1^404^^\r90001^1^405^^\r90001^1^406^^\r90001^1^407^^\r90001^1^408^^\r90001^1^409^^\r90001^1^410^^\r90001^1^411^^\r90001^1^412^^\r90001^1^1106^3261204.093^\r90001^1^1302^^\r90001^1^1303^^\r"
+  sha256: 48593b4d0ae1c51cc99312505fbaf61bd1dcdd9bf79af6076bf41256ea7dd07c
+- name: note_only/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",1,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: note_only/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '1'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=1,$P(^(0),U,5)="C"
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "8\0[Data]\r1^3261124^1^C\r"
+  sha256: 40872f47322cebca9a9cb11fd0227f1a9b5d2ca514d36ab915f1e494b36a9c5b
+- name: note_only/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 1,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "9\0[Data]\r90001.03^1^1^[WORD PROCESSING]\rSeen by cardiology\r$$END$$\r"
+  sha256: be7c9fc24ce22a76154c418fce03ddd931113d8aba533d98769bfc43f1f5698c
+- name: note_only/6
+  rpc: BMC UPDATE REFERRAL
+  inputs:
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - "^12/04/2026@093"
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Called the patient
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "1\0~`1"
+  sha256: f9c9a9bf875c650f694401b569d9d7c024428dda7d7f0fb0f2258c83fffef827
+- name: note_only/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "2\0[Data]\r90001^1^.15^A^\r90001^1^.34^0^\r90001^1^401^^\r90001^1^402^^\r90001^1^403^^\r90001^1^404^^\r90001^1^405^^\r90001^1^406^^\r90001^1^407^^\r90001^1^408^^\r90001^1^409^^\r90001^1^410^^\r90001^1^411^^\r90001^1^412^^\r90001^1^1106^3261204.093^\r90001^1^1302^^\r90001^1^1303^^\r"
+  sha256: 8af5076bd6fd4ce785ca63bbdf887aab9bf4ae576e3bcdcf5c9c83f15dd3d884
+- name: note_only/8
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",1,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "3\0[Data]\r"
+  sha256: d1a295f898d3b38286d861f13eb055c0b782aa814276e3ff14a7152e1b3e8549
+- name: note_only/9
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '1'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=1,$P(^(0),U,5)="C"
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "4\0[Data]\r1^3261124^1^C\r2^3261124^1^C\r"
+  sha256: 4d4627aa5b70f8485c270ca1c132e2f59c6b626a5ead7d65a7f63efa5835786e
+- name: note_only/10
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 1,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "5\0[Data]\r90001.03^1^1^[WORD PROCESSING]\rSeen by cardiology\r$$END$$\r"
+  sha256: 9321e9f531da9ced2394426500c921337b4ea7346f8fa0c76635790932879f5c
+- name: note_only/11
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 2,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "6\0[Data]\r90001.03^2^1^[WORD PROCESSING]\rCalled the patient\r$$END$$\r"
+  sha256: 7ad64d6e9137a64922a0ebf9e406f36c8d5db7f7e791433bf13dcfe071ed29a3
+- name: note_only/12
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+  context: 'record_follow_up of referral 1, a case note only: the date of service
+    stays'
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b
+- name: state/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15;1106"
+    FLAGS: I
+  context: follow_up_state of referral 1 after both
+  raw_return: "5\0[Data]\r90001^1^.15^A^\r90001^1^1106^3261204.093^\r"
+  sha256: 4f9c131b46efc31ab78d6046fc8a7d076ed8cf789262111b962b4d91b03bbfc0
+- name: state/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '1'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=1,$P(^(0),U,5)="C"
+  context: follow_up_state of referral 1 after both
+  raw_return: "6\0[Data]\r1^3261124^1^C\r2^3261124^1^C\r"
+  sha256: ce2a5609f042470af021b847e81dfde4596f4d397ee84701d3ed4f610089c91c
+- name: state/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 1,
+    FIELDS: '1'
+    FLAGS: I
+  context: follow_up_state of referral 1 after both
+  raw_return: "7\0[Data]\r90001.03^1^1^[WORD PROCESSING]\rSeen by cardiology\r$$END$$\r"
+  sha256: f6337e01521a2cf64c86ead00762d4ec1254ecfec8df497dcc470dd6fd8eb8f6
+- name: state/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001.03'
+    IENS: 2,
+    FIELDS: '1'
+    FLAGS: I
+  context: follow_up_state of referral 1 after both
+  raw_return: "8\0[Data]\r90001.03^2^1^[WORD PROCESSING]\rCalled the patient\r$$END$$\r"
+  sha256: dbf28ee6d26437795af2cd839b4322ca43d77b3f811049dee31ebe375d6760a4
+- name: additional_info/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(2)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_follow_up of referral 2, whose .34 the INCLUDE flags would clear
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: additional_info/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 2,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: record_follow_up of referral 2, whose .34 the INCLUDE flags would clear
+  raw_return: "6\0[Data]\r90001^2^.15^A^\r90001^2^.34^1^\r90001^2^401^^\r90001^2^402^^\r90001^2^403^^\r90001^2^404^^\r90001^2^405^^\r90001^2^406^^\r90001^2^407^^\r90001^2^408^^\r90001^2^409^^\r90001^2^410^^\r90001^2^411^^\r90001^2^412^^\r90001^2^1106^^\r90001^2^1302^^\r90001^2^1303^^\r"
+  sha256: 0a7e56b9ea897fdcbcb7a86f8de8bb625ee995582f9fd87440f429975802eeb3
+- name: additional_info/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",2,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: record_follow_up of referral 2, whose .34 the INCLUDE flags would clear
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: additional_info/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '2'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=2,$P(^(0),U,5)="C"
+  context: record_follow_up of referral 2, whose .34 the INCLUDE flags would clear
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: additional_info/5
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(2)"
+  context: record_follow_up of referral 2, whose .34 the INCLUDE flags would clear
+  raw_return: "9\01"
+  sha256: 2228eb3943fef85d20006043445967b2fb86093f727368beefe0df7533f0cf97
+- name: closed/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(3)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_follow_up of referral 3, which is cancelled (X)
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: closed/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 3,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: record_follow_up of referral 3, which is cancelled (X)
+  raw_return: "6\0[Data]\r90001^3^.15^X^\r90001^3^.34^^\r90001^3^401^^\r90001^3^402^^\r90001^3^403^^\r90001^3^404^^\r90001^3^405^^\r90001^3^406^^\r90001^3^407^^\r90001^3^408^^\r90001^3^409^^\r90001^3^410^^\r90001^3^411^^\r90001^3^412^^\r90001^3^1106^^\r90001^3^1302^^\r90001^3^1303^^\r"
+  sha256: 7988dd5083227621a121566e821ae2a0c970242654e49d9f19f106c00254bda4
+- name: closed/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.22'
+    IENS: ",3,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: record_follow_up of referral 3, which is cancelled (X)
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: closed/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '90001.03'
+    FIELDS: "@;.01;.03;.05"
+    FLAGS: IP
+    PART: '3'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=3,$P(^(0),U,5)="C"
+  context: record_follow_up of referral 3, which is cancelled (X)
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: closed/5
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(3)"
+  context: record_follow_up of referral 3, which is cancelled (X)
+  raw_return: "9\01"
+  sha256: 2228eb3943fef85d20006043445967b2fb86093f727368beefe0df7533f0cf97
+- name: not_on_file/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(999999)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_follow_up of an IEN no referral has
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 999999,
+    FIELDS: ".15;.34;1106;1302;1303;401;402;403;404;405;406;407;408;409;410;411;412"
+    FLAGS: I
+  context: record_follow_up of an IEN no referral has
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: not_on_file/3
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(999999)"
+  context: record_follow_up of an IEN no referral has
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b
+- name: status/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_status of referral 1 to A1
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: status/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15"
+    FLAGS: I
+  context: record_status of referral 1 to A1
+  raw_return: "6\0[Data]\r90001^1^.15^A^\r"
+  sha256: f61b0d294883a2f4e7d3c2f91337e552f39d3cff486d3401a96a83d37ee8fb4b
+- name: status/3
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '1'
+  - A1
+  context: record_status of referral 1 to A1
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b
+- name: status/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15"
+    FLAGS: I
+  context: record_status of referral 1 to A1
+  raw_return: "8\0[Data]\r90001^1^.15^A1^\r"
+  sha256: e98c87708bcfff448ada79310628480fb77c5e3068d187b27ce8f1be75383751
+- name: status/5
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+  context: record_status of referral 1 to A1
+  raw_return: "9\01"
+  sha256: 2228eb3943fef85d20006043445967b2fb86093f727368beefe0df7533f0cf97
+- name: status_back/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_status of referral 1 back to A
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: status_back/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15"
+    FLAGS: I
+  context: record_status of referral 1 back to A
+  raw_return: "6\0[Data]\r90001^1^.15^A1^\r"
+  sha256: d1ec87b529a3527893d6d3039faaf86c562e23d9be4814488a825798c72b30c6
+- name: status_back/3
+  rpc: BMC REFERRAL STATUS UPDATE
+  inputs:
+  - '1'
+  - A
+  context: record_status of referral 1 back to A
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b
+- name: status_back/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".15"
+    FLAGS: I
+  context: record_status of referral 1 back to A
+  raw_return: "8\0[Data]\r90001^1^.15^A^\r"
+  sha256: b3e6d7993663dac2f1c37f15e91eaff463e24e417ad707e4e5a446e7ca8b3b4d
+- name: status_back/5
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(1)"
+  context: record_status of referral 1 back to A
+  raw_return: "9\01"
+  sha256: 2228eb3943fef85d20006043445967b2fb86093f727368beefe0df7533f0cf97
+- name: status_not_on_file/1
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(999999)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: record_status of an IEN no referral has
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: status_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 999999,
+    FIELDS: ".15"
+    FLAGS: I
+  context: record_status of an IEN no referral has
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: status_not_on_file/3
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^BMCREF(999999)"
+  context: record_status of an IEN no referral has
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b

@@ -13,6 +13,7 @@ require "rpms_rpc/api/problem"
 # Each test signs on with a client of its own, so the harness's session is
 # not the one that fails.
 class ConnectionFailureLiveTest < LiveSpec::Test
+  runs_as :provider
   # ORQQPL PROBLEM LEX SEARCH for "fracture" took 5.7-5.9 s on each of three
   # runs against bcer-9.0-20261012-e7923a4-ydb on loopback (2026-10-16), well
   # past the one-second client timeout below. The client's timeout is whole
@@ -31,7 +32,7 @@ class ConnectionFailureLiveTest < LiveSpec::Test
     assert_kind_of RpmsRpc::Client::ConnectionError, err
     assert_operator elapsed, :<, SHORT_TIMEOUT + 2, "the timeout fired after #{elapsed.round(2)} s, not at the client's #{SHORT_TIMEOUT} s"
     refute c.connected?, "the client kept the desynchronized socket after the timeout"
-    puts "\n#{persona}: lex_search(#{SLOW_SEARCH.inspect}) with a #{SHORT_TIMEOUT} s timeout raised #{err.class.name.split('::').last} after #{elapsed.round(2)} s"
+    puts "\n#{role}: lex_search(#{SLOW_SEARCH.inspect}) with a #{SHORT_TIMEOUT} s timeout raised #{err.class.name.split('::').last} after #{elapsed.round(2)} s"
   ensure
     c&.disconnect
   end
@@ -51,7 +52,7 @@ class ConnectionFailureLiveTest < LiveSpec::Test
     assert_instance_of RpmsRpc::Client::ConnectionError, err
     assert_match(/Connection (lost|closed)/, err.message)
     refute c.connected?, "the client still reports a connection after it was lost"
-    puts "\n#{persona}: after the relay cut, lex_search raised ConnectionError (#{err.message})"
+    puts "\n#{role}: after the relay cut, lex_search raised ConnectionError (#{err.message})"
   ensure
     c&.disconnect
     relay&.close
@@ -62,7 +63,7 @@ class ConnectionFailureLiveTest < LiveSpec::Test
   def signed_on_client(host, port, timeout:)
     c = RpmsRpc::CiaClient.new(host: host, port: port, timeout: timeout)
     c.connect
-    c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+    c.authenticate(*sign_on_pair)
     c
   end
 

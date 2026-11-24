@@ -1,155 +1,97 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/tribal"
+require_relative "../captured_replies"
 
-# Tests for tribal/IHS symbolic APIs. All reads run on the generic
-# FileMan RPCs (DDR GETS ENTRY DATA / DDR LISTER / DDR VALIDATOR) over
-# the real files: #9000001 IHS PATIENT, TRIBE #9999999.03, SERVICE UNIT
-# #9999999.22. Seeds use the raw DDR reply grammars (bracket markers +
-# GETS^DIQ FILE^IEN^FIELD^INTERNAL^EXTERNAL rows). All data is synthetic.
+# The Tribal reads on the generic FileMan RPCs (DDR GETS ENTRY DATA, DDR
+# LISTER, DDR VALIDATOR) over #9000001 IHS PATIENT, TRIBE #9999999.03,
+# SERVICE UNIT #9999999.22 and COMMUNITY #9999999.05. The replies are
+# test/fixtures/captured_replies/tribal.yml, captured live as the
+# registration persona on the synthetic panel patient DFN 990001, and
+# replayed through CiaClient's own reply grammar (rpms-rpc#621, #616).
 class TribalTest < Minitest::Test
-  Ddr = RpmsRpc::DdrFileman
   Tribal = RpmsRpc::Tribal
-
-  def setup
-    @mock = RpmsRpc.mock!
-  end
+  SLUG = "tribal"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  # -- seeding helpers (raw DDR reply grammars) ------------------------------
-
-  def seed_gets(file:, iens:, fields:, text:)
-    key = Ddr.gets_entry_param(file: file, iens: iens, fields: fields, flags: "IE").to_s
-    @mock.seed(:ddr_gets_entry_data, key, text)
+  # Answers the flow's calls with its captured replies and keeps what was sent.
+  def replay(flow)
+    client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script(SLUG, flow))
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  def seed_patient_tribal(dfn: 1)
-    seed_gets(file: "9000001", iens: "#{dfn},", fields: Tribal::ENROLLMENT_FIELDS, text: <<~REPLY.strip)
-      [Data]
-      9000001^#{dfn}^.07^EX-12345^EX-12345
-      9000001^#{dfn}^1108^123^EXAMPLE TRIBE
-      9000001^#{dfn}^1109^1/2^1/2
-      9000001^#{dfn}^1110^1/2^1/2
-      9000001^#{dfn}^1111^13^INDIAN/ALASKA NATIVE
-      9000001^#{dfn}^1112^I^INDIAN/ALASKA NATIVE
-      9000001^#{dfn}^1118^EXAMPLE COMMUNITY^EXAMPLE COMMUNITY
-    REPLY
+  def sent(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  def test_enrollment_projects_the_9000001_tribal_fields
+    client = replay("enrollment")
+
+    result = Tribal.enrollment(990_001)
+
+    assert_equal CapturedReplies.flow_calls(SLUG, "enrollment"), sent(client)
+    assert_equal({ enrollment_number: "SYN990001", tribe_ien: 803, tribe_name: "INDIAN - TRIBE UNSPECIFIED",
+                   tribe_quantum: "1/4", indian_blood_quantum: "1/2", classification_ien: 1,
+                   classification: "INDIAN/ALASKA NATIVE", eligibility_status: "D", community: "STONE MESA" }, result)
   end
 
-  # -- enrollment ------------------------------------------------------------
+  # GETS^DIQ answers [ERROR] for an entry not on file.
+  def test_enrollment_is_nil_for_a_patient_not_on_file
+    replay("enrollment_unknown")
 
-  def test_enrollment_projects_9000001_tribal_fields
-    seed_patient_tribal
-
-    result = Tribal.enrollment(1)
-
-    refute_nil result
-    assert_equal "EX-12345", result[:enrollment_number]
-    assert_equal 123, result[:tribe_ien]
-    assert_equal "EXAMPLE TRIBE", result[:tribe_name]
-    assert_equal "1/2", result[:tribe_quantum]
-    assert_equal "1/2", result[:indian_blood_quantum]
-    assert_equal 13, result[:classification_ien]
-    assert_equal "INDIAN/ALASKA NATIVE", result[:classification]
-    assert_equal "I", result[:eligibility_status]
-    assert_equal "EXAMPLE COMMUNITY", result[:community]
+    assert_nil Tribal.enrollment(999_999_999)
   end
 
-  def test_enrollment_returns_nil_for_unknown_dfn
-    seed_gets(file: "9000001", iens: "999,", fields: Tribal::ENROLLMENT_FIELDS, text: "[ERROR]")
+  def test_eligibility_projects_the_status_code_its_name_and_the_classification
+    replay("eligibility")
 
-    assert_nil Tribal.enrollment(999)
+    assert_equal({ eligibility_status: "D", eligibility_status_name: "DIRECT ONLY", classification_ien: 1,
+                   classification: "INDIAN/ALASKA NATIVE" }, Tribal.eligibility(990_001))
   end
 
-  def test_enrollment_returns_nil_when_broker_gives_no_response
-    assert_nil Tribal.enrollment(1)
+  def test_validate_accepts_a_value_the_input_transform_takes
+    replay("validate_valid")
+
+    assert_equal({ valid: true, internal: "SYN12345", external: "SYN12345" }, Tribal.validate("SYN12345"))
   end
 
-  # -- eligibility -----------------------------------------------------------
+  # VAL^DIE answers "^" as the internal value when the transform refuses
+  # (.07 takes 1-16 characters).
+  def test_validate_refuses_a_value_the_input_transform_does_not_take
+    replay("validate_invalid")
 
-  def test_eligibility_projects_classification_and_status
-    seed_gets(file: "9000001", iens: "1,", fields: Tribal::ELIGIBILITY_FIELDS, text: <<~REPLY.strip)
-      [Data]
-      9000001^1^1111^13^INDIAN/ALASKA NATIVE
-      9000001^1^1112^I^INDIAN/ALASKA NATIVE
-    REPLY
-
-    result = Tribal.eligibility(1)
-
-    assert_equal "I", result[:eligibility_status]
-    assert_equal "INDIAN/ALASKA NATIVE", result[:eligibility_status_name]
-    assert_equal 13, result[:classification_ien]
-    assert_equal "INDIAN/ALASKA NATIVE", result[:classification]
+    refute Tribal.validate("X" * 40)[:valid]
   end
 
-  # -- validate (input-transform check via DDR VALIDATOR) --------------------
+  def test_service_unit_reads_the_table_entry_by_ien
+    replay("service_unit")
 
-  def seed_validator(value, internal:, external: nil)
-    key = Ddr.validator_param(file: "9000001", iens: "", field: ".07", value: value).to_s
-    @mock.seed(:ddr_validator, key, "[FILLER]\n[Data]\n#{internal}\n#{external || internal}")
+    assert_equal({ ien: 1, name: "NON SERVICE UNIT" }, Tribal.service_unit(1))
   end
 
-  def test_validate_accepts_value_passing_the_input_transform
-    seed_validator("EX-12345", internal: "EX-12345")
+  def test_tribe_info_reads_the_name_and_the_code
+    replay("tribe_info")
 
-    result = Tribal.validate("EX-12345")
-
-    assert result[:valid]
-    assert_equal "EX-12345", result[:internal]
+    assert_equal({ ien: 697, name: "KWETHLUK, INC.", code: "815" }, Tribal.tribe_info(697))
   end
 
-  def test_validate_rejects_value_failing_the_input_transform
-    # VAL^DIE returns "^" as the internal value on transform failure
-    seed_validator("!!bad!!", internal: "^", external: "")
+  def test_tribes_list_by_the_b_index
+    client = replay("tribes")
 
-    result = Tribal.validate("!!bad!!")
-
-    refute result[:valid]
-  end
-
-  # -- service unit / tribe table reads --------------------------------------
-
-  def test_service_unit_reads_table_entry_by_ien
-    seed_gets(file: "9999999.22", iens: "5,", fields: ".01",
-              text: "[Data]\n9999999.22^5^.01^EXAMPLE SERVICE UNIT^EXAMPLE SERVICE UNIT")
-
-    result = Tribal.service_unit(5)
-
-    assert_equal({ ien: 5, name: "EXAMPLE SERVICE UNIT" }, result)
-  end
-
-  def test_tribe_info_reads_table_entry_by_ien
-    seed_gets(file: "9999999.03", iens: "123,", fields: ".01;.02",
-              text: "[Data]\n9999999.03^123^.01^EXAMPLE TRIBE^EXAMPLE TRIBE\n9999999.03^123^.02^997^997")
-
-    result = Tribal.tribe_info(123)
-
-    assert_equal({ ien: 123, name: "EXAMPLE TRIBE", code: "997" }, result)
-  end
-
-  def test_tribes_lists_via_b_index
-    key = Ddr.lister_param(file: "9999999.03", fields: "@;.01", part: "EX", xref: "B").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n123^EXAMPLE TRIBE\n124^EXAMPLE TRIBE TWO")
-
-    result = Tribal.tribes(part: "EX")
-
-    assert_equal [ { ien: 123, name: "EXAMPLE TRIBE" },
-                   { ien: 124, name: "EXAMPLE TRIBE TWO" } ], result
+    assert_equal [ { ien: 697, name: "KWETHLUK, INC." }, { ien: 532, name: "KWETHLUK, ORGANIZED VILLAGE OF KWETHLUK" } ],
+                 Tribal.tribes(part: "KWETH")
+    assert_equal CapturedReplies.flow_calls(SLUG, "tribes"), sent(client)
   end
 
   # A community name repeats across states, so the county and state ride along.
-  def test_communities_list_via_b_index_with_county_and_state
-    key = Ddr.lister_param(file: "9999999.05", fields: "@;.01;.02;.03", part: "UNK", xref: "B").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n6218^UNKNOWN^UNKNOWN^WASHINGTON\n6219^UNKNOWN^YAKIMA^WASHINGTON")
+  def test_communities_list_by_the_b_index_with_county_and_state
+    replay("communities")
 
-    result = Tribal.communities(part: "UNK")
-
-    assert_equal [ { ien: 6218, name: "UNKNOWN", county: "UNKNOWN", state: "WASHINGTON" },
-                   { ien: 6219, name: "UNKNOWN", county: "YAKIMA", state: "WASHINGTON" } ], result
+    assert_equal [ { ien: 10_663, name: "STONEHAM", county: "MIDDLESEX", state: "MASSACHUSETTS" } ],
+                 Tribal.communities(part: "STONEHAM")
   end
 end

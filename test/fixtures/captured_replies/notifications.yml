@@ -1,0 +1,146 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb notifications.rb.
+---
+rpc: BEHOXQ ALRLIST
+entry_point: ALRLIST^BEHOXQ
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T05:05:12Z'
+note: 'Setup sends five alerts through XQAL GUI ALERTS (LOC=SEND) as PROVIDER,TEST:
+  four to DUZ 200 (BEHOXQ for DFN 3, BEHOXQ removable for DFN 3, BEHOXQ with no patient,
+  TIU removable) and one to DUZ 208 (BEHOXQ for DFN 3). The image also carries one
+  OR consult alert for DUZ 200.'
+captures:
+- name: inbox_empty/1
+  rpc: BEHOXQ ALRLIST
+  signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+  inputs: []
+  context: 'inbox of PROFILE,REG before anything is forwarded to it: no alerts'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: inbox/1
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: inbox of PROVIDER,TEST
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: 5bb92332a2bf41a231eeaeb228cf55a0083579270eb2ac312489bdedf86aef60
+- name: inbox_patient/1
+  rpc: BEHOXQ ALRLIST
+  inputs:
+  - '4'
+  context: 'inbox of PROVIDER,TEST with DFN 4 in context: only the alert with no patient'
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r"
+  sha256: a5a7bbeb48deb0bc3dd4f5413eb61a31a3f2a58ab31f71e829cc3b1de5652c91
+- name: remove_not_removable/1
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove the BEHOXQ alert sent without XQACNDEL: refused before BEHOXQ ALRPP'
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: 5bb92332a2bf41a231eeaeb228cf55a0083579270eb2ac312489bdedf86aef60
+- name: remove_not_listed/1
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove an alert ID no alert of this user has: refused before BEHOXQ ALRPP'
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: 5bb92332a2bf41a231eeaeb228cf55a0083579270eb2ac312489bdedf86aef60
+- name: remove_still_listed/1
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove the removable TIU alert: its handler (2, TIU) has no post-processing,
+    so it stays listed'
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: 5bb92332a2bf41a231eeaeb228cf55a0083579270eb2ac312489bdedf86aef60
+- name: remove_still_listed/2
+  rpc: BEHOXQ ALRPP
+  inputs:
+  - TIU,CAPTIU;200;3261120.050509
+  context: 'remove the removable TIU alert: its handler (2, TIU) has no post-processing,
+    so it stays listed'
+  raw_return: "6\02"
+  sha256: 032c1d03b03d6c95b7cbdb281c4c7698f6ccf12f347119cb1a263b7e5aafa43e
+- name: remove_still_listed/3
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove the removable TIU alert: its handler (2, TIU) has no post-processing,
+    so it stays listed'
+  raw_return: "7\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: f060cea8c3e7b325183c91cf3d16981bd4c98115dbc07ca1096b65641df54a83
+- name: remove/1
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove the removable BEHOXQ alert: listed, BEHOXQ ALRPP (handler 3, BEHOXQ),
+    listed again without it'
+  raw_return: "5\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Lab result to review.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPDEL;200;3261120.050509^1^DFN=3^PRI=1^INF=0\r"
+  sha256: 5bb92332a2bf41a231eeaeb228cf55a0083579270eb2ac312489bdedf86aef60
+- name: remove/2
+  rpc: BEHOXQ ALRPP
+  inputs:
+  - BEHOXQ,CAPDEL;200;3261120.050509
+  context: 'remove the removable BEHOXQ alert: listed, BEHOXQ ALRPP (handler 3, BEHOXQ),
+    listed again without it'
+  raw_return: "6\03"
+  sha256: dee5ce33af9fe28b2c5575bc0be77434b68fa0b4d4cdea26ba5b1260872e579c
+- name: remove/3
+  rpc: BEHOXQ ALRLIST
+  inputs: []
+  context: 'remove the removable BEHOXQ alert: listed, BEHOXQ ALRPP (handler 3, BEHOXQ),
+    listed again without it'
+  raw_return: "7\01^0^^  ^Staff meeting moved to 3 PM.^3261120.050509^PROVIDER,TEST^0^BEHOXQ^BEHOXQ,CAPNOPT;200;3261120.050509^0^PRI=1^INF=0\r2^0^^
+    \ ^Note to cosign.^3261120.050509^PROVIDER,TEST^0^TIU.0^TIU,CAPTIU;200;3261120.050509^1^^VSIT=\r2^0^USER,TEST
+    \   (123456)^  ^New consult CARD^3261120.050246^PROFILE,MD^2^OR.27^OR,2,27;206;3261120.050246^1^\r1^0^MOUSE,MICKEY
+    M    (1001)^  ^Review the visit.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPKEEP;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r"
+  sha256: 84e43cdddc4cb752f3a8affdcce85da155c57395801c1e77b656a8798437ea6d
+- name: forward/1
+  rpc: BEHOXQ ALRLIST
+  signed_on_as: PROFILE,SCHED (PSCH123, a published demo pair; DUZ 208)
+  inputs: []
+  context: PROFILE,SCHED forwards its alert to DUZ 207 with a comment
+  raw_return: "5\01^0^MOUSE,MICKEY M    (1001)^  ^Please see this patient.^3261120.050509^PROVIDER,TEST^3^BEHOXQ^BEHOXQ,CAPFWD;200;3261120.050509^0^DFN=3^PRI=1^INF=0\r"
+  sha256: c6c6c60bedb6660e8cd0d52d6104df70b7d809db43e90252656b9006065df2ab
+- name: forward/2
+  rpc: BEHOXQ FORWARD
+  signed_on_as: PROFILE,SCHED (PSCH123, a published demo pair; DUZ 208)
+  inputs:
+  - BEHOXQ,CAPFWD;200;3261120.050509
+  - '1': '207'
+  - Please review today.
+  context: PROFILE,SCHED forwards its alert to DUZ 207 with a comment
+  raw_return: "6\00"
+  sha256: 357d2d10c7c743bd0a87cd91e7007b7277f67f562cf7314042c70e75588f67c6
+- name: message/1
+  rpc: BEHOXQ ALRMSG
+  signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+  inputs:
+  - BEHOXQ,CAPFWD;200;3261120.050509
+  context: 'PROFILE,REG reads the forwarded alert''s message: the forwarding comment
+    first'
+  raw_return: "5\0Please review today.\r\r"
+  sha256: 27d29beb97f077731c500ef92df5d2d6a38eb5e30b89ebf65588e7f731d02a6c

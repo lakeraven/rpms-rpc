@@ -2,29 +2,22 @@
 #
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
-# release           the pinned openrpms build whose RPC signature the number is about; it must be pinned in
-#                   data/fingerprints/rpms-ops.lock.yml (`rake conformance:pin`, rpms-rpc#222)
-# registry          that build's RPC-surface document (<tag>-rpcs.json), as committed by conformance:pin
-# packages          that build's #9.4 package list; groups RPCs by package in rpc:coverage_html
 # minimum_percent   the last recorded covered / (registered - excluded). It never fails the task:
 #                   rpc:coverage prints a NOTE when coverage drops below it, and when coverage rises,
 #                   with the value to record here. Raise it then; never lower it.
 # max_unregistered  ceiling on names rpms-rpc uses that the registry does not register (#207).
 #                   0 since the 77 invented names were removed; test/rpms_rpc/registered_rpc_names_test.rb
-#                   holds it there on every run. Never raise it.
+#                   holds it there on every run, against the release under test. Never raise it.
+#
+# The registry is the openrpms release under test, not a pin: the latest published -ydb release, or
+# OPENRPMS_RELEASE=<tag>, fetched by `rake openrpms:fetch` (rpms-rpc#724). RPC_REGISTRY= and
+# RPC_PACKAGES= point rpc:coverage at another registry.
 #
 # NOTE: the live evidence (local-ydb-0930) is a local docker container of
-# bcer-9.0-20260930-8c88e47-ydb; the pinned release moved to bcer-9.0-20261012-e7923a4-ydb on
-# 2026-10-12 (rpms-rpc#409). The two registries differ in one #8994 row: DDR KEY VALIDATOR names
-# KEYVAL^DDR4 on 1012, where 0930 named a label that does not exist (openrpms#720). The reach
-# faces differ only in that RPC (client-callable on 1012) and in which options list the DDR
-# family (openrpms#674). Re-run `rake rpc:live` against a 1012 container to bring the evidence
-# onto the pinned build. minimum_percent 0.8 was recorded from a programmer run; the evidence
-# is now taken as the least-privilege PROV123 (0.67%), so rpc:coverage prints a NOTE until
-# coverage climbs back past it.
+# bcer-9.0-20260930-8c88e47-ydb, taken before test roles as PROV123 (least_privilege, 0.67%), so rpc:coverage
+# reads it as legacy. Re-run `rake rpc:live ROLE=<role>` against a container of the release under test to bring
+# the evidence onto it, under roles. minimum_percent 0.8 was recorded from a programmer run, so rpc:coverage
+# prints a NOTE until coverage climbs back past it.
 backend: local-ydb-0930
-release: bcer-9.0-20261012-e7923a4-ydb
-registry: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-rpcs.json
-packages: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-packages_9_4.txt
 minimum_percent: 0.9
 max_unregistered: 0

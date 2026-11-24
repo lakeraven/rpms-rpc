@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "fileutils"
 require "socket"
+require "json"
+require "tmpdir"
 require "rpms_rpc"
 require_relative "features_test_helper"
 
@@ -12,12 +14,13 @@ class FeaturesReviewTest < Minitest::Test
 
   CONTEXTS_OOO_TAG = "features-review-contexts-ooo-ydb"
   OOO_OPTION_ONLY_TAG = "features-review-ooo-option-only-ydb"
+  OOO_FIELD_TAG = "features-review-ooo-field-ydb"
   BROKER_EXEMPT_TAG = "features-review-broker-exempt-ydb"
   XUS_SIGNON_EXEMPT_TAG = "features-review-xus-signon-exempt-ydb"
   CACHE_ALIAS_TAG = "features-review-cache-alias-ydb"
   BROKEN_OPTION = "ZZ BROKEN OPTION"
 
-  # The pinned rpcs.json (committed data): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
+  # The fixture rpcs.json (a real release's records): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
   PINNED_BEHOPTPC_GETBDP_REACH =
     { "class" => "client-callable", "routine_present" => true, "tag_present" => true, "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.freeze
 
@@ -59,6 +62,17 @@ class FeaturesReviewTest < Minitest::Test
                       build: OOO_OPTION_ONLY_TAG,
                       inventories_dir: FIXTURE_INVENTORIES,
                       context: BROKEN_OPTION)
+  end
+
+  # rpcs.json records carry reach.out_of_order since openrpms#1279 (rpms-rpc#628). The fixture is
+  # bcer-9.0-20261124-60d39b6-ydb's three chart-banner records, client-callable, with ZZ BROKEN OPTION
+  # added to their contexts and named in their out_of_order: no out-of-order row names that option, so
+  # only the field can say it is out of order. CIAV VUECENTRIC, which the field does not name, still serves.
+  def test_628_the_out_of_order_field_marks_an_option_no_out_of_order_row_names
+    kw = { build: OOO_FIELD_TAG, inventories_dir: FIXTURE_INVENTORIES }
+    refute available?(:patient_chart_banner, **kw, context: BROKEN_OPTION),
+           "an option the record's out_of_order names must not serve the feature"
+    assert available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC")
   end
 
   # --- (2) Golden pin answers; broker-exempt and XUS SIGNON must not count as served --------------
@@ -105,29 +119,37 @@ class FeaturesReviewTest < Minitest::Test
     assert_symlink_alias_order_independent(:real_first)
   end
 
-  # --- (4) Malformed lock must raise ArgumentError, not Psych/Type errors -------------------------
+  # --- (4) A malformed current-release record must raise ArgumentError, not JSON/Key errors --------
 
-  def test_review_511_malformed_lock_raises_argument_error_not_psych_syntax_error
-    with_lock_path(malformed_lock_file("repo: [")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
-    end
-  end
-
-  def test_review_511_malformed_lock_releases_key_raises_argument_error_not_no_method_error
-    with_lock_path(malformed_lock_file("releases: 3")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
-    end
-  end
-
-  def test_review_511_malformed_lock_scalar_list_raises_argument_error_not_type_error
-    with_lock_path(malformed_lock_file("- a")) do
+  def test_review_511_current_record_that_is_not_json_raises_argument_error
+    with_current_record("releases: [") do
       assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
     end
   end
 
-  def test_review_511_lock_with_disallowed_yaml_tag_raises_argument_error
-    with_lock_path(malformed_lock_file("releases: !ruby/object:Object {}")) do
-      assert_raises(ArgumentError) { features!.pinned_build_tags }
+  def test_review_511_current_record_without_a_tag_raises_argument_error
+    with_current_record(JSON.generate({ "repo" => "lakeraven/openrpms" })) do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+    end
+  end
+
+  def test_review_511_current_record_that_is_a_list_raises_argument_error
+    with_current_record("[]") do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+    end
+  end
+
+  # #628: the recorded tag is held to TAG_NAME, as a passed build: is.
+  def test_current_record_tag_that_is_not_a_string_raises_argument_error_not_type_error
+    with_current_record(JSON.generate({ "tag" => 123 })) do
+      assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+    end
+  end
+
+  def test_current_record_tag_that_is_a_path_raises_argument_error
+    with_current_record(JSON.generate({ "tag" => "../#{PINNED_TAG}" })) do
+      err = assert_raises(ArgumentError) { features!.available?(:bmc_referral_workflow) }
+      assert_match(/malformed build tag/, err.message)
     end
   end
 
@@ -151,6 +173,16 @@ class FeaturesReviewTest < Minitest::Test
   def test_review_511_for_with_nil_context_raises_argument_error
     assert_raises(ArgumentError) do
       features!.for(build: PINNED_TAG, context: nil)
+    end
+  end
+
+  # #628: an empty or non-String context answered false instead of refusing.
+  def test_context_that_is_not_a_non_empty_string_raises_argument_error
+    [ "", :"CIAV VUECENTRIC", 19 ].each do |context|
+      assert_raises(ArgumentError, context.inspect) do
+        features!.available?(:patient_chart_banner, build: PINNED_TAG, context: context)
+      end
+      assert_raises(ArgumentError, context.inspect) { features!.for(build: PINNED_TAG, context: context) }
     end
   end
 
@@ -211,23 +243,12 @@ class FeaturesReviewTest < Minitest::Test
     end
   end
 
-  def malformed_lock_file(body)
-    path = File.join(Dir.mktmpdir("features-review-lock-"), "rpms-ops.lock.yml")
-    File.write(path, body)
-    path
-  end
-
-  def with_lock_path(path)
-    feat = features!
-    original = RpmsRpc::Features::LOCK_PATH
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, path)
-    feat.reset!
-    yield
-  ensure
-    RpmsRpc::Features.send(:remove_const, :LOCK_PATH)
-    RpmsRpc::Features.const_set(:LOCK_PATH, original)
-    feat.reset!
+  # Run the block with the release cache at a temp dir whose current.json is BODY.
+  def with_current_record(body)
+    Dir.mktmpdir("features-review-current-") do |root|
+      File.write(File.join(root, "current.json"), body)
+      with_cache_root(root) { yield }
+    end
   end
 
   GUARD_MESSAGE = "Features review 511 network guard"

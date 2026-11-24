@@ -94,10 +94,8 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     end
   end
 
-  PROV123_ACCESS = "LAZY-COV-PROV123-ACCESS"
-  PROV123_VERIFY = "LAZY-COV-PROV123-VERIFY"
-  SYS123_ACCESS = "LAZY-COV-SYS123-ACCESS"
-  SYS123_VERIFY = "LAZY-COV-SYS123-VERIFY"
+  ROLES = RpmsRpc::DailyReport::LIVE_ROLES
+  SUITES = 1 + ROLES.size
 
   def passing_minitest
     <<~OUT
@@ -106,23 +104,21 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     OUT
   end
 
-  def persona_sign_on_env(overrides = {})
+  def role_sign_on_env(overrides = {})
     {
       "BROKER_HOST" => "127.0.0.1",
-      "BROKER_PORT" => "19300",
-      "PROV123_ACCESS" => PROV123_ACCESS,
-      "PROV123_VERIFY" => PROV123_VERIFY,
-      "SYS123_ACCESS" => SYS123_ACCESS,
-      "SYS123_VERIFY" => SYS123_VERIFY
-    }.merge(overrides)
+      "BROKER_PORT" => "19300"
+    }.merge(ROLES.to_h { |p| [ "#{p.upcase}_ACCESS", "LAZY-COV-#{p}-ACCESS" ] })
+     .merge(ROLES.to_h { |p| [ "#{p.upcase}_VERIFY", "LAZY-COV-#{p}-VERIFY" ] })
+     .merge(overrides)
   end
 
   def orchestrator(**overrides)
     defaults = {
       root: ROOT,
-      env: persona_sign_on_env(overrides.dig(:env) || {}),
+      env: role_sign_on_env(overrides.dig(:env) || {}),
       releases: FakeReleases.new,
-      runner: FakeRunner.new([ { stdout: passing_minitest } ] * 3),
+      runner: FakeRunner.new([ { stdout: passing_minitest } ] * SUITES),
       docker: FakeDocker.new,
       broker_probe: FakeBrokerProbe.new,
       clock: FakeClock.new,
@@ -154,7 +150,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
       runner = FakeRunner.new([])
       docker = FakeDocker.new
       io = StringIO.new
-      env = persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
+      env = role_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, docker: docker, coverage: coverage, env: env,
                           plan_io: io)
 
@@ -169,11 +165,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     coverage = CountingCoverage.new(ran: true, headline: "RPC coverage: 1.0%", reason: nil)
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      runner = FakeRunner.new([
-        { stdout: passing_minitest },
-        { stdout: passing_minitest },
-        { stdout: passing_minitest }
-      ])
+      runner = FakeRunner.new([ { stdout: passing_minitest } ] * SUITES)
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, coverage: coverage)
 
       assert_equal 0, orch.run
@@ -186,7 +178,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     coverage = CountingCoverage.new
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      env = persona_sign_on_env(
+      env = role_sign_on_env(
         "FRESH" => "1",
         "DRY_RUN" => "1",
         "RPMS_DIFFS_DIR" => diffs

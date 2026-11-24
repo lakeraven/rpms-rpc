@@ -11,6 +11,8 @@ require "rpms_rpc/api/patient"
 # LOOKUP PATIENTS uppercases what it is given, so only an uppercase preferred
 # name is found by search; the gem files the case it is given, as SETPREF does.
 class RegistrationPreferredNameLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-12.1"
   writes!
 
   DFN = 990_008 # HOTEL,DREW, a synthetic seed patient

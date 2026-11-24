@@ -3,12 +3,12 @@
 # Wire-level conformance cases, as data (openrpms#834).
 #
 # openrpms owns the cases (data/conformance/cases.jsonl): one JSON object per line naming an RPC,
-# the context option to bind, the persona, the literal parameters and the verdict the build must
+# the context option to bind, the test role, the literal parameters and the verdict the build must
 # give. This runs them at the wire through CiaClient#call_rpc_raw. It calls no API method: a case
 # is a property of the build, not of this gem's API, so any client can run the same file.
 #
 # A row:
-#   {"id":"patient-list","rpc":"ORWPT LIST ALL","context":"CIAV VUECENTRIC","persona":"programmer",
+#   {"id":"patient-list","rpc":"ORWPT LIST ALL","context":"CIAV VUECENTRIC","role":"operator",
 #    "params":["@~","1"],"expect":"answered","min_rows":1,"capture":{"dfn":1}}
 #
 #   params   each a string, or {"list":[[subscript, ..., value], ...]} for a list parameter (one
@@ -31,8 +31,8 @@ require_relative "rpc_coverage"
 module RpcCoverage
   module Cases
     EXPECTS = %w[answered no_data broker_error].freeze
-    KEYS = %w[id rpc context persona params expect min_rows capture scenario trace].freeze
-    REQUIRED = %w[id rpc context persona params expect].freeze
+    KEYS = %w[id rpc context role params expect min_rows capture scenario trace].freeze
+    REQUIRED = %w[id rpc context role params expect].freeze
     ID = /\A[a-z0-9]+(-[a-z0-9]+)*\z/
     REF = /\$\{([a-z0-9-]+)\.([a-z_]+)\}/
     ROW_BREAK = /\r\n|\r|\n|\x1e/
@@ -70,7 +70,7 @@ module RpcCoverage
         out << "#{id.inspect}: id is not lower-case-hyphenated" unless id.match?(ID)
         out << "#{id}: duplicate id" if seen.key?(id)
         out << "#{id}: expect #{r['expect'].inspect} is not one of #{EXPECTS.join(', ')}" unless EXPECTS.include?(r["expect"])
-        out << "#{id}: persona #{r['persona'].inspect} is not one of #{PERSONAS.join(', ')}" unless PERSONAS.include?(r["persona"])
+        out << "#{id}: role #{r['role'].inspect} is not a test role (#{ROLES.names.join(', ')})" unless ROLES[r["role"].to_s]
         JSON.generate(r["params"]).scan(REF).each do |case_id, name|
           out << "#{id}: names ${#{case_id}.#{name}}, which no earlier case captures" unless seen[case_id]&.include?(name)
         end
@@ -121,7 +121,7 @@ module RpcCoverage
 
     def printable(str) = str.to_s.gsub(/[^\x20-\x7e]/, " ").strip
 
-    # Runs rows against one signed-on persona. connect returns a signed-on CiaClient; it is called
+    # Runs rows against one signed-on role. connect returns a signed-on CiaClient; it is called
     # again after a case drops or desyncs the session.
     class Runner
       attr_reader :results

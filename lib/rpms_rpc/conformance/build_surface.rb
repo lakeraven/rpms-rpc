@@ -5,10 +5,10 @@ require "rpms_rpc/core"
 
 module RpmsRpc
   module Conformance
-    # The RPC surface of ONE pinned openrpms build, read from the one document openrpms publishes
+    # The RPC surface of ONE openrpms build, read from the one document openrpms publishes
     # of it, <tag>-rpcs.json (openrpms#732; rpms-rpc#394, #395, #406). This is the only reader of
     # that document in this repo: the registered-names gate, the callable gate, Features,
-    # `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`, `conformance:pin`/`check` and
+    # `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`, `openrpms:fetch` and
     # `openapi:surface` all go through it.
     #
     # The document, as openrpms writes it (bin/release_rpcs_json.rb, the format's authority; schema
@@ -32,7 +32,7 @@ module RpmsRpc
     # byte-sorted, under a header row OPTION TYPE LOCK RPC RPC_KEY RPC_RULES; openrpms#626,
     # rpms-rpc#416) answers which option serves which RPC; it is read when present.
     #
-    # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
+    # Checksums are not this class's job: ReleaseInventory verifies the bytes before anything reads them.
     class BuildSurface
       # openrpms bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
@@ -62,11 +62,13 @@ module RpmsRpc
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
 
       # One registered RPC, from its rpcs.json record. package is the #9.4 package ({prefix:, name:,
-      # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none.
+      # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none. out_of_order is
+      # reach.out_of_order, the options listing it that are out of order (rpc_reach.txt field 7,
+      # openrpms#1279), [] when none, and nil for an rpcs.json written before the field.
       Rpc = Struct.new(
         :name, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
-        :word_wrap, :version, :formals, :description, :params, :returns, :package,
+        :word_wrap, :version, :formals, :description, :params, :returns, :package, :out_of_order,
         keyword_init: true
       ) do
         # TAG^ROUTINE as #8994 stores it; nil when neither is set. An empty TAG ("^BGUPMR") is the
@@ -77,7 +79,7 @@ module RpmsRpc
 
       def self.blank(value) = value.to_s.empty? ? nil : value
 
-      # The pinned files for TAG in DIR (data/inventories/<tag>/), by their published names:
+      # The release's files for TAG in DIR (tmp/openrpms/<tag>/ once fetched), by their published names:
       # <tag>-rpcs.json, and <tag>-contexts_19_05.txt when it is there.
       def self.load(dir, tag)
         contexts = File.join(dir, "#{tag}-#{CONTEXTS_SUFFIX}")
@@ -239,6 +241,7 @@ module RpmsRpc
             availability: r["availability"], inactive: inactive.to_s.empty? || inactive == "0" ? nil : inactive,
             reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
             contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
+            out_of_order: (Array(reach["out_of_order"]) if reach.key?("out_of_order")),
             formals: formals, description: text ? Array(r["description"]) : [], returns: text ? Array(r["returns"]) : [],
             word_wrap: (r["word_wrap"] if text), version: (r["version"] if text),
             params: from_8994.map do |p|

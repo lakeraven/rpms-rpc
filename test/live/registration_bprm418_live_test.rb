@@ -7,6 +7,8 @@ require "rpms_rpc/api/ddr_fileman"
 # rpms-rpc#418 registration rows on a disposable build: SOGI, MBI, and sex writes
 # through Registration, read back through DDR.
 class RegistrationBprm418LiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-13.1", "S-REG-13.3"
   writes!
 
   DFN = 990_043
@@ -406,7 +408,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     target = fm(row_date).to_s
     return unless listed[:entries].any? { |e| e[:pieces].first.to_s == target }
 
-    flunk "#{file} already has a row dated #{row_date} for DFN #{dfn}; pick a date with no row, or clean the persona"
+    flunk "#{file} already has a row dated #{row_date} for DFN #{dfn}; pick a date with no row, or clean the role"
   end
 
   def purge_subfile_rows_created_after(file, dfn, existing_iens)
@@ -450,7 +452,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     return unless listed[:entries].any? { |e| e[:pieces].first.to_s == target }
 
     flunk "9000001.44 already has a row dated #{effective_date} for DFN #{DFN}; " \
-          "pick a date with no row, or clean the persona"
+          "pick a date with no row, or clean the role"
   end
 
   def purge_mbi_rows_created_after(existing_iens)

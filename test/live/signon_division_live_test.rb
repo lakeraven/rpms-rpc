@@ -9,7 +9,7 @@ require_relative "live_helper"
 # The server's DUZ(2) is read back with BEHOSICX SITEINFO, which answers for
 # INST=+DUZ(2) and returns that IEN as its tenth line (SITEINFO^BEHOSICX,
 # BEHOSICX.m:7,10). It is in CIAV VUECENTRIC, the option sign-on binds, so it
-# answers for the least-privilege persona as well as the programmer.
+# answers for every role, the operator included.
 #
 # What a single-division build cannot show: DIVSET moving a session from one
 # division to another, which needs a user with two DIVISION (#200 field 16)
@@ -25,26 +25,28 @@ module SignonDivisionLive
 end
 
 class SignonDivisionLiveTest < LiveSpec::Test
+  runs_as :provider
   include SignonDivisionLive
 
   # The harness signed on with no division named: the session acts in the
   # division DIVGET chose, one of the user's, and the server's DUZ(2) is the
   # one the client reports.
   def test_signon_binds_the_division_divget_chose
-    refute_empty client.divisions, "#{persona} has no DIVISION (#200 field 16), so sign-on should have refused"
+    refute_empty client.divisions, "#{role} has no DIVISION (#200 field 16), so sign-on should have refused"
     assert_includes client.divisions, client.division
     assert_equal client.division[:ien], server_division(client),
       "the server's DUZ(2) is not the division the client says it bound"
-    puts "\n#{persona}: division #{client.division.inspect}"
+    puts "\n#{role}: division #{client.division.inspect}"
   end
 end
 
 class SignonDivisionChoiceLiveTest < LiveSpec::Test
+  runs_as :provider
   include SignonDivisionLive
   connect_only!
 
   def sign_on_as_persona(**)
-    client.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"), **)
+    client.authenticate(*sign_on_pair, **)
   end
 
   # Naming the user's division signs on in it.

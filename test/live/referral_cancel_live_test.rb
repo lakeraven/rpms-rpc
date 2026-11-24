@@ -19,6 +19,7 @@ require "rpms_rpc/api/ddr_fileman"
 # with DDR GETS ENTRY DATA, and then files it ACTIVE again with the same RPC,
 # so the container ends as it began and a rerun reuses the same referral.
 class ReferralCancelLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   REFERRAL_FILE = "90001"
@@ -31,7 +32,7 @@ class ReferralCancelLiveTest < LiveSpec::Test
       result = RpmsRpc::Referral.cancel(ien)
       assert result[:success], "Referral.cancel(#{ien}) answered #{result.inspect}"
       assert_equal RpmsRpc::Referral::CANCELLED_STATUS, status_of(ien), "referral #{ien} is not cancelled after cancel"
-      puts "\n#{persona}: referral #{ien} cancelled, status read back #{status_of(ien).inspect}"
+      puts "\n#{role}: referral #{ien} cancelled, status read back #{status_of(ien).inspect}"
     ensure
       restore_active(ien)
     end
@@ -52,12 +53,65 @@ class ReferralCancelLiveTest < LiveSpec::Test
     assert_nil status_of("999999999"), "a referral 999999999 is on file after the refused cancel"
   end
 
+  # Referral.find reads one referral through BMC GET REFERRAL
+  # (GTRFBYID^BMCRPC1). The routine finds the record by its REFERRAL #
+  # (.02, 13 digits) on the C index (BMCRPC1.m:62-65), so a referral filed
+  # without one cannot be read: the fixture gets a number first.
+  def test_find_reads_the_referral_by_its_ien
+    ien = active_referral
+    number = referral_number!(ien)
+    record = RpmsRpc::Referral.find(ien)
+    refute_nil record, "Referral.find(#{ien}) answered nothing"
+    assert_equal ien.to_i, record[:ien].to_i
+    assert_equal number, record[:referral_number]
+    filed = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".03", flags: "I")
+    assert_equal filed[:fields].dig(".03", :internal).to_i, record[:patient_dfn], "the patient filed on the referral"
+    assert_kind_of Array, record[:diagnoses]
+    assert_equal [ "N", "O" ], record.values_at(:type, :visit_type), "in-house (.04) and outpatient (.14), as filed"
+    puts "\n#{role}: Referral.find(#{ien}) read referral #{number} of DFN #{record[:patient_dfn]}"
+  end
+
+  # GTRFBYID^BMCRPC1 answers "Not a valid Referral Ien" as a scalar under a
+  # GLOBAL ARRAY RPC (BMCRPC1.m:57), so the broker raised an M error reading
+  # it as a global name (#767). find answers nil instead.
+  def test_find_of_a_referral_not_on_file_answers_nil
+    assert_nil status_of("999999999"), "a referral 999999999 is on file"
+    assert_nil RpmsRpc::Referral.find("999999999")
+  end
+
+  # A referral with no REFERRAL # (.02) is one RCIS never files, and
+  # GTRFBYID^BMCRPC1 cannot read it: it looks the record up by .02 on the C
+  # index, finds nothing and dies with GVUNDEF ^TMP($J,"PRNRC",1) (#767).
+  # find answers nil. The spec files one with DDR FILER and deletes it.
+  def test_find_of_a_referral_with_no_number_answers_nil
+    ien = file_fixture
+    begin
+      entry = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".02", flags: "I")
+      assert_equal "", entry[:fields].dig(".02", :internal).to_s, "the fixture referral #{ien} has a REFERRAL #"
+      assert_nil RpmsRpc::Referral.find(ien)
+    ensure
+      delete_referral(ien)
+    end
+  end
+
   def test_cancel_of_a_non_ien_answers_without_the_wire
     refute RpmsRpc::Referral.cancel(nil)[:success]
     refute RpmsRpc::Referral.cancel("0")[:success]
   end
 
   private
+
+  # The referral's REFERRAL # (.02), filed when it has none.
+  def referral_number!(ien)
+    entry = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".02", flags: "I")
+    number = entry && !entry[:error] ? entry[:fields].dig(".02", :internal).to_s : ""
+    return number unless number.empty?
+
+    number = format("9%012d", Integer(ien))
+    filed = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: REFERRAL_FILE, field: ".02", iens: "#{ien},", value: number } ])
+    assert filed && filed[:success], "DDR FILER could not file REFERRAL # on #{ien}: #{filed.inspect}"
+    number
+  end
 
   # STATUS OF REFERRAL, internal, or nil when the entry is not on file.
   def status_of(ien)
@@ -85,6 +139,14 @@ class ReferralCancelLiveTest < LiveSpec::Test
     filed = RpmsRpc::DdrFileman.filer(mode: "ADD", rows: rows)
     assert filed && filed[:success], "DDR FILER could not file a fixture referral: #{filed.inspect}"
     filed[:iens].fetch(1)
+  end
+
+  # FileMan deletes an entry when its .01 is filed as "@".
+  def delete_referral(ien)
+    rows = [ { file: REFERRAL_FILE, field: ".01", iens: "#{ien},", value: "@" } ]
+    deleted = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: rows)
+    assert deleted && deleted[:success], "DDR FILER could not delete fixture referral #{ien}: #{deleted.inspect}"
+    assert_nil status_of(ien), "fixture referral #{ien} is still on file after the delete"
   end
 
   def today_fileman

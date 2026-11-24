@@ -2,13 +2,13 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/pov"
 
 class PovTest < Minitest::Test
   DFN       = "8791"
   VISIT_IEN = "2090059"
   ICD       = "I10"
+  PROBLEM   = "77"
 
   # Scripted broker: canned response per RPC name, records every call.
   class ScriptedClient
@@ -40,7 +40,7 @@ class PovTest < Minitest::Test
   def test_add_returns_success_with_saved_ien
     script("BGOVPOV SET" => "9001")
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
     assert result[:success]
     assert_equal 9001, result[:ien]
   end
@@ -48,7 +48,7 @@ class PovTest < Minitest::Test
   def test_add_dispatches_bgovpov_set_with_single_inp_param
     client = script("BGOVPOV SET" => "9001")
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
 
     call = client.calls.find { |c| c[:rpc] == "BGOVPOV SET" }
     refute_nil call
@@ -62,7 +62,7 @@ class PovTest < Minitest::Test
   def test_add_with_primary_modifier_marks_inp_piece_9_p
     client = script("BGOVPOV SET" => "9001")
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "primary dx", modifiers: { primary: true })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "primary dx", modifiers: { primary: true, problem_ien: PROBLEM })
 
     inp = client.calls.last[:params][0].split("^", -1)
     assert_equal "P", inp[8], "primary marker is INP piece 9 (BGOVPOV.m:286)"
@@ -71,7 +71,7 @@ class PovTest < Minitest::Test
   def test_add_with_secondary_modifier_marks_inp_piece_9_s
     client = script("BGOVPOV SET" => "9001")
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "secondary dx", modifiers: { secondary: true })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "secondary dx", modifiers: { secondary: true, problem_ien: PROBLEM })
 
     inp = client.calls.last[:params][0].split("^", -1)
     assert_equal "S", inp[8], "secondary marker is INP piece 9 (BGOVPOV.m:286)"
@@ -80,7 +80,7 @@ class PovTest < Minitest::Test
   def test_add_with_injury_cause_modifier_rides_inj_formal
     client = script("BGOVPOV SET" => "9001")
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "ankle pain", modifiers: { injury_cause: "W01.0" })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "ankle pain", modifiers: { injury_cause: "W01.0", problem_ien: PROBLEM })
 
     call = client.calls.last
     assert_equal "W01.0", call[:params][2].split("^", -1)[0],
@@ -94,14 +94,14 @@ class PovTest < Minitest::Test
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD,
       narrative: "Essential hypertension",
-      modifiers: { primary: true, snomed_ct: "38341003", provider_duz: "42" })
+      modifiers: { primary: true, snomed_ct: "38341003", provider_duz: "42", problem_ien: PROBLEM })
 
     call = client.calls.last
     assert_equal "BGOVPOV SET", call[:rpc]
     # INP per BGOVPOV.m:285-286: VPOVIEN^VIEN^PROBIEN^DFN^PROVTEXT^DESCCT^
     # SNOMED^ICD^PRI^PRV^ASTHMA^NORM^LAT^FRAC; QUAL and INJ ride formals 2-3.
     assert_equal [
-      "^#{VISIT_IEN}^^#{DFN}^Essential hypertension^^38341003^#{ICD}^P^42^^^^",
+      "^#{VISIT_IEN}^#{PROBLEM}^#{DFN}^Essential hypertension^^38341003^#{ICD}^P^42^^^^",
       "",
       ""
     ], call[:params]
@@ -110,7 +110,7 @@ class PovTest < Minitest::Test
   def test_add_result_has_exact_gateway_shape
     script("BGOVPOV SET" => "9001")
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
     assert_equal %i[success ien raw], result.keys
     assert_equal "9001", result[:raw]
   end
@@ -119,7 +119,7 @@ class PovTest < Minitest::Test
     # CHKVISIT^BGOUTL error shape (BGOUTL.m:283-284)
     script("BGOVPOV SET" => "-1003^Visit entry does not exist")
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
     refute result[:success]
     assert_nil result[:ien]
     assert_equal "-1003^Visit entry does not exist", result[:raw]
@@ -131,7 +131,7 @@ class PovTest < Minitest::Test
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
     assert_equal({ success: false, ien: nil, raw: nil }, result)
   end
 
@@ -141,9 +141,34 @@ class PovTest < Minitest::Test
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
     refute result[:success]
     assert_nil result[:ien]
+  end
+
+  # BGOVPOV SET files a diagnosis from a problem-list entry: with no problem
+  # in piece 3, GETDATA^BGOVPOV2 walks ^AUPNPROB("",13,...) and the build
+  # errors with a null subscript (rpms-rpc#922, reproduced live on
+  # bcer-9.0-20261119-f67498c-ydb; test/live/pov_add_live_test.rb).
+  def test_add_without_a_problem_is_refused_before_sending
+    [ {}, { problem_ien: nil }, { problem_ien: "" }, { problem_ien: "0" }, { primary: true } ].each do |modifiers|
+      client = script("BGOVPOV SET" => "9001")
+
+      result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: modifiers)
+
+      assert_empty client.calls, "nothing is sent without a problem (#{modifiers.inspect})"
+      assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+      assert_includes result[:error], "problem_ien", "the refusal names the missing problem"
+    end
+  end
+
+  def test_add_sends_the_problem_in_inp_piece_3
+    client = script("BGOVPOV SET" => "9001")
+
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension", modifiers: { problem_ien: PROBLEM })
+
+    inp = client.calls.last[:params][0].split("^", -1)
+    assert_equal PROBLEM, inp[2], "Problem IEN is INP piece 3 (BGOVPOV.m:302)"
   end
 
   def test_narrative_is_required_keyword

@@ -9,6 +9,8 @@ require "rpms_rpc/api/tribal"
 # window. Refusals are AG's own quantum check (S-REG-07.8) and the two AG's
 # client makes before it saves (S-REG-07.9).
 class PatientOtherTribesLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-07.2", "S-REG-07.8", "S-REG-07.9"
   writes!
 
   DFN = 990_008 # HOTEL,DREW, a synthetic seed patient

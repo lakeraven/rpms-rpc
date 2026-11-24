@@ -12,8 +12,10 @@ require "rpms_rpc/api/coverage"
 # When AG lists no billable private insurer, the spec seeds the synthetic
 # "ZZ LIVE PRIVATE INSURER" on #9999999.18 via DDR FILER so that cycle can run.
 #
-# Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
+# Runs as the front desk clerk (PROFILE,REG): every call is in AGGRPC.
 class CoverageOnFileLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-03.1"
   writes!
 
   DFN = 990_049 # ZEPHYR,QUINN on the pinned build; unused by other live specs
@@ -80,7 +82,7 @@ class CoverageOnFileLiveTest < LiveSpec::Test
              "private policy still listed in on_file: #{after[:private].inspect}"
       private_record_ien = nil
 
-      puts "\n#{persona}: coverage filed, read back, and private policy deleted on DFN #{DFN}"
+      puts "\n#{role}: coverage filed, read back, and private policy deleted on DFN #{DFN}"
     ensure
       cleanup_private_policy!(private_record_ien)
     end
@@ -126,7 +128,7 @@ class CoverageOnFileLiveTest < LiveSpec::Test
     found = insurers.find { |row| row[:type] == "PRIVATE" && row[:status] == "BILLABLE" }
     return found[:ien] if found
 
-    flunk "#{persona} cannot bind CIAV VUECENTRIC for DDR FILER" unless client.create_context("CIAV VUECENTRIC")
+    flunk "#{role} cannot bind CIAV VUECENTRIC for DDR FILER" unless client.create_context("CIAV VUECENTRIC")
     rows = { ".01" => SYNTHETIC_PRIVATE_INSURER, ".21" => "P", ".211" => "5", ".17" => "1" }.map do |field, value|
       { file: "9999999.18", field: field, iens: "+1,", value: value }
     end

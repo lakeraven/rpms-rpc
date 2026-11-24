@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "tmpdir"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../rpms_rpc/release_under_test"
 
 # rake rpc:api_coverage (rpms-rpc#358): method discovery, RPC resolution and the JSON shape.
 # The fixture is the real lib/ tree; nothing reaches a broker.
@@ -135,17 +136,42 @@ class ApiCoverageTest < Minitest::Test
     end
   end
 
+  # Real live specs (rpms-rpc#765): one calls through a constant (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.x`),
+  # the other through a one-line helper (`def maint = RpmsRpc::SchedulingMaintenance`).
+  def test_live_call_sites_resolve_a_constant_or_helper_that_names_a_module
+    files = %w[behavioral_health_reference_live_test.rb scheduling_clinic_setup_live_test.rb].map { |f| File.join(ROOT, "test/live", f) }
+    sites = ApiCoverage.live_call_sites(files, root: ROOT)
+
+    assert_includes sites["RpmsRpc::BehavioralHealth::Reference"][:patients].map { |s| s[/\A[^:]+/] },
+                    "test/live/behavioral_health_reference_live_test.rb"
+    assert_includes sites["RpmsRpc::BehavioralHealth::Groups"].keys, :group_information
+    assert_includes sites["RpmsRpc::SchedulingMaintenance"].keys, :save_access_type
+    assert_includes sites["RpmsRpc::SchedulingMaintenance"].keys, :add_resource_group_member
+    assert_includes sites["RpmsRpc::Scheduling"].keys, :resources
+  end
+
+  def test_live_call_sites_leave_a_helper_that_calls_a_method_alone
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "x_live_test.rb")
+      File.write(path, "class X\n  def now = RpmsRpc::ServerClock.now\n  def test_a\n    now.year\n  end\nend\n")
+      sites = ApiCoverage.live_call_sites([ path ], root: dir)
+
+      assert_equal %w[RpmsRpc::ServerClock], sites.keys
+      assert_equal [ :now ], sites["RpmsRpc::ServerClock"].keys
+    end
+  end
+
   # --- the JSON ------------------------------------------------------------------------------
 
   def test_json_has_one_entry_per_public_method_in_the_documented_shape
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: ReleaseUnderTest.fixture.surface)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
 
-    assert_equal %w[schema registry personas summary methods], doc.keys
+    assert_equal %w[schema registry roles summary methods], doc.keys
     assert_equal methods.size, doc["methods"].size
     assert_equal %w[proven public unresolved_methods unregistered_rpcs undeclared by_module], doc["summary"].keys
     doc["methods"].each do |e|
-      assert_equal %w[module method arity params rpcs unresolved live_specs personas status shape shape_status], e.keys
+      assert_equal %w[module method arity params rpcs unresolved live_specs roles status shape shape_status], e.keys
       assert_includes ApiCoverage::STATUSES, e["status"]
       assert_equal e["live_specs"].empty?, e["status"] == "not_in_contract"
       e["rpcs"].each { |r| assert_equal %w[name registered entry_point reach via], r.keys }

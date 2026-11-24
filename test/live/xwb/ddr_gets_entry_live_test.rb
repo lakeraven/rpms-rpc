@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # Read only: GETS^DIQ reads; nothing is filed.
 class DdrGetsEntryXwbLiveTest < LiveSpec::Test
+  runs_as :provider
   broker :xwb
 
   CONTEXT = "CIAV VUECENTRIC"
@@ -33,20 +34,20 @@ class DdrGetsEntryXwbLiveTest < LiveSpec::Test
 
   def setup
     super
-    flunk "#{persona} cannot bind #{CONTEXT} over XWB on this build" unless client.create_context(CONTEXT)
+    flunk "#{role} cannot bind #{CONTEXT} over XWB on this build" unless client.create_context(CONTEXT)
   end
 
   def test_a_patient_reads_the_fields_the_cia_recording_gives
     result = RpmsRpc::DdrFileman.gets_entry(file: "2", iens: "4,", fields: ".01;.02;.03", flags: "IE")
 
     assert_equal({ fields: PATIENT, error: false, malformed: false }, result)
-    puts "\n#{persona}: file 2 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
+    puts "\n#{role}: file 2 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
   end
 
   def test_a_user_reads_the_fields_the_cia_recording_gives
     result = RpmsRpc::DdrFileman.gets_entry(file: "200", iens: "4,", fields: ".01;1;4", flags: "IE")
 
     assert_equal({ fields: USER, error: false, malformed: false }, result)
-    puts "\n#{persona}: file 200 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
+    puts "\n#{role}: file 200 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
   end
 end

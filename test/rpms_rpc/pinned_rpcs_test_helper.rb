@@ -3,17 +3,18 @@
 require "fileutils"
 require "json"
 require "yaml"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
+require_relative "release_under_test"
 
 # Real inputs for the tests of the RPC-surface reader and its callers (rpms-rpc#406): records taken
-# from the pinned build's own <tag>-rpcs.json, as openrpms published it, written into a temp dir with
-# at most the one change a test is about. No record here is hand-written.
+# from the committed fixture inventory, cut verbatim from a real openrpms release's <tag>-rpcs.json
+# (tools/fixture_inventory.rb, rpms-rpc#724), written into a temp dir with at most the one change a
+# test is about. No record here is hand-written.
 module PinnedRpcsTestHelper
   ROOT = File.expand_path("../..", __dir__)
-  Lock = RpmsRpc::Conformance::InventoryLock
-  LOCK = Lock.load(File.join(ROOT, "data/fingerprints", Lock::DEFAULT_PATH))
-  TAG = LOCK.entries.keys.first
-  INVENTORY_DIR = File.join(ROOT, "data/inventories", TAG)
+  Lock = RpmsRpc::Conformance::ReleaseInventory
+  TAG = ReleaseUnderTest::FIXTURE_TAG
+  INVENTORY_DIR = ReleaseUnderTest::FIXTURE_DIR
   PATH = File.join(INVENTORY_DIR, "#{TAG}-#{Lock::RPCS_SUFFIX}")
 
   module_function

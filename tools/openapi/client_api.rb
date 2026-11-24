@@ -30,6 +30,9 @@ module OpenApi
       "BehavioralHealth::Wellness" => { path: "behavioral-health/wellness" },
       "Bgu" => { path: "bgu" },
       "Busa" => { path: "busa" },
+      "ChiefComplaint" => { path: "chief-complaints" },
+      "ClinicalReview" => { path: "clinical-reviews" },
+      "Consult" => { path: "consults", own: %w[consult_ien] },
       "DdrFileman" => { path: "files", own: %w[file] },
       "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },
@@ -41,6 +44,7 @@ module OpenApi
       "Image" => { path: "images" },
       "Immunization" => { path: "immunizations" },
       "ImmunizationRefusal" => { path: "immunization-refusals" },
+      "Lab" => { path: "labs" },
       "Location" => { path: "locations" },
       "Measurement" => { path: "measurements" },
       "Medication" => { path: "medications", own: %w[medication_id] },
@@ -50,6 +54,8 @@ module OpenApi
       "Organization" => { path: "organizations" },
       "Orwu" => { path: "orwu" },
       "Patient" => { path: "patients", own: %w[dfn patient_dfn] },
+      "PatientEducation" => { path: "patient-education" },
+      "PatientGoal" => { path: "patient-goals" },
       "Phr" => { path: "phr" },
       "Pov" => { path: "purposes-of-visit" },
       "Practitioner" => { path: "practitioners" },
@@ -106,6 +112,12 @@ module OpenApi
     # The pinned catalog route is GET at the path inference derives. Other :read methods
     # whose names start with an action word keep the inferred verb.
     READ_ON_ACTION_PATH = "RpmsRpc::Scheduling.checkin_visit"
+    # Create-word methods whose inferred POST to the collection is already another method's.
+    # Encounter.save (BEHOENPC SAVE, rpms-rpc#921) files a whole PCC encounter, where
+    # Encounter.create gets or creates a bare visit; both infer POST /patients/{dfn}/encounters.
+    # The pinned route appends the segment, matching the declared shape. Keys only; may only grow
+    # with a clash the catalog would otherwise refuse.
+    PINNED_CREATE_SEGMENT = { "RpmsRpc::Encounter.save" => "pcc" }.freeze
 
     module_function
 
@@ -166,6 +178,9 @@ module OpenApi
       fallback = publish_post?(key, c, retry_table: retry_table)
       # Keep the inferred words, including a plain noun with no retry row, so two nouns cannot collide.
       a = read_on_action_path(publish(place(method, c, c[:rest]), fallback), key, fallback)
+      if (segment = PINNED_CREATE_SEGMENT[key]) && c[:kind] == "create"
+        a = a.merge(path: "#{a[:path]}/#{segment}", rule: "pinned-create-segment")
+      end
       return a unless c[:kind] == "query"
 
       sub = publish(place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"), fallback)
@@ -310,7 +325,7 @@ module OpenApi
           "rpcs" => method["rpcs"].map { |r| { "name" => r["name"], "registered" => r["registered"], "entry_point" => r["entry_point"], "reach" => r["reach"], "via" => r["via"] } },
           "status" => method["status"],
           "live_specs" => method["live_specs"],
-          "personas" => method["personas"],
+          "roles" => method["roles"],
           "rule" => addr[:rule]
         }
       )
@@ -332,7 +347,7 @@ module OpenApi
     # Only a verb whose arguments are query parameters folds: a POST alias's arguments are its request body,
     # which `fold` does not copy.
     def catalog(input, retry_table: RpmsRpc::RetrySafety.table)
-      raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 1" unless input["schema"] == 1
+      raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 2" unless input["schema"] == 2
 
       excluded = { "no_rpc" => [], "unresolved" => [], "unregistered" => [] }
       key_of = ->(a) { "#{a[:verb].upcase} #{a[:path].gsub(/\{[^}]+\}/, '{}')}" }

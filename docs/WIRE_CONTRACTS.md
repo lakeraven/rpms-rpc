@@ -9,10 +9,11 @@ does it declare"* down to the **field-level layout of an actual return**.
 TDD is robust for self-contained logic and systematically blind at the
 external boundary: a mock's wire shape mirrors its author's belief, so a
 mapping authored from belief and a test fed by a belief-mirroring mock agree
-with each other while proving nothing about the real system. MockClient makes
-this structural — it *formats seeds through the mapping under test*, so a
-wrong mapping produces mocks wrong in exactly the same way, and everything
-stays green.
+with each other while proving nothing about the real system. A fake that
+*formats its seeds through the mapping under test* makes this structural: a
+wrong mapping produces replies wrong in exactly the same way, and everything
+stays green. The gem's own fake did exactly that until it was removed
+(rpms-rpc#624, ADR 0010).
 
 The canonical example: **ORQQVI VITALS** shipped declaring
 `TYPE^VALUE^UNITS^DATE` with green tests. The real wire is
@@ -184,8 +185,8 @@ They are captured only against a disposable rung we own: `LIVE_DISPOSABLE=1`,
 a loopback `BROKER_HOST` (`127.0.0.1`, `localhost`, or `::1`), and `RELEASE`
 set to a non-blank release tag. Never a customer instance. The task aborts
 before it loads the driver or opens a socket when those guards fail, when
-`RELEASE` is blank, or when `RPMS_ACCESS` is not a synthetic persona
-(`SYS123` or `PROV123`; the default is `SYS123`).
+`RELEASE` is blank, or when `RPMS_ACCESS` is not the operator's or the scheduler's
+account (`SYS123` or `PSCH123`, from `lib/rpms_rpc/test_roles.rb`; the default is the operator's).
 
 A write's reply is not proof. The fixture's `read_back` is DDR GETS ENTRY
 DATA taken immediately after the call: the appointment (`#9002018.4`) and

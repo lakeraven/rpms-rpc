@@ -11,8 +11,9 @@ module RpmsRpc
     # unlock, and sign only when that whole chain succeeded and a signature
     # code was actually supplied.
     #
-    # The code is never logged and never returned. A capture whose reply or
-    # inputs contain it is dropped, not rewritten. The broker still receives
+    # The code is never logged and never returned. When any capture's reply or
+    # inputs contain it, every capture of the run is dropped, not rewritten, and
+    # SIGN does not fire when the code shows before it (#617). The broker still receives
     # the XWB ciphertext; the structure this returns puts WITHHELD in its
     # place before that check, so the marker itself is not a hit.
     class NoteWriteFlow
@@ -53,19 +54,15 @@ module RpmsRpc
           quarantine_secrets(captures, secrets)
         end
 
-        # A capture whose raw or inputs contain a secret becomes an error.
-        # Every other capture is the same object, bytes unchanged.
+        # When any capture's raw or inputs contain a secret, every capture of
+        # the run becomes an error (#617): keeping the clean ones would leave a
+        # fixture set that mixes this run's note IEN with an older one. With no
+        # secret found, every capture is the same object, bytes unchanged.
         def quarantine_secrets(captures, secrets)
           needles = secret_needles(secrets)
-          return captures if needles.empty?
+          return captures unless secret_in_any_capture?(captures, needles)
 
-          captures.each_with_object({}) do |(rpc, capture), clean|
-            clean[rpc] = if secret_in_capture?(capture, needles)
-              { "error" => quarantine_error(rpc) }
-            else
-              capture
-            end
-          end
+          captures.each_key.to_h { |rpc| [ rpc, { "error" => quarantine_error(rpc) } ] }
         end
 
         # An exception message that contains a secret is replaced wholesale.
@@ -164,8 +161,12 @@ module RpmsRpc
         end
 
         # Create, a held lock, set text, proven read-back, and unlock already succeeded.
+        # Fail closed (#617): a code that already appears in a capture (a word of
+        # the read-back header, say) would drop the run's captures, so SIGN does
+        # not fire for a run that cannot be recorded.
         def sign_note(captures, secrets, esig, note_ien)
           return unless sign?(esig)
+          return if secret_in_any_capture?(captures, secret_needles(secrets))
 
           guarded(captures, SIGN_RPC, secrets) { ESignature.add(note_ien, SESSION_DUZ, esig) }
         end
@@ -287,6 +288,12 @@ module RpmsRpc
           Array(secrets).flatten.compact.map { |secret| secret.to_s.b }.reject(&:empty?).uniq
         end
 
+        def secret_in_any_capture?(captures, needles)
+          return false if needles.empty?
+
+          captures.each_value.any? { |capture| secret_in_capture?(capture, needles) }
+        end
+
         def secret_in_capture?(capture, needles)
           # Fail closed: a capture that is not a hash may still hold the code.
           return true unless capture.is_a?(Hash)
@@ -322,9 +329,9 @@ module RpmsRpc
       end
     end
 
-    # README.md synthetic dev personas. A write may sign on as one of these
-    # and nothing else. The access code is never copied into a refusal or a fixture.
-    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+    # A write may sign on as a test role's account (RpmsRpc::TestRoles) and
+    # nothing else. The access code is never copied into a refusal or a fixture.
+    SYNTHETIC_ACCOUNTS = TestRoles.access_codes.freeze
     ONLY_REFUSAL = "WRITES=1 is refused when ONLY is set; the TIU note flow is captured together"
     # No spaces and no "1": a blank or one-character code must not appear in the text.
     ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-with-no-leading-or-trailing-whitespace-(field-20.4)"
@@ -338,7 +345,7 @@ module RpmsRpc
     # Host mode only. A read capture (writes false or nil) is not refused.
     # WRITES=1 is allowed only when the broker host resolves and every
     # address is loopback, CONTAINER is nil or "", and the access code is a
-    # synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused:
+    # test role's account. A blank ONLY is unset. A non-blank ONLY is refused:
     # the TIU flow is one unit, and the write run's only read is the
     # BEHOENCX GETVISIT linkage check before create.
     # RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
@@ -351,7 +358,7 @@ module RpmsRpc
       return "WRITES=1 is refused" unless writes == true
       return "WRITES=1 is refused when CONTAINER is set" unless container.to_s.strip.empty?
       return loopback_refusal unless resolved_loopback?(host, resolver)
-      return persona_refusal unless SYNTHETIC_PERSONAS.include?(access)
+      return account_refusal unless SYNTHETIC_ACCOUNTS.include?(access)
       return refusal_without(ONLY_REFUSAL, only, access, esig) if only_present?(only)
 
       esig_refusal(esig, access)
@@ -485,8 +492,8 @@ module RpmsRpc
         text
       end
 
-      def persona_refusal
-        "WRITES=1 is refused unless the sign-on is a synthetic persona"
+      def account_refusal
+        "WRITES=1 is refused unless the sign-on is a test role's account"
       end
 
       def resolved_loopback?(host, resolver)

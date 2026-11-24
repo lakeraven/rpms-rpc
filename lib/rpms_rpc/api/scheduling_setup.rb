@@ -146,7 +146,9 @@ module RpmsRpc
     # (rpms-ux S-SCH-01.9 to 01.11). BSDX RESOURCES does not carry it.
     # false when no entry names them. A failed read raises Client::RpcError.
     def master_overbook?(resource_id:, duz:)
-      list(RESOURCE_USER_FILE, "@;.01I;.02I;.06I").any? do |entry|
+      # Resource pointers repeat; unique IEN traversal keeps later users when
+      # their resource spans pages and the flat continuation has no IEN part.
+      list(RESOURCE_USER_FILE, "@;.01I;.02I;.06I", xref: "#").any? do |entry|
         resource, user, master = entry[:pieces]
         resource.to_i == resource_id.to_i && user.to_i == duz.to_i && master == "1"
       end
@@ -575,7 +577,9 @@ module RpmsRpc
       resource = positive_id(resource_id)
       raise ArgumentError, "resource_id must be a positive integer" unless resource
 
-      list(RESOURCE_USER_FILE, "@;.01I;.02I;.02E;.03I;.04I;.05I;.06I").filter_map do |entry|
+      # The B index repeats a resource for each user. Resume by unique IEN,
+      # not by resource value, so a page boundary cannot skip its other users.
+      list(RESOURCE_USER_FILE, "@;.01I;.02I;.02E;.03I;.04I;.05I;.06I", xref: "#").filter_map do |entry|
         res, duz, name, overbook, schedule, appointments, master = entry[:pieces]
         next unless res.to_i == resource.to_i
 

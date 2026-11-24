@@ -4,7 +4,6 @@ require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/bmx_client"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/problem"
 require "rpms_rpc/api/referral"
@@ -156,7 +155,6 @@ class MissingRpcRaisesTest < Minitest::Test
   def test_there_is_no_capability_probe
     refute RpmsRpc.const_defined?(:ServerCapabilities, false), "ServerCapabilities is removed (#363)"
     refute RpmsRpc::Client.method_defined?(:supports?), "Client#supports? is removed (#363)"
-    refute RpmsRpc::MockClient.method_defined?(:supports?), "MockClient#supports? is removed (#363)"
   end
 
   def test_no_api_method_asks_supports
@@ -191,16 +189,16 @@ class MissingRpcRaisesTest < Minitest::Test
     "Problem.init_patient" => -> { RpmsRpc::Problem.init_patient(8791) },
     "Problem.provider_list" => -> { RpmsRpc::Problem.provider_list(8791) },
     "Problem.edit_load" => -> { RpmsRpc::Problem.edit_load(5001, provider_duz: 301, institution_ien: 1) },
-    "Referral.add" => -> { RpmsRpc::Referral.add("1") },
-    "Referral.update" => -> { RpmsRpc::Referral.update("1", "x") },
+    "Referral.add" => -> { RpmsRpc::Referral.add(*Array.new(RpmsRpc::Referral::ADD_PARAMETERS, "1")) },
+    "Referral.update" => -> { RpmsRpc::Referral.update("1", purpose: "x") },
     "Referral.print" => -> { RpmsRpc::Referral.print("1") },
     "Referral.update_status" => -> { RpmsRpc::Referral.update_status("1", "A") },
-    "Referral.update_consultation_status" => -> { RpmsRpc::Referral.update_consultation_status("1", "A") },
+    "Referral.update_consultation_status" => -> { RpmsRpc::Referral.update_consultation_status("1", status: "R", reviewed_by: "1", reviewed_at: Time.now) },
     "Referral.purposes" => -> { RpmsRpc::Referral.purposes },
     "Referral.reference_data" => -> { RpmsRpc::Referral.reference_data },
     "Referral.users_providers" => -> { RpmsRpc::Referral.users_providers },
     "Referral.providers" => -> { RpmsRpc::Referral.providers },
-    "Referral.search_referred_to" => -> { RpmsRpc::Referral.search_referred_to("A") },
+    "Referral.search_referred_to" => -> { RpmsRpc::Referral.search_referred_to("A", "N") },
     "Referral.rcis_templates" => -> { RpmsRpc::Referral.rcis_templates },
     "Referral.rcis_template_detail" => -> { RpmsRpc::Referral.rcis_template_detail(1) },
     "Referral.patient_eligibility_status" => -> { RpmsRpc::Referral.patient_eligibility_status(8791) },

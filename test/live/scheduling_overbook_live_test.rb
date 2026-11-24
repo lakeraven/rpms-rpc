@@ -10,6 +10,7 @@ require "rpms_rpc/api/ddr_fileman"
 # overbook right (BSDX RESOURCE USER .06), and marking a booking as an
 # overbook in OVERBOOK (#44.003 field 9), read back from FileMan.
 class SchedulingOverbookLiveTest < LiveSpec::Test
+  runs_as :scheduler
   writes!
 
   PATIENT = 3

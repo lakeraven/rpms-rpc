@@ -15,11 +15,18 @@
 # One broker connection at a time; a dropped or desynced session is closed and signed on again.
 # The access and verify codes are read from the environment and never written anywhere.
 #
-# Env: BACKEND (evidence label), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
-#      PERSONA (optional expectation, least_privilege or programmer: the run is labelled by who signed on, #397),
+# Env: BACKEND (evidence label), BROKER_HOST, BROKER_PORT,
+#      ROLE (the test role the run signs on as, README, Test roles; the run is recorded under it),
+#      RPMS_ACCESS, RPMS_VERIFY (optional: the pair, when the target's differs from the role's published one;
+#      ROLE=operator needs RPMS_VERIFY),
 #      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
-#      EVIDENCE_DIR (<rpms-diffs>/rpc-coverage/live: the run merges into <BACKEND>.json, or <BACKEND>.programmer.json
-#      for a programmer) or EVIDENCE (an explicit file to merge into)
+#      EVIDENCE_DIR (<rpms-diffs>/rpc-coverage/live: the run merges into <BACKEND>.<ROLE>.json)
+#      or EVIDENCE (an explicit file to merge into),
+#      CASES (optional: a file to write one JSON line per case to: the case, its verdict, its error, the role and
+#      each RPC it sent with the reply kind; the openrpms release gate builds its per-RPC record from it)
+#
+# The run is refused, and writes no evidence, unless the account the pair signs on as is the role's
+# (its NEW PERSON name) and holds XUPROGMODE exactly when the role's row says so.
 require "json"
 require "date"
 require "time"
@@ -35,15 +42,18 @@ require_relative "rpc_coverage"
 require_relative "wire_trace"
 
 BACKEND = ENV.fetch("BACKEND")
-EXPECTED_PERSONA = RpcCoverage.expected_persona(ENV["PERSONA"])
+begin
+  ROLE = RpcCoverage.run_role(ENV)
+  ACCESS, VERIFY = RpcCoverage.sign_on_pair(ROLE, ENV)
+rescue RpcCoverage::Error => e
+  abort("!! #{e.message}; no evidence written")
+end
 HOST = ENV.fetch("BROKER_HOST", "127.0.0.1")
 PORT = Integer(ENV.fetch("BROKER_PORT"))
-ACCESS = ENV.fetch("RPMS_ACCESS")
-VERIFY = ENV.fetch("RPMS_VERIFY")
 CASE_TIMEOUT = Integer(ENV.fetch("CASE_TIMEOUT", "45"))
 # Context option to bind after sign-on. Unset = stay on the option the client signed on under
 # (RpmsRpc::CiaClient::SIGNON_CONTEXT). A user holding XUPROGMODE bypasses the context check
-# either way (CIANBACT), so only a non-programmer run measures context gating (#263).
+# either way (CIANBACT), so only a run as a role other than the operator measures context gating (#263).
 CONTEXT = ENV["RPMS_CONTEXT"].to_s.empty? ? nil : ENV["RPMS_CONTEXT"]
 
 WireTrace = RpcCoverage::WireTrace
@@ -116,24 +126,23 @@ def first_ien(list, *keys)
 end
 
 client = sign_on
-# The persona is what the user the codes sign on as is (#397), read before anything is recorded.
-# ORWU HASKEY is read as reply LINES: call_rpc's printable() keeps the sequence echo, so
-# Authentication.has_security_key? reads "5 1" as not-held over CIA. The label now comes from this
-# reply, so a dropped session is signed on again and asked again rather than read as "not held".
+# Who signed on, read before anything is recorded: the account's NEW PERSON name, from sign-on, and
+# whether it holds XUPROGMODE. ORWU HASKEY is read as reply LINES: call_rpc's printable() keeps the
+# sequence echo, so Authentication.has_security_key? reads "5 1" as not-held over CIA. A dropped
+# session is signed on again and asked again rather than read as "not held".
 haskey_tries = 0
 progmode = begin
   haskey_tries += 1
   RpcCoverage.holds_progmode?(client.call_rpc_lines("ORWU HASKEY", "XUPROGMODE"))
 rescue RpmsRpc::Client::ConnectionError, IOError, SystemCallError => e
-  abort("!! ORWU HASKEY XUPROGMODE did not answer (#{e.class}); persona unknown, no evidence written") if haskey_tries >= 2
+  abort("!! ORWU HASKEY XUPROGMODE did not answer (#{e.class}); who signed on is unknown, no evidence written") if haskey_tries >= 2
   client = sign_on
   retry
 end
-PERSONA = RpcCoverage.persona_of(holds_progmode: progmode)
-if (problem = RpcCoverage.persona_problem(EXPECTED_PERSONA, PERSONA))
+if (problem = RpcCoverage.signed_on_problem(ROLE, user: client.signon_user, holds_progmode: progmode))
   abort("!! #{problem}; no evidence written")
 end
-EVIDENCE = ENV["EVIDENCE"].to_s.empty? ? RpcCoverage.evidence_path(ENV.fetch("EVIDENCE_DIR"), BACKEND, PERSONA) : ENV["EVIDENCE"]
+EVIDENCE = ENV["EVIDENCE"].to_s.empty? ? RpcCoverage.evidence_path(ENV.fetch("EVIDENCE_DIR"), BACKEND, ROLE.name) : ENV["EVIDENCE"]
 WireTrace.log.clear
 duz = client.duz.to_s
 ctx = { duz: duz }
@@ -186,7 +195,7 @@ run = lambda do |name, &blk|
   value
 end
 
-puts "persona: #{PERSONA} (XUPROGMODE #{progmode ? 'held' : 'not held'})"
+puts "role: #{ROLE.name} (#{ROLE.account}; XUPROGMODE #{progmode ? 'held' : 'not held'})"
 puts "context: #{CONTEXT || "#{RpmsRpc::CiaClient::SIGNON_CONTEXT} (sign-on)"}"
 puts "signed on: DUZ=#{duz} user=#{client.respond_to?(:signon_user) ? client.signon_user : '?'}"
 
@@ -249,6 +258,7 @@ cases = {
   # reference data
   "Symptom.defaults" => -> { RpmsRpc::Symptom.defaults },
   "Symptom.search(\"COUGH\")" => -> { RpmsRpc::Symptom.search("COUGH") },
+  "Allergen.search(\"PENIC\")" => -> { RpmsRpc::Allergen.search("PENIC") },
   "Problem.lex_search(\"DIABETES\")" => -> { RpmsRpc::Problem.lex_search("DIABETES") },
   "ImmunizationRefusal.reasons" => -> { RpmsRpc::ImmunizationRefusal.reasons },
   "Tribal.tribes" => -> { RpmsRpc::Tribal.tribes },
@@ -258,18 +268,26 @@ cases = {
   "Referral.purposes" => -> { RpmsRpc::Referral.purposes },
   "Referral.health_summary_types" => -> { RpmsRpc::Referral.health_summary_types }
 }
-cases["Vital.template"] = -> { RpmsRpc::Vital.template(ctx[:location]) } if ctx[:location]
-cases["Encounter.visit_string"] = -> { RpmsRpc::Encounter.visit_string(ctx[:location], today, "A") } if ctx[:location]
+# Vital.template takes the patient and a visit string (#259); Encounter.visit_string builds that string locally and
+# sends no RPC, so it is an argument here, not a case (#795).
+cases["Vital.template"] = -> { RpmsRpc::Vital.template(d, RpmsRpc::Encounter.visit_string(ctx[:location], today, "A")) } if ctx[:location]
 cases["Reminders.applicable"] = -> { RpmsRpc::Reminders.applicable(d, ctx[:location]) } # location optional: sent empty when unknown (#238)
 cases["BehavioralHealth.visit_information"] = -> { RpmsRpc::BehavioralHealth.visit_information(ctx[:visit]) } if ctx[:visit]
 cases["ProgressNote.fetch_text"] = -> { RpmsRpc::ProgressNote.fetch_text(ctx[:note]) } if ctx[:note]
 cases["Order.result"] = -> { RpmsRpc::Order.result(d, ctx[:order]) } if ctx[:order]
 cases["Order.result_history"] = -> { RpmsRpc::Order.result_history(d, ctx[:order]) } if ctx[:order]
-cases["Problem.details"] = -> { RpmsRpc::Problem.details(ctx[:problem]) } if ctx[:problem]
+cases["Problem.details"] = -> { RpmsRpc::Problem.details(d, ctx[:problem]) } if ctx[:problem]
 cases["Problem.audit_history"] = -> { RpmsRpc::Problem.audit_history(ctx[:problem]) } if ctx[:problem]
 cases["NoteTemplate.items"] = -> { RpmsRpc::NoteTemplate.items(ctx[:template]) } if ctx[:template]
 cases["NoteTemplate.boilerplate"] = -> { RpmsRpc::NoteTemplate.boilerplate(ctx[:template]) } if ctx[:template]
 cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text([ "|PATIENT NAME|" ], dfn: ctx[:dfn]) }
+# The Behavioral Health reads run under AMHGRPC, which IHS gives only to BH staff: a role without it (the provider, since
+# openrpms#1299) is refused them by design, so they run only as a role that holds it (README, Test roles).
+unless ROLE.holds?(RpmsRpc::BehavioralHealth::CONTEXT)
+  not_run = cases.keys.grep(/\ABehavioralHealth\./)
+  not_run.each { |name| cases.delete(name) }
+  puts "not run: #{not_run.join(', ')} (#{ROLE.name} does not hold #{RpmsRpc::BehavioralHealth::CONTEXT})" unless not_run.empty?
+end
 
 cases.each { |name, fn| run.call(name) { fn.call } }
 
@@ -298,18 +316,25 @@ rescue SystemCallError
   ""
 end
 run_meta = {
-  "at" => now, "rpms_rpc" => "#{RpmsRpc::VERSION}#{rev.empty? ? '' : " @ #{rev}"}", "host_label" => BACKEND, "persona" => PERSONA,
+  "at" => now, "rpms_rpc" => "#{RpmsRpc::VERSION}#{rev.empty? ? '' : " @ #{rev}"}", "host_label" => BACKEND, "role" => ROLE.name.to_s,
   "context" => CONTEXT || "#{RpmsRpc::CiaClient::SIGNON_CONTEXT} (sign-on)", "cases" => results.size,
   "tally" => tally, "signons" => $signons
 }
 evidence = RpcCoverage.load_evidence(EVIDENCE, BACKEND)
 evidence = RpcCoverage.merge_run(evidence, run_meta, outcomes)
-problems = RpcCoverage.evidence_problems(evidence, secrets: [ ACCESS, VERIFY ], persona: PERSONA)
+problems = RpcCoverage.evidence_problems(evidence, secrets: [ ACCESS, VERIFY ], role: ROLE.name.to_s)
 abort("!! refusing to write evidence: #{problems.join('; ')}") unless problems.empty?
 File.write(EVIDENCE, JSON.pretty_generate(evidence) + "\n")
+unless ENV["CASES"].to_s.empty?
+  File.write(ENV["CASES"], results.map { |r|
+    JSON.generate({ "case" => r[:case], "verdict" => r[:verdict], "error" => r[:error], "role" => ROLE.name.to_s,
+                    "rpcs" => r[:wire].map { |w| { "rpc" => w[:rpc].to_s, "reply" => w[:reply].to_s } } }) + "\n"
+  }.join)
+end
 
 puts
 puts "cases: #{results.size}  #{tally.sort.map { |k, v| "#{k}=#{v}" }.join('  ')}"
 puts "sign-ons: #{$signons} (1 + one per dropped session)"
 puts "distinct RPCs sent: #{outcomes.size}  (answered: #{outcomes.count { |_, o| o['outcome'] == 'ok' }}, errored: #{outcomes.count { |_, o| o['outcome'] == 'error' }})"
 puts "merged into #{EVIDENCE} (#{evidence['rpcs'].size} RPCs across #{evidence['runs'].size} run(s))"
+puts "cases written to #{ENV['CASES']}" unless ENV["CASES"].to_s.empty?

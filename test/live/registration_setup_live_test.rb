@@ -3,6 +3,7 @@
 require_relative "live_helper"
 require "rpms_rpc/api/registration_setup"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/server_clock"
 
 # RegistrationSetup on a real build: the legal-document eligibility modifiers
 # (#9000030) and the site's local patient record flags (#26.11, with their
@@ -11,6 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 # FileMan, with DDR GETS ENTRY DATA for the fields the module's own reads do
 # not return.
 class RegistrationSetupLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
   writes!
 
   RS = RpmsRpc::RegistrationSetup
@@ -67,7 +69,7 @@ class RegistrationSetupLiveTest < LiveSpec::Test
     assert_equal 1, history.size, history.inspect
     assert_equal [ RS::NEW_FLAG_REASON ], history.first[:reason]
     assert_equal client.duz.to_i, history.first[:edited_by]
-    assert_in_delta Time.now.to_i, history.first[:edited_at].to_i, 600
+    assert_in_delta RpmsRpc::ServerClock.now.to_i, history.first[:edited_at].to_i, 600
     stored = fileman(RS::HISTORY_FILE, "#{history.first[:ien]},", ".02").first
     refute_match(/\.\d*0\z/, stored, "the edit time is stored with no trailing zero, as $$NOW^XLFDT gives it")
 

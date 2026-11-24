@@ -4,21 +4,25 @@ require "fileutils"
 require "json"
 require "rpms_rpc"
 require "rpms_rpc/conformance/build_surface"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
 require_relative "pinned_rpcs_test_helper"
+require_relative "release_under_test"
 
-# Shared expectations for rpms-rpc#384 (declarative Features vs pinned reach face).
+# Shared expectations for rpms-rpc#384 (declarative Features vs a release's reach face).
+# Features reads the release cache (OPENRPMS_INVENTORIES); every test that includes this helper runs
+# with that cache pointed at test/fixtures/inventories, whose current.json names the committed fixture
+# inventory (cut from a real release, rpms-rpc#724), so these tests stay offline.
 # Round-1 review: RPC lists and reach expectations come from committed sources at
 # test time (required_rpcs.json, rpcs.json documents), not hand-copied constants.
 module FeaturesTestHelper
   ROOT = File.expand_path("../..", __dir__)
-  Lock = RpmsRpc::Conformance::InventoryLock
-  LOCK = Lock.load(File.join(ROOT, "data/fingerprints", Lock::DEFAULT_PATH))
-  PINNED_INVENTORIES = File.join(ROOT, "data/inventories")
-  FIXTURE_INVENTORIES = File.join(ROOT, "test/fixtures/inventories")
+  Lock = RpmsRpc::Conformance::ReleaseInventory
+  # The fixture release (a real release's records, cut) and the cache root that holds it.
+  PINNED_INVENTORIES = ReleaseUnderTest::FIXTURE_ROOT
+  FIXTURE_INVENTORIES = ReleaseUnderTest::FIXTURE_ROOT
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
 
-  PINNED_TAG = LOCK.entries.keys.first
+  PINNED_TAG = ReleaseUnderTest::FIXTURE_TAG
 
   CLIENT_CALLABLE = RpmsRpc::Features::CLIENT_CALLABLE
 
@@ -92,8 +96,10 @@ module FeaturesTestHelper
   # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
   BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
     "DDR GETS ENTRY DATA" =>
+      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767); " \
       "Referral.record_follow_up reads the referral before BMC UPDATE REFERRAL rewrites it, and follow_up_state reads it back (#722)",
     "DDR LISTER" =>
+      "Referral.update looks a diagnosis code up in ICD DIAGNOSIS (#80) under the caller's context before BMC UPDATE REFERRAL (#915); " \
       "Referral.record_follow_up lists the SNOMED CT terms it must resend, and follow_up_state lists the case notes (#722)",
     "DDR LOCK/UNLOCK NODE" =>
       "Referral.record_follow_up and record_status hold the FileMan entry lock on ^BMCREF(ien) from the read to the read-back (#722)"
@@ -104,6 +110,12 @@ module FeaturesTestHelper
       "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
     "BGOPROB DEL" =>
       "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
+    "BGOPROB GET" =>
+      "IHS integrated problem list read by Problem.integrated; outside the stock-VistA ORQQPL workflow",
+    "BGOPROB1 GETONE" =>
+      "IHS integrated problem list read by Problem.integrated_entry; outside the stock-VistA ORQQPL workflow",
+    "BGOPROB1 EDPROB" =>
+      "IHS coded active problems read by Problem.coded_active; outside the stock-VistA ORQQPL workflow",
     "DDR GETS ENTRY DATA" =>
       "Problem.update/delete read the PROBLEM entry before writing and every write reads it back (#527)"
   }.freeze
@@ -131,6 +143,32 @@ module FeaturesTestHelper
       PinnedRpcsTestHelper.record(name, reach: { "class" => CLIENT_CALLABLE, "routine_present" => true, "tag_present" => true,
                                                  "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.merge(reach.fetch(name, {})))
     end
+  end
+
+  # Point the release cache at the fixture root for the whole test, then put it back.
+  def before_setup
+    @saved_cache_env = ENV.fetch(Lock::CACHE_ENV, nil)
+    ENV[Lock::CACHE_ENV] = PINNED_INVENTORIES
+    RpmsRpc::Features.reset!
+    super
+  end
+
+  def after_teardown
+    super
+  ensure
+    ENV[Lock::CACHE_ENV] = @saved_cache_env
+    RpmsRpc::Features.reset!
+  end
+
+  # Run the block with the release cache at ROOT.
+  def with_cache_root(root)
+    saved = ENV.fetch(Lock::CACHE_ENV, nil)
+    ENV[Lock::CACHE_ENV] = root
+    RpmsRpc::Features.reset!
+    yield
+  ensure
+    ENV[Lock::CACHE_ENV] = saved
+    RpmsRpc::Features.reset!
   end
 
   module_function

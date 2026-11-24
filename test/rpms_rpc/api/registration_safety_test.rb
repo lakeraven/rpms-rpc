@@ -1,203 +1,239 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "date"
+require "rpms_rpc"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/ddr_fileman"
+require_relative "../captured_replies"
 
+# Registration.register's duplicate-identity preflight. Every reply is the
+# build's (test/fixtures/captured_replies/registration-safety.yml), captured
+# as PROFILE,REG on a throwaway container: each register flow filed its
+# synthetic patient over CIA, with the duplicate lookup on a BMX session
+# signed on as the same user, and each lookup_* flow is that lookup's BMX
+# reply on its own (no match; SAFETYDEMO,UNA once, then twice; a different
+# name on her birth date; her name on another date). Each register test checks
+# the CIA session sent exactly the recorded calls. A lost wire on the lookup
+# or a field check is raised by the replay itself. The fault over BMX, and
+# the broker's refusal of a user without AGGRPC, are in
+# registration_lookup_broker_test.rb.
 class RegistrationSafetyTest < Minitest::Test
   Reg = RpmsRpc::Registration
-  Agg = RpmsRpc::Agg
-  Ddr = RpmsRpc::DdrFileman
+  SLUG = "registration-safety"
+  DUZ = "207"
   # A reason for no SSN: AG cannot check a registration with neither (openrpms#1040).
-  ATTRS = { name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "N" }.freeze
-  # HDR/LST2^AGGPTLKP: name OR DOB candidates, no sex column.
-  HEADER = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
-  ROW = "42^DEMOPATIENT,UNA^42^900010001^01/02/1990^^^^N"
-  QUERY = "AGGPTLNM=DEMOPATIENT\x1cAGGPTFNM=UNA\x1cAGGPTMNM=\x1cAGGPTSFX=\x1cAGGPTDOB=01/02/1990"
-
-  def setup
-    @mock = RpmsRpc.mock!
-    Reg.hrn_mode = Reg::HRN_MODE_DERIVE
-    @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, "I00010RESULT^T00080MESSAGE^I00010DFN\x1e1^^42\x1e\x1f")
-    @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e1^^\x1e\x1f")
-    # AG's field checks, AGG WINDOW DATA VALIDATION, answer "valid", as captured live.
-    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW,
-               "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e1^^^^^\x1e")
-    seed_hrn_41_readback(42, "42")
-  end
-
-  def seed_hrn_41_readback(dfn, hrn_on_file)
-    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n1^#{hrn_on_file}")
-  end
+  ATTRS = { name: "SAFETYDEMO,UNA", dob: Date.new(1903, 1, 2), sex: "F", no_ssn_reason: "N" }.freeze
+  QUERY = "AGGPTLNM=SAFETYDEMO\x1cAGGPTFNM=UNA\x1cAGGPTMNM=\x1cAGGPTSFX=\x1cAGGPTDOB=01/02/1903"
+  REVIEW = { success: false, error: :duplicate_identity, candidate_dfns: [ 990_057 ],
+             message: "matching patient candidates require explicit override" }.freeze
 
   def teardown
     Reg.hrn_mode = Reg::HRN_MODE_DERIVE
     RpmsRpc.reset!
   end
 
-  def seed_lookup(rows = [], query: QUERY)
-    @mock.seed_raw_lines(:patient_lookup_agg, query, [ HEADER, *rows ])
+  # The CIA session register runs on: a register flow's replies, else none.
+  def session(flow = nil)
+    @session = CapturedReplies::ReplayCiaClient.new(flow ? CapturedReplies.flow_script(SLUG, flow) : {}).signed_on_as(DUZ)
+    RpmsRpc.configure { |c| c.client = @session }
+    @session
   end
 
-  # The lookup and AG's field checks read; nothing else may be sent.
-  CHECKS = [ "AGG LOOKUP PATIENTS", "AGG WINDOW DATA VALIDATION" ].freeze
+  # The BMX session the lookup runs on, signed on as the same user with AGGRPC
+  # bound: a lookup flow's replies, else none.
+  def lookup(flow = nil, client_class: CapturedReplies::ReplayBmxClient)
+    @lookup = client_class.new(flow ? CapturedReplies.flow_script(SLUG, flow) : {})
+    @lookup.instance_variable_set(:@authenticated, true)
+    @lookup.instance_variable_set(:@duz, DUZ)
+    @lookup.instance_variable_set(:@current_context, RpmsRpc::Agg::CONTEXT)
+    @lookup
+  end
 
-  def lookups = @mock.received_calls.select { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
+  def register(attrs, cia: nil, bmx: nil)
+    session(cia)
+    Reg.with_lookup_client(lookup(bmx)) { Reg.register(attrs) }
+  end
 
+  def sent = @session.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+
+  def lookups = @lookup.calls.select { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
+
+  # The one lookup register sent.
+  def the_lookup
+    assert_equal 1, lookups.size, "expected one duplicate lookup"
+    lookups.first
+  end
+
+  # AG's field checks run on the CIA session before the lookup; nothing else
+  # may be sent when the lookup stops the registration.
   def assert_no_write
-    assert_empty @mock.received_calls.reject { |c| CHECKS.include?(c[:rpc]) }
+    assert_equal [ "AGG WINDOW DATA VALIDATION" ], sent.map(&:first).uniq
   end
 
   def test_second_registration_refuses_and_only_one_patient_is_added
-    seed_lookup
-    original = @mock.method(:call_rpc_global_array)
-    @mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      response = original.call(rpc, *params)
-      seed_raw_lines(:patient_lookup_agg, QUERY, [ HEADER, ROW ]) if rpc == "AGG ADD NEW PATIENT"
-      response
-    end
+    assert_equal({ success: true, dfn: 990_057, created: true, hrn: "990057" },
+                 register(ATTRS, cia: "register_first", bmx: "lookup_first"))
+    assert_equal CapturedReplies.flow_calls(SLUG, "register_first"), sent
+    assert_equal [ QUERY, "", "1", "1" ], the_lookup[:params]
+    assert_equal "CIAV VUECENTRIC", @session.current_context
 
-    assert_equal({ success: true, dfn: 42, created: true, hrn: "42" }, RpmsRpc::Patient.register(ATTRS))
-    assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
-                   message: "matching patient candidates require explicit override" }, RpmsRpc::Patient.register(ATTRS))
-    assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "DDR LISTER",
-                   "AGG LOOKUP PATIENTS" ],
-                 @mock.received_calls.map { |c| c[:rpc] } - [ "AGG WINDOW DATA VALIDATION" ]
-    lookup = lookups.first
-    assert_equal [ QUERY, "", "1", "1" ], lookup[:params]
-    assert_equal "AGGRPC", lookup[:context]
-    assert_equal "OR CPRS GUI CHART", @mock.current_context
+    assert_equal REVIEW, register(ATTRS, cia: "register_override", bmx: "lookup_second")
+    assert_no_write
   end
 
-  def test_candidates_are_deduplicated_and_sorted_without_demographics
-    seed_lookup([ ROW.sub("42^", "43^"), ROW, ROW ])
-    assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42, 43 ],
-                   message: "matching patient candidates require explicit override" }, Reg.register(ATTRS))
+  # Both SAFETYDEMO,UNA charts are listed, in DFN order.
+  def test_every_candidate_is_listed_without_demographics
+    assert_equal REVIEW.merge(candidate_dfns: [ 990_057, 990_058 ]),
+                 register(ATTRS, cia: "register_override", bmx: "lookup_both")
     assert_no_write
   end
 
   def test_explicit_boolean_override_allows_add_but_still_looks_up
-    seed_lookup([ ROW ])
-    assert Reg.register(ATTRS.merge(allow_duplicate: true))[:success]
+    result = register(ATTRS.merge(allow_duplicate: true), cia: "register_override", bmx: "lookup_second")
+
+    assert_equal({ success: true, dfn: 990_058, created: true, hrn: "990058" }, result)
     refute_empty lookups
+    assert_equal CapturedReplies.flow_calls(SLUG, "register_override"), sent
+  end
+
+  # The reviewed candidates are compared with this call's own lookup (#494).
+  def test_reviewed_dfns_covering_every_candidate_files
+    result = register(ATTRS.merge(reviewed_dfns: [ 990_057 ]), cia: "register_override", bmx: "lookup_second")
+
+    assert_equal({ success: true, dfn: 990_058, created: true, hrn: "990058" }, result)
+    assert_equal CapturedReplies.flow_calls(SLUG, "register_override"), sent
+  end
+
+  def test_a_candidate_that_appeared_after_review_is_returned_not_filed_past
+    result = register(ATTRS.merge(reviewed_dfns: [ 990_057 ], allow_duplicate: true),
+                      cia: "register_override", bmx: "lookup_both")
+
+    assert_equal REVIEW.merge(candidate_dfns: [ 990_057, 990_058 ]), result
+    assert_no_write
   end
 
   [ "true", "false", 1, nil, false ].each_with_index do |override, i|
     define_method("test_non_boolean_override_#{i}_does_not_authorize_add") do
-      seed_lookup([ ROW ])
-      assert_equal :duplicate_identity, Reg.register(ATTRS.merge(allow_duplicate: override))[:error]
+      result = register(ATTRS.merge(allow_duplicate: override), cia: "register_override", bmx: "lookup_second")
+
+      assert_equal :duplicate_identity, result[:error]
       assert_no_write
     end
   end
 
   # The server searches by name OR DOB. A DOB disagreement cannot rule out
   # name resolution in ADD^AGGPTADD, and a name disagreement is for review.
-  { name: ROW.sub("DEMOPATIENT,UNA", "OTHERDEMO,BOB"),
-    dob: ROW.sub("1990", "1991"), missing_dob: ROW.sub("01/02/1990", ""),
-    inactive: ROW.sub(/N\z/, "Y") }.each do |field, row|
+  { name: [ "lookup_other_name", { name: "SAFETYOTHER,BOB", sex: "M" } ],
+    dob: [ "lookup_other_dob", { dob: Date.new(1903, 1, 3) } ] }.each do |field, (flow, change)|
     define_method("test_candidate_with_different_#{field}_still_requires_review") do
-      seed_lookup([ row ])
-      assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
-                     message: "matching patient candidates require explicit override" }, Reg.register(ATTRS))
+      assert_equal REVIEW.merge(candidate_dfns: [ 990_057, 990_058 ]),
+                   register(ATTRS.merge(change), cia: "register_override", bmx: flow)
+      assert_equal CapturedReplies.flow_calls(SLUG, flow).last.last, the_lookup[:params]
       assert_no_write
     end
   end
 
-  { last_name: { name: ",UNA" }, first_name: { name: "DEMOPATIENT," },
+  { last_name: { name: ",UNA" }, first_name: { name: "SAFETYDEMO," },
     dob: { dob: " " }, sex: { sex: " " } }.each do |field, change|
     define_method("test_missing_#{field}_refuses_with_exact_field_name") do
       assert_equal({ success: false, error: :identity_unverifiable,
-                     message: "patient identity missing or invalid: #{field}" }, Reg.register(ATTRS.merge(change)))
-      assert_empty @mock.received_calls
+                     message: "patient identity missing or invalid: #{field}" }, register(ATTRS.merge(change)))
+      assert_empty @session.calls
+      assert_empty @lookup.calls
     end
   end
 
-  [ "2/30/1990", "1/2/90garbage", "TODAY" ].each_with_index do |date, i|
+  [ "2/30/1903", "1/2/03garbage", "TODAY" ].each_with_index do |date, i|
     define_method("test_invalid_dob_#{i}_refuses") do
       assert_equal({ success: false, error: :identity_unverifiable,
-                     message: "patient identity missing or invalid: dob" }, Reg.register(ATTRS.merge(dob: date)))
-      assert_empty @mock.received_calls
+                     message: "patient identity missing or invalid: dob" }, register(ATTRS.merge(dob: date)))
+      assert_empty @session.calls
+      assert_empty @lookup.calls
     end
   end
 
-  [ "1/2/90", " 1/2/1990 ", "1990-01-02", "2900102", "JAN 02, 1990" ].each_with_index do |dob, i|
+  [ "1/2/1903", " 1/2/1903 ", "1903-01-02", "2030102", "JAN 02, 1903" ].each_with_index do |dob, i|
     define_method("test_equivalent_dob_#{i}_uses_the_same_lookup_and_add_date") do
-      seed_lookup
-      assert Reg.register(ATTRS.merge(dob: dob))[:success]
-      assert_equal QUERY, lookups.first[:params].first
-      add = @mock.received_calls.find { |c| c[:rpc] == "AGG ADD NEW PATIENT" }
-      assert_includes add[:params][2].split("\x1c"), "AGGPTDOB=01/02/1990"
+      assert register(ATTRS.merge(dob: dob), cia: "register_first", bmx: "lookup_first")[:success]
+
+      assert_equal QUERY, the_lookup[:params].first
+      assert_equal CapturedReplies.flow_calls(SLUG, "register_first"), sent
     end
   end
 
   def test_name_pieces_used_for_both_lookup_and_add
-    query = QUERY.sub("AGGPTMNM=", "AGGPTMNM=MAE").sub("AGGPTSFX=", "AGGPTSFX=JR")
-    seed_lookup(query: query)
-    attrs = ATTRS.merge(name: nil, name_last: " demopatient ", name_first: " una ", name_middle: "MAE", name_suffix: "JR")
-    assert Reg.register(attrs)[:success]
-    assert_equal query, lookups.first[:params].first
+    attrs = { name_last: " safetypieces ", name_first: " una ", name_middle: "MAE", name_suffix: "JR",
+              dob: Date.new(1903, 2, 2), sex: "F", no_ssn_reason: "N" }
+
+    assert register(attrs, cia: "register_pieces", bmx: "lookup_pieces")[:success]
+    assert_equal "AGGPTLNM=SAFETYPIECES\x1cAGGPTFNM=UNA\x1cAGGPTMNM=MAE\x1cAGGPTSFX=JR\x1cAGGPTDOB=02/02/1903",
+                 the_lookup[:params].first
+    assert_equal CapturedReplies.flow_calls(SLUG, "register_pieces"), sent
   end
 
-  [ nil, "", "M ERROR DEMOPATIENT,UNA", HEADER.split("^").first,
-    [ HEADER, ROW.sub("42^", "0^") ], [ HEADER, ROW.sub("42^", "42oops^") ],
-    [ HEADER, "42^DEMOPATIENT,UNA" ], [ HEADER, HEADER ] ].each_with_index do |reply, i|
-    define_method("test_unverified_lookup_#{i}_refuses_even_with_override") do
-      @mock.seed_raw_lines(:patient_lookup_agg, QUERY, Array(reply))
-      assert_equal({ success: false, error: :identity_unverifiable,
-                     message: "patient duplicate lookup could not be verified" }, Reg.register(ATTRS.merge(allow_duplicate: true)))
-      assert_no_write
-    end
-  end
-
+  # The wire to the lookup is lost: unverifiable, and the error (which can
+  # carry the patient's details) is not echoed.
   [ RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError ].each_with_index do |error, i|
     define_method("test_failed_lookup_#{i}_refuses_without_echoing_error") do
-      original = @mock.method(:call_rpc_global_array)
-      @mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-        raise error, "DEMOPATIENT,UNA 900010001" if rpc == "AGG LOOKUP PATIENTS"
+      failing = Class.new(CapturedReplies::ReplayBmxClient) do
+        define_method(:build_bmx_message) do |rpc_name, *rest|
+          raise error, "SAFETYDEMO,UNA 01/02/1903" if rpc_name == "AGG LOOKUP PATIENTS"
 
-        original.call(rpc, *params)
+          super(rpc_name, *rest)
+        end
       end
+      session("register_first")
+      result = Reg.with_lookup_client(lookup(client_class: failing)) { Reg.register(ATTRS) }
+
       assert_equal({ success: false, error: :identity_unverifiable,
-                     message: "patient duplicate lookup could not be verified" }, Reg.register(ATTRS))
+                     message: "patient duplicate lookup could not be verified" }, result)
       assert_no_write
     end
   end
 
   def test_context_failure_never_falls_back_to_another_write_path
-    @mock.unbindable_context!("AGGRPC")
-    # AG's field checks are the first AGGRPC call, so they meet the failure first.
-    assert_equal :validation_unavailable, Reg.register(ATTRS)[:error]
-    assert_empty @mock.received_calls
-  end
+    refusing = Class.new(CapturedReplies::ReplayCiaClient) do
+      def create_context(option_name = SIGNON_CONTEXT)
+        raise RpmsRpc::Client::RpcError, "context refused" if option_name == RpmsRpc::Agg::CONTEXT
 
-  [ "", "\r", "\n", "\r\n" ].each_with_index do |feed, i|
-    define_method("test_global_array_framing_#{i}_preserves_candidates") do
-      @mock.seed_raw_lines(:patient_lookup_agg, QUERY, [ "7\x00#{HEADER}\x1e#{feed}#{ROW}\x1e#{feed}\x1f" ])
-      assert_equal :duplicate_identity, Reg.register(ATTRS)[:error]
-      assert_no_write
+        super
+      end
     end
+    @session = refusing.new({}).signed_on_as(DUZ)
+    RpmsRpc.configure { |c| c.client = @session }
+
+    # AG's field checks are the first AGGRPC call, so they meet the failure first.
+    assert_equal :validation_unavailable, Reg.with_lookup_client(lookup) { Reg.register(ATTRS) }[:error]
+    assert_empty sent
+    assert_empty @lookup.calls
   end
 
   def test_parameter_delimiter_cannot_change_identity_after_lookup
-    assert_raises(ArgumentError) { Reg.register(ATTRS.merge(tribe: "123\x1cAGGPTLNM=OTHERDEMO")) }
-    assert_empty @mock.received_calls
+    assert_raises(ArgumentError) { register(ATTRS.merge(tribe: "123\x1cAGGPTLNM=OTHERDEMO")) }
+    assert_empty @session.calls
+    assert_empty @lookup.calls
   end
-  # A field check the broker fails on is not a pass: nothing is filed, and the
+
+  # A field check whose wire is lost is not a pass: nothing is filed, and the
   # error (which can carry the patient's details) is not echoed.
   [ RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError ].each_with_index do |error, i|
     define_method("test_failed_field_check_#{i}_refuses_without_echoing_error") do
-      original = @mock.method(:call_rpc_global_array)
-      @mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-        raise error, "DEMOPATIENT,UNA 900010001" if rpc == "AGG WINDOW DATA VALIDATION"
+      failing = Class.new(CapturedReplies::ReplayCiaClient) do
+        define_method(:call_rpc_raw) do |rpc_name, *params|
+          raise error, "SAFETYDEMO,UNA 01/02/1903" if rpc_name == "AGG WINDOW DATA VALIDATION"
 
-        original.call(rpc, *params)
+          super(rpc_name, *params)
+        end
       end
-      result = Reg.register(ATTRS)
+      @session = failing.new(CapturedReplies.flow_script(SLUG, "register_first")).signed_on_as(DUZ)
+      RpmsRpc.configure { |c| c.client = @session }
+
+      result = Reg.with_lookup_client(lookup("lookup_first")) { Reg.register(ATTRS) }
+
       assert_equal :validation_unavailable, result[:error]
-      refute_includes result[:message], "900010001"
-      assert_no_write
+      refute_includes result[:message], "1903"
+      assert_empty lookups
     end
   end
 end

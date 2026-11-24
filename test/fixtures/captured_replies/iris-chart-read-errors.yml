@@ -1,0 +1,137 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb iris-chart-read-errors.rb.
+---
+rpc: ORWPT ID INFO
+entry_point: the eight chart reads of test/rpms_rpc/pilot_chart_reads_test.rb
+release_tag: bcer-9.0-20261107-312e774-iris
+image: docker.io/intersystems/irishealth-community:2026.2@sha256:462de1fb3597272fde0e03afad006af1b18b59c90f1c1fb5566c79b027a7af0a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: MANAGER,SYSTEM (SYS123, the operator every image ships, a published
+  pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-18T00:56:02Z'
+note: Read-only. IRIS for Health Community 2026.2, release IRIS.DAT sha256 36febbee9762af7daa1ae056758958038898b46722648eeb2031b4f2b52c86e4.
+captures:
+- name: orwpt_id_info_missing_patient
+  rpc: ORWPT ID INFO
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "5\0^^^^^^^"
+  sha256: af4a901cde9d0d534fdfc612aa304f3eab674833de51182d0609d69d6c8b02ff
+- name: orwpt_id_info_m_error
+  rpc: ORWPT ID INFO
+  inputs:
+  - ''
+  context: 'an empty DFN: <SUBSCRIPT> at IDINFO+3^ORWPT'
+  raw_return: "6\x011\rThe server has reported the following error:\r\r<SUBSCRIPT>IDINFO+3^ORWPT
+    ^DPT(\"\")\r\rA detailed log of the error has been created.\r"
+  sha256: a43606950cf6c992d6ef65cda3dfbd13de1e95148b7f7b3ad0c53abe43e6697e
+- name: behoptcx_ptinfo_missing_patient
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: behoptcx_ptinfo_m_error
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - 1E999
+  context: 'DFN 1E999: <MAXNUMBER> at PTINFO+3^BEHOPTCX'
+  raw_return: "8\x011\rThe server has reported the following error:\r\r<MAXNUMBER>PTINFO+3^BEHOPTCX\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 24b48cf8b8a4150acd0f212c046d4ce491c852f09b8e471a36c5f84d385c6b81
+- name: behoptpc_getbdp_missing_patient
+  rpc: BEHOPTPC GETBDP
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "9\0"
+  sha256: b58d15e89a953322b7ac8fc0d6e37710c1eacd25d8304efd002904cb18ef62c6
+- name: behoptpc_getbdp_m_error
+  rpc: BEHOPTPC GETBDP
+  inputs:
+  - xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  context: 'a 600-character DFN: <SUBSCRIPT> at ALLDP+15^BDPAPI'
+  raw_return: "1\x011\rThe server has reported the following error:\r\r<SUBSCRIPT>ALLDP+15^BDPAPI
+    ^BDPRECN(\"AA\",\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 37eedaff5b32303c43c9eac8ef168042410e0f0c58e63dc3281f0377db64ecff
+- name: orwpt_cwad_missing_patient
+  rpc: ORWPT CWAD
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "2\0"
+  sha256: 913da1f8df6f8fd47593840d533ba0458cc9873996bf310460abb495b34c232a
+- name: orwpt_cwad_m_error
+  rpc: ORWPT CWAD
+  inputs:
+  - 1E999
+  context: 'DFN 1E999: <MAXNUMBER> at CWAD+9^ORQPT2'
+  raw_return: "3\x011\rThe server has reported the following error:\r\r<MAXNUMBER>CWAD+9^ORQPT2\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 5204d937b332643ee7da7c595bade5d3f7fea3363c7193e916076240eed888d1
+- name: orqqpl_list_missing_patient
+  rpc: ORQQPL LIST
+  inputs:
+  - '999999999'
+  - ''
+  context: no such patient
+  raw_return: "4\0^No problems found.\r"
+  sha256: '0110159608dffd74279a9a79deb12da3e10d22bc62906cc8e341090bbd358ce0'
+- name: orqqpl_list_m_error
+  rpc: ORQQPL LIST
+  inputs:
+  - 1E999
+  - ''
+  context: 'DFN 1E999: <MAXNUMBER> at LIST+25^GMPLUTL3'
+  raw_return: "5\x011\rThe server has reported the following error:\r\r<MAXNUMBER>LIST+25^GMPLUTL3\r\rA
+    detailed log of the error has been created.\r"
+  sha256: c2614cd662e9cc0277a21a8ad4b71908e5a010d732deac24e9be33ccaa6a766d
+- name: orqqal_list_missing_patient
+  rpc: ORQQAL LIST
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "6\0^No Allergy Assessment\r"
+  sha256: eab3bbddfcca0fbeda409ece0bc9298c4be8e4d2b3b5c442c6dd9f4381de5114
+- name: orqqal_list_m_error
+  rpc: ORQQAL LIST
+  inputs:
+  - 1E999
+  context: 'DFN 1E999: <MAXNUMBER> at EN1+6^GMRAOR1'
+  raw_return: "7\x011\rThe server has reported the following error:\r\r<MAXNUMBER>EN1+6^GMRAOR1\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 82c4e5a5058164055967ead6e7c748be52b1363c0628eb40a3fcdaa4a2092c49
+- name: orwps_active_missing_patient
+  rpc: ORWPS ACTIVE
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "8\0"
+  sha256: 0c59629d81806b2b169bcd633f8a9cb7da43a8d692dbc95bc201d0f5cf5e08d5
+- name: orwps_active_m_error
+  rpc: ORWPS ACTIVE
+  inputs:
+  - ''
+  context: 'an empty DFN: <SUBSCRIPT> at OCL+3^PSOORRLO'
+  raw_return: "9\x011\rThe server has reported the following error:\r\r<SUBSCRIPT>OCL+3^PSOORRLO
+    ^PS(55,\"\")\r\rA detailed log of the error has been created.\r"
+  sha256: 6082d71a32cc7b42e1b0ff898d4d4b124dfe9373bd81c758fd65264c679c08ff
+- name: orqqvi_vitals_missing_patient
+  rpc: ORQQVI VITALS
+  inputs:
+  - '999999999'
+  context: no such patient
+  raw_return: "1\0"
+  sha256: e79e418e48623569d75e2a7b09ae88ed9b77b126a445b9ff9dc6989a08efa079
+- name: orqqvi_vitals_m_error
+  rpc: ORQQVI VITALS
+  inputs:
+  - ''
+  context: 'an empty DFN: <SUBSCRIPT> at MSR+10^ORQQVI'
+  raw_return: "2\x011\rThe server has reported the following error:\r\r<SUBSCRIPT>MSR+10^ORQQVI
+    ^PXRMINDX(9000010.01,\"PI\",\"\")\r\rA detailed log of the error has been created.\r"
+  sha256: 3ec16637bb01ef6a6cb01399e82925f6939f6adb491b05a0c32bf17cca172f6e

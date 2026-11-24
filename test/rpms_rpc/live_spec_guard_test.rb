@@ -16,12 +16,24 @@ require_relative "../live/live_helper"
 # green when no live spec ran.
 class LiveSpecGuardTest < Minitest::Test
   FULL = { "BROKER_HOST" => "127.0.0.1", "BROKER_PORT" => "19300", "RPMS_ACCESS" => "a",
-           "RPMS_VERIFY" => "v", "PERSONA" => "PROV123" }.freeze
+           "RPMS_VERIFY" => "v", "ROLE" => "provider",
+           # The release cache: the committed fixture, whose current.json names a bcer-9.0 -ydb release.
+           "OPENRPMS_INVENTORIES" => File.expand_path("../fixtures/inventories", __dir__) }.freeze
 
   def test_names_every_unset_or_blank_variable
     assert_equal LiveSpec::REQUIRED_ENV, LiveSpec.missing_env({})
-    assert_equal %w[RPMS_VERIFY], LiveSpec.missing_env(FULL.merge("RPMS_VERIFY" => " "))
     assert_empty LiveSpec.missing_env(FULL)
+  end
+
+  # A role signs on with its row's published pair unless the env names
+  # another; the operator's verify code is not published, so it must be set.
+  def test_the_pair_is_the_rows_unless_the_env_names_one
+    bare = FULL.merge("RPMS_ACCESS" => nil, "RPMS_VERIFY" => " ")
+    assert_equal RpmsRpc::TestRoles.fetch(:provider).pair, LiveSpec.sign_on_pair(bare)
+    assert_empty LiveSpec.missing_env(bare)
+    assert_equal %w[a v], LiveSpec.sign_on_pair(FULL)
+    assert_equal %w[RPMS_VERIFY], LiveSpec.missing_env(bare.merge("ROLE" => "operator"))
+    assert_equal [ "SYS123", "v" ], LiveSpec.sign_on_pair(bare.merge("ROLE" => "operator", "RPMS_VERIFY" => "v"))
   end
 
   def test_a_write_needs_the_target_declared_disposable
@@ -78,6 +90,16 @@ class LiveSpecGuardTest < Minitest::Test
   # -- failure over silent skipping -------------------------------------------
 
   class Probe < LiveSpec::Test
+    runs_as :provider
+    def test_reaches_the_broker = assert(client)
+  end
+
+  class UndeclaredProbe < LiveSpec::Test
+    def test_reaches_the_broker = assert(client)
+  end
+
+  class SchedulingProbe < LiveSpec::Test
+    runs_as :scheduler
     def test_reaches_the_broker = assert(client)
   end
 
@@ -85,12 +107,34 @@ class LiveSpecGuardTest < Minitest::Test
     def setup = nil # no broker needed to exercise skip_tracked
     def teardown = nil
     def test_tracked = skip_tracked("#310", "the RPC is on no built image")
+    def test_tracked_elsewhere = skip_tracked("openrpms#1275", "the role is not given the option yet")
     def test_untracked = skip_tracked("soon", "no issue")
     def test_bare = skip("no data")
   end
   class XwbProbe < LiveSpec::Test
     broker :xwb
+    runs_as :provider
     def test_reaches_the_broker = assert(client)
+  end
+
+  # A spec whose RPCs run under an option the provider's row does not hold.
+  class NeedsProbe < LiveSpec::Test
+    runs_as :provider, :operator
+    needs "AMHGRPC", tracked: "openrpms#1275"
+    def test_reaches_the_broker = assert(client)
+  end
+
+  # The harness's sign-on and its XUPROGMODE probe, without a broker: the
+  # probe answers what HELD says the account holds.
+  class GuardProbe < LiveSpec::Test
+    runs_as :provider, :operator
+    HELD = {} # role => what the account's XUPROGMODE probe answers
+    def test_signs_on = assert(client)
+
+    private
+
+    def sign_on = Struct.new(:disconnect).new
+    def xuprogmode_held = HELD.fetch(role)
   end
 
   class PassingProbe < LiveSpec::Test
@@ -98,18 +142,170 @@ class LiveSpecGuardTest < Minitest::Test
     def teardown = nil
     def test_passes = assert(true)
   end
+
+  # A spec that proves a scenario and sends one call, recorded as the harness records it.
+  class ProvingProbe < LiveSpec::Test
+    runs_as :provider
+    proves "S-CHT-01.1"
+    def setup = LiveSpec::CallLog.start
+    def teardown = LiveSpec.calls["#{self.class}##{name}"] = LiveSpec::CallLog.stop
+    def test_opens_a_chart = LiveSpec::CallLog.around("ORWPT SELECT") { "5\x00ok" }
+  end
+  Minitest::Runnable.runnables.delete(ProvingProbe)
   # Specimens, run by hand below; never by the runner itself.
   Minitest::Runnable.runnables.delete(Probe)
   Minitest::Runnable.runnables.delete(XwbProbe)
   Minitest::Runnable.runnables.delete(Tracked)
   Minitest::Runnable.runnables.delete(PassingProbe)
+  Minitest::Runnable.runnables.delete(UndeclaredProbe)
+  Minitest::Runnable.runnables.delete(SchedulingProbe)
+  Minitest::Runnable.runnables.delete(NeedsProbe)
+  Minitest::Runnable.runnables.delete(GuardProbe)
+
+  # -- test roles: each spec runs as the role whose work it proves (#452) -----
+
+  def test_a_spec_that_declares_no_role_fails_and_says_how_to_declare_one
+    result = with_env(FULL) { UndeclaredProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?
+    assert_match(/declares no role: add runs_as :<role>/, result.failure.message)
+  end
+
+  def test_a_spec_run_by_hand_as_another_role_fails_naming_its_role
+    result = with_env(FULL) { SchedulingProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?
+    assert_match(/runs as scheduler, and this run signs on as provider: run it with ROLE=scheduler/, result.failure.message)
+  end
+
+  def test_a_run_runs_only_the_specs_of_the_role_it_signs_on_as
+    assert_empty(with_env("ROLE" => "provider") { SchedulingProbe.runnable_methods })
+    assert_equal [ "test_reaches_the_broker" ], with_env("ROLE" => "scheduler") { SchedulingProbe.runnable_methods }
+    assert_equal [ "test_reaches_the_broker" ], with_env("ROLE" => "provider") { UndeclaredProbe.runnable_methods },
+                 "an undeclared spec still runs, so its setup can say what is missing"
+  end
+
+  def test_a_role_the_table_does_not_know_is_refused
+    assert_nil LiveSpec.role_error("ROLE" => "front_desk_clerk")
+    assert_match(/ROLE="bob" is not a test role: one of provider, nurse, medical_assistant, front_desk_clerk, /,
+                 LiveSpec.role_error("ROLE" => "bob"))
+  end
+
+  # The old PERSONA names stop working, and the message names the role to set.
+  def test_a_retired_persona_fails_naming_the_role_to_set
+    assert_match(/PERSONA=PROV123 is retired: .* set ROLE=provider/, LiveSpec.role_error("PERSONA" => "PROV123"))
+    assert_match(/PERSONA=PREG123 is retired: .* set ROLE=front_desk_clerk/,
+                 LiveSpec.role_error("PERSONA" => "PREG123", "ROLE" => "front_desk_clerk"))
+    assert_match(/PERSONA=least_privilege is retired: .* set ROLE to one of provider/,
+                 LiveSpec.role_error("PERSONA" => "least_privilege"))
+
+    result = with_env(FULL.merge("PERSONA" => "SYS123")) { Probe.new(:test_reaches_the_broker).run }
+    refute result.skipped?
+    assert_match(/PERSONA=SYS123 is retired: .* set ROLE=operator/, result.failure.message)
+  end
+
+  # Every class of every live spec, on every broker line, declares the
+  # roles it runs as, and each is one the table knows.
+  def test_every_live_spec_declares_the_roles_it_runs_as
+    root = File.expand_path("../..", __dir__)
+    files = LiveSpec::SPEC_GLOBS.values.flat_map { |glob| Dir[File.join(root, glob)] }
+    refute_empty files
+    files.each do |file|
+      text = File.read(file)
+      classes = text.scan(/< LiveSpec::Test\b/).size
+      declared = text.scan(/^\s*runs_as\s/).size
+      assert_equal classes, declared, "#{file.delete_prefix("#{root}/")}: #{classes} spec classes, #{declared} runs_as lines"
+      unknown = LiveSpec.declared_roles(file) - LiveSpec::ROLES.names
+      assert_empty unknown, "#{file.delete_prefix("#{root}/")} runs as roles the table does not know"
+    end
+  end
+
+  def test_the_plan_lists_each_spec_under_the_roles_it_declares
+    plan = LiveSpec.role_plan("cia")
+
+    assert_equal LiveSpec::ROLES.names, plan.keys
+    assert_includes plan.fetch(:front_desk_clerk), "test/live/registration_duplicate_live_test.rb"
+    refute_includes plan.fetch(:provider), "test/live/registration_duplicate_live_test.rb"
+  end
+
+  # CI's live matrix (.github/workflows/openrpms-release.yml) runs every role
+  # a spec declares, so no role's specs go unrun.
+  def test_ci_runs_every_role_a_spec_declares
+    root = File.expand_path("../..", __dir__)
+    workflow = File.read(File.join(root, ".github/workflows/openrpms-release.yml"))
+    matrix = workflow[/^\s+role: \[([^\]]*)\]/, 1].to_s.split(",").map { |r| r.strip.to_sym }
+
+    assert_equal LiveSpec.roles_in_use, matrix
+  end
+
+  # -- the row's one guard: XUPROGMODE ----------------------------------------
+
+  def test_an_account_whose_xuprogmode_disagrees_with_its_row_fails_every_spec
+    LiveSpec.forget_xuprogmode_verdicts!
+    GuardProbe::HELD.replace(provider: [ "XUPROGMODE" ], operator: [])
+
+    provider = with_env(FULL) { GuardProbe.new(:test_signs_on).run }
+    refute provider.passed?
+    assert_match(/signed on as provider holds XUPROGMODE, which its row does not give it/, provider.failure.message)
+
+    operator = with_env(FULL.merge("ROLE" => "operator")) { GuardProbe.new(:test_signs_on).run }
+    refute operator.passed?
+    assert_match(/signed on as operator does not hold XUPROGMODE, which its row says it holds/, operator.failure.message)
+  ensure
+    LiveSpec.forget_xuprogmode_verdicts!
+  end
+
+  def test_an_account_whose_xuprogmode_agrees_with_its_row_runs
+    LiveSpec.forget_xuprogmode_verdicts!
+    GuardProbe::HELD.replace(provider: [], operator: [ "XUPROGMODE" ])
+
+    assert with_env(FULL) { GuardProbe.new(:test_signs_on).run }.passed?
+    assert with_env(FULL.merge("ROLE" => "operator")) { GuardProbe.new(:test_signs_on).run }.passed?
+  ensure
+    LiveSpec.forget_xuprogmode_verdicts!
+  end
+
+  def test_an_unanswered_xuprogmode_probe_fails_the_run
+    LiveSpec.forget_xuprogmode_verdicts!
+    GuardProbe::HELD.replace(provider: nil)
+
+    result = with_env(FULL) { GuardProbe.new(:test_signs_on).run }
+    refute result.passed?
+    assert_match(/could not ask whether PROFILE,MD holds XUPROGMODE/, result.failure.message)
+  ensure
+    LiveSpec.forget_xuprogmode_verdicts!
+  end
+
+  # -- a spec that needs an option its role's row does not hold yet ------------
+
+  def test_a_spec_needing_an_option_the_row_lacks_skips_by_its_issue_before_sign_on
+    result = with_env(FULL) { NeedsProbe.new(:test_reaches_the_broker).run }
+
+    assert result.skipped?, "the provider's row holds no AMHGRPC, so the spec skips (#{result.failure&.message})"
+    assert_match(/\Aopenrpms#1275: provider \(PROFILE,MD\) is not given AMHGRPC/, result.failure.message)
+  end
+
+  # bcer-9.0-20261124-60d39b6-ydb carries PROFILE,BH (openrpms#1299), so the
+  # behavioral health provider's row is no longer pending and holds AMHGRPC.
+  def test_the_bh_provider_row_holds_amhgrpc_now_a_release_carries_its_account
+    row = RpmsRpc::TestRoles.fetch(:bh_provider)
+    assert_nil row.pending
+    assert row.holds?("AMHGRPC")
+  end
+
+  def test_a_spec_needing_an_option_the_row_holds_runs
+    result = with_env(FULL.merge("ROLE" => "operator")) { NeedsProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?, "the operator is answered under every option, so the spec runs"
+    assert_match(/no broker answers at 127\.0\.0\.1:19300/, result.failure.message)
+  end
 
   def test_a_missing_setting_fails_and_names_it
-    result = with_env(FULL.merge("RPMS_VERIFY" => nil, "PERSONA" => nil)) { Probe.new(:test_reaches_the_broker).run }
+    result = with_env(FULL.merge("BROKER_PORT" => nil, "ROLE" => nil)) { Probe.new(:test_reaches_the_broker).run }
 
     refute result.skipped?, "a missing setting is a mistake, not an opt-out"
     refute result.passed?
-    assert_match(/RPMS_VERIFY, PERSONA/, result.failure.message)
+    assert_match(/BROKER_PORT, ROLE/, result.failure.message)
   end
 
   def test_an_unreachable_broker_fails_and_says_what_to_do
@@ -132,6 +328,10 @@ class LiveSpecGuardTest < Minitest::Test
     bare = Tracked.new(:test_bare).run
     refute bare.skipped?
     assert_match(/bare skip/, bare.failure.message)
+
+    elsewhere = Tracked.new(:test_tracked_elsewhere).run
+    assert elsewhere.skipped?, "an issue of another repository is a tracked issue too"
+    assert_match(/\Aopenrpms#1275: /, elsewhere.failure.message)
   end
 
   # Invoking `rake test:live` means you meant to reach RPMS: without the
@@ -141,19 +341,19 @@ class LiveSpecGuardTest < Minitest::Test
     out, status = Open3.capture2e(env, "bundle", "exec", "rake", "test:live", chdir: File.expand_path("../..", __dir__))
 
     refute status.success?, "rake test:live passed with no broker settings:\n#{out}"
-    assert_match(/settings are missing: BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY, PERSONA/, out)
+    assert_match(/settings are missing: BROKER_HOST, BROKER_PORT, ROLE/, out)
     refute_match(/runs, .* assertions/, out, "no spec should load")
   end
 
   # -- the end-of-run summary --------------------------------------------------
 
-  def test_the_summary_names_backend_build_persona_and_counts_and_never_codes
+  def test_the_summary_names_backend_build_role_and_counts_and_never_codes
     summary = summarize(Tracked.new(:test_tracked).run, env: FULL.merge("RPMS_ACCESS" => "ACCESS-CODE", "RPMS_VERIFY" => "VERIFY-CODE"))
 
     out = summary[:io].string
     assert_match(/backend\s+127\.0\.0\.1:19300/, out)
-    assert_match(/build\s+bcer-9\.0-\S+-(ydb|iris) \(pinned, not verified/, out)
-    assert_match(/persona\s+PROV123/, out)
+    assert_match(/build\s+bcer-9\.0-\S+-(ydb|iris) \(release under test, not verified/, out)
+    assert_match(/role\s+provider/, out)
     assert_match(/1 runs, 0 assertions, 0 failures, 0 errors, 1 skips/, out)
     assert_match(/#310\s+1\s/, out)
     refute_match(/ACCESS-CODE|VERIFY-CODE/, out)
@@ -216,14 +416,14 @@ class LiveSpecGuardTest < Minitest::Test
     Dir.mktmpdir do |tmpdir|
       root = File.expand_path("../..", __dir__)
       identity = RpmsRpc::LiveSummary.run_identity(FULL, root: root)
-      path = RpmsRpc::LiveSummary.path_for(tmpdir, persona: identity[:persona], protocol: identity[:protocol])
+      path = RpmsRpc::LiveSummary.path_for(tmpdir, role: identity[:role], protocol: identity[:protocol])
       RpmsRpc::LiveSummary.write(
         path,
         {
           "build" => identity[:build],
           "build_source" => identity[:build_source],
           "protocol" => identity[:protocol],
-          "persona" => identity[:persona],
+          "role" => identity[:role],
           "runs" => 7,
           "assertions" => 0,
           "failures" => 1,
@@ -281,6 +481,43 @@ class LiveSpecGuardTest < Minitest::Test
       refute data["pending"]
       assert_equal 1, data["runs"]
     end
+  end
+
+  # rpms-rpc#818: the summary lists each spec run, the scenarios it proves and the calls it sent.
+  def test_the_summary_records_each_spec_with_its_scenarios_and_calls
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => "f00d")
+      mark_pending_in(tmpdir, env: env, run_id: "f00d")
+      summarize(ProvingProbe.new(:test_opens_a_chart).run, env: env, expected_runs: 1)
+      data = JSON.parse(File.read(Dir[File.join(tmpdir, "*.json")].first))
+      assert_equal [ { "spec" => "LiveSpecGuardTest::ProvingProbe#test_opens_a_chart", "proves" => [ "S-CHT-01.1" ],
+                       "result" => "pass", "calls" => [ { "rpc" => "ORWPT SELECT", "outcome" => "answered" } ] } ], data["specs"]
+    end
+  end
+
+  # A run whose account's XUPROGMODE disagreed with its role's row proves no scenario: it records no spec.
+  def test_a_run_refused_for_its_xuprogmode_records_no_spec
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => "beef")
+      mark_pending_in(tmpdir, env: env, run_id: "beef")
+      LiveSpec.forget_xuprogmode_verdicts!
+      LiveSpec.xuprogmode_verdict(LiveSpec::ROLES.fetch(:provider)) { [ "XUPROGMODE" ] }
+      summarize(ProvingProbe.new(:test_opens_a_chart).run, env: env, expected_runs: 1)
+      assert_equal [], JSON.parse(File.read(Dir[File.join(tmpdir, "*.json")].first))["specs"]
+    ensure
+      LiveSpec.forget_xuprogmode_verdicts!
+    end
+  end
+
+  def test_proves_takes_scenario_ids_only
+    klass = Class.new(LiveSpec::Test)
+    assert_equal [], klass.proves
+    klass.proves "S-SCH-01.1", "S-SCH-01.1", "S-SCH-01.10"
+    assert_equal %w[S-SCH-01.1 S-SCH-01.10], klass.proves
+    assert_raises(ArgumentError) { klass.proves "S-SCH-01" }
+    assert_raises(ArgumentError) { klass.proves "SCH-01.1" }
+  ensure
+    Minitest::Runnable.runnables.delete(klass)
   end
 
   def test_a_complete_live_run_is_recorded
@@ -398,9 +635,9 @@ class LiveSpecGuardTest < Minitest::Test
     end
   end
 
-  def test_an_unsafe_persona_is_reported_not_recorded
+  def test_an_unsafe_role_is_reported_not_recorded
     Dir.mktmpdir do |tmpdir|
-      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "PERSONA" => "../x", "LIVE_SUMMARY_DIR" => tmpdir))
+      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "ROLE" => "../x", "LIVE_SUMMARY_DIR" => tmpdir))
 
       assert_match(/NOT RECORDED/, summary[:io].string)
       assert_empty Dir[File.join(tmpdir, "*.json")]
@@ -491,9 +728,9 @@ class LiveSpecGuardTest < Minitest::Test
 
     root = File.expand_path("../..", __dir__)
     identity = RpmsRpc::LiveSummary.run_identity(env, root: root)
-    path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+    path = RpmsRpc::LiveSummary.path_for(dir, role: identity[:role], protocol: identity[:protocol])
     pending_args = {
-      persona: identity[:persona],
+      role: identity[:role],
       protocol: identity[:protocol],
       build: identity[:build],
       build_source: identity[:build_source],

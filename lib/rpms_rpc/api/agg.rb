@@ -3,6 +3,9 @@
 require_relative "../mappings"
 require_relative "../client"
 require_relative "../shape"
+require_relative "../context_scope"
+require_relative "ddr_fileman"
+require "date"
 
 module RpmsRpc
   # Symbolic API for the IHS **AG** package's GUI registration RPCs (the AGG*
@@ -89,6 +92,29 @@ module RpmsRpc
     WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
+    UPDATE_LEGAL_NAMES_RPC = "AGG UPDATE LEGAL NAMES" # LEGL^AGGPTNAM
+    # The Legal Names window's registered parameters (^AGG(9009068.3,27,10,"AC"))
+    # that LEGL files as asked. Not RIEN or DFN: PARS's S @NAME=VALUE would
+    # overwrite the verified ones. Not AGGLNEBY: its EXEC files DUZ whatever
+    # the value. Not ALIASCK: it has no field and no EXEC. Both would answer
+    # success while filing nothing the caller asked. Not AGGLNPRF: .04 is a
+    # screened pointer to #9000030 that LEGL files unchecked; a later slice
+    # can add an existence read.
+    LEGAL_NAME_PARMS = %w[AGGLNDTC AGGLNMC AGGLGDOC].freeze
+    # LEGL files with FILE^DIE flags "" (internal, no input transform), so each
+    # value is checked here: [what it must be, check of the value bytes].
+    # AGGLNDTC goes through DATE^AGGUL1, which turns a %DT failure into "";
+    # %DT takes years 1800-2699 only (DIDT.m:76), and a null .01 deletes the
+    # row (DIEF.m:56), so the date is refused unless %DT will take it.
+    LEGAL_NAME_RULES = {
+      "AGGLNDTC" => [ "an absolute MM/DD/YYYY day in 1800-2699", ->(text) { legal_name_absolute_date?(text) } ],
+      "AGGLNMC" => [ "3 to 45 bytes", ->(text) { (3..45).cover?(text.bytesize) } ],
+      "AGGLGDOC" => [ "3 to 20 bytes", ->(text) { (3..20).cover?(text.bytesize) } ]
+    }.freeze
+    LEGAL_NAME_YEARS = (1800..2699) # %DT's year range (DIDT.m:76)
+    LEGAL_NAME_FILE = "9000033"                       # LEGAL NAME (^AUPNNAMC)
+    LEGAL_NAME_CONTEXT = "CIAV VUECENTRIC"            # the ownership read's option
+    LEGAL_NAME_RIEN = /\A[1-9]\d{0,14}\z/             # 1 to 15 digits, no leading zero
     UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
     UPDATE_MULTIPLE_RECORD_RPC = "AGG UPDATE A MULTIPLE RECORD" # UPD^AGGMLUPD
     QUANTUM_VALIDATION_RPC = "AGG QUANTUM VALIDATION" # QNT^AGGFTVAL
@@ -328,6 +354,89 @@ module RpmsRpc
     end
     shape :update_aliases, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/aliases"
 
+    # LEGL^AGGPTNAM (AGGPTNAM.m:57-109): edit ("A" or "" with a RIEN) or delete
+    # ("D") one existing LEGAL NAME row (#9000033) of the patient. A delete runs
+    # ^DIK on ^AUPNNAMC( and ignores PARMS (:70-72). An edit runs PARS (:111+),
+    # re-points the row's .02 to this DFN (:83) and files the window's fields.
+    #
+    # A blank-RIEN add (^DIC DIC(0)="L", :76-79) is refused as :invalid_rien:
+    # it is not supported in this slice. DFN and RIEN are an Integer or a
+    # String, proc a String; each is copied once to a plain String of its
+    # bytes, and that copy is checked and sent (never the caller's to_s).
+    # RIEN is 1-15 digits. RIEN and DFN are not accepted as parameters. An
+    # edit carries exactly one parameter, one of LEGAL_NAME_PARMS (AGGLNPRF is
+    # left for a later slice). Both PARMS loops (:87, PARS :112) quit after
+    # the entry that set BMXSEC, which LEGL sets only for a name not on the
+    # window (:91, :116), so never for a call this wrapper sends. LEGL does not
+    # NEW BMXSEC (:58-59). The BMX broker clears it (BMXMBRK.m:152,
+    # BMXMON.m:244), but no CIA or XWB routine references it, so over CIA
+    # (which this gem uses) one left set by an earlier AGG call stays and the
+    # loops stop after the first entry. With one entry per edit LEGL files the
+    # one field sent even then, and a success reply accounts for exactly that
+    # field. A key is a String or Symbol, a value a String, each copied once
+    # and checked and sent as bytes.
+    #
+    # LEGL files with FILE^DIE flags "" (internal values, no validation), so
+    # every value byte must be printable ASCII (0x20-0x7E), and the value is
+    # not "@" (a field delete, DIEF.m:61), has no "^" (M error 714) and no
+    # surrounding space. AGGLNMC is 3-45 bytes, AGGLGDOC 3-20. AGGLNDTC is an
+    # absolute MM/DD/YYYY day in years 1800-2699: DATE^AGGUL1 resolves a
+    # relative date against DT, which is set at sign-on and can be stale, and
+    # turns a date %DT refuses into "", which deletes the row (DIEF.m:56).
+    #
+    # Ownership: before LEGL the row's .02 is read (DDR GETS ENTRY DATA, flags
+    # "I", under CIAV VUECENTRIC). GETSC^DDR2 cuts the IENS's trailing comma
+    # (DDR2.m:32), so the read proves the owner only when the reply is clean
+    # (not stray, altered, error or malformed) and is exactly "[Data]" then
+    # "9000033^RIEN^.02^OWNER^" with a canonical OWNER; else :rien_unverified,
+    # or :rien_not_for_dfn for another DFN, with no LEGL. This is read-then-write, not atomic:
+    # the read and the write are held under synchronize_wire (or
+    # RpmsRpc::MODULE_WIRE_LOCK for a client without one) only against this
+    # process's other threads, not other sessions. A broker error from the
+    # read propagates. All validation runs before any RPC. Returns { success:
+    # true, ien: }, { success: false, error:, message: }, or nil for no reply.
+    # Once LEGL is sent, a failure (:agg_rejected, :agg_empty_reply) carries
+    # written: :unknown: AGGDATA is filed before AGGDATAI and ERR^AGGPTUPD
+    # only appends $C(31), so a partial write may stand. A success row naming
+    # another RIEN is :legal_name_unverified with written: true.
+    def update_legal_names(dfn:, proc:, rien:, params: {}, client: RpmsRpc.client)
+      dfn_bytes = legal_name_bytes(dfn)
+      dfn_text = dfn_bytes && canonical_dfn(dfn_bytes)
+      return legal_name_failure(:invalid_dfn, "DFN must be a positive integer") unless dfn_text
+
+      proc_text = proc.is_a?(String) ? String.new(proc).b : nil
+      unless proc_text && [ "A", "D", "" ].include?(proc_text)
+        return legal_name_failure(:invalid_proc, "proc must be A, D, or empty")
+      end
+
+      rien_text = legal_name_bytes(rien)
+      if rien.nil? || rien_text&.strip&.empty?
+        return legal_name_failure(:invalid_rien, "a RIEN is required: a blank-RIEN add is not supported")
+      end
+      unless rien_text&.match?(LEGAL_NAME_RIEN)
+        return legal_name_failure(:invalid_rien, "RIEN must be a positive integer of at most 15 digits")
+      end
+
+      dfn_text, proc_text, rien_text = [ dfn_text, proc_text, rien_text ].map { |text| legal_name_wire(text) }
+
+      pairs = legal_name_pairs(params)
+      return pairs if pairs.is_a?(Hash)
+
+      refusal = legal_name_param_refusal(proc_text, pairs)
+      return refusal if refusal
+
+      parms = pairs.map { |name, value| "#{legal_name_wire(name)}=#{legal_name_wire(value)}" }.join(PARM_DELIM)
+      legal_name_on_wire(client) do
+        owner = legal_name_patient(client, rien_text)
+        next legal_name_failure(:rien_unverified, "file 9000033 RIEN #{rien_text} .02 did not verify") if owner.nil?
+        next legal_name_failure(:rien_not_for_dfn, "file 9000033 RIEN #{rien_text} is not DFN #{dfn_text}") if owner != dfn_text
+
+        reply = in_context(client) { call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, proc_text, rien_text, parms) }
+        legal_name_result(reply, rien_text)
+      end
+    end
+    shape :update_legal_names, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/legal-names"
+
     # UPD^AGGPOTH: add ("A") or delete ("D") one entry of a multiple below a
     # dated entry, for the window "Other Languages" (#9000001.8605 under a
     # LANGUAGES ENTRY DATE) or "Internet Access Method". P3 is the DFN, P4 the
@@ -396,7 +505,7 @@ module RpmsRpc
     # (AGGLOCK.m:52-55). UPD^AGGPTUPD takes no lock of its own, so without
     # this two editors could interleave. UNLOCK^AGGLOCK releases both
     # (AGGLOCK.m:85,109-119). Both are registered under AGGRPC (the
-    # captured registry and reach files in data/inventories/).
+    # captured registry and reach files of the openrpms release, <tag>-rpcs.json).
     #
     # Reply: header "I00010RESULT^T00080MESSAGE" (AGGLOCK.m:27), then
     # RESULT^MESSAGE (AGGLOCK.m:91): 1 locked, 0 held by someone else (the
@@ -580,7 +689,7 @@ module RpmsRpc
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise
     # when AGGRPC is already bound, so nesting these is free). A client that
-    # cannot scope contexts — a MockClient, any non-broker double — runs the
+    # cannot scope contexts (a stand-in that is not a broker client) runs the
     # block as-is.
     def in_context(client, &block)
       return block.call unless client.respond_to?(:with_context)
@@ -604,9 +713,9 @@ module RpmsRpc
       Array(lines).first.to_s.strip.to_i.positive?
     end
 
-    # Route through the GLOBAL ARRAY read when the client supports it (live
-    # CiaClient); fall back to plain call_rpc for a MockClient / non-CIA
-    # client that returns the seeded reply directly.
+    # Route through the GLOBAL ARRAY read when the client supports it
+    # (CiaClient); fall back to plain call_rpc for XwbClient and BmxClient,
+    # which return the reply directly.
     def call_array(client, rpc_name, *params)
       if client.respond_to?(:call_rpc_global_array)
         client.call_rpc_global_array(rpc_name, *params)
@@ -640,6 +749,133 @@ module RpmsRpc
       { success: false, error: error, message: record[:message].to_s }
     end
 
+    def legal_name_failure(error, message)
+      { success: false, error: error, message: message }
+    end
+
+    # A binary copy of a String's bytes, or an Integer's digits; nil for
+    # anything else. The caller's object is never asked for its to_s.
+    def legal_name_bytes(object)
+      case object
+      when String then String.new(object).b
+      when Integer then object.to_s.b
+      end
+    end
+
+    # A validated (printable ASCII) binary copy as the plain UTF-8 String sent.
+    def legal_name_wire(bytes) = String.new(bytes).force_encoding(Encoding::UTF_8)
+
+    # params as [name, value] binary String pairs, each key and value copied
+    # once, or the :invalid_param failure Hash. A key must be a String or
+    # Symbol; a value a String.
+    def legal_name_pairs(params)
+      return legal_name_failure(:invalid_param, "params must be a Hash") unless params.is_a?(Hash)
+
+      params.map do |name, value|
+        name_text = legal_name_text(name)
+        return legal_name_failure(:invalid_param, "a parameter name must be a String or Symbol") unless name_text
+
+        value_text = legal_name_text(value, symbol: false)
+        return legal_name_failure(:invalid_param, "#{name_text.inspect} needs a String value") unless value_text
+
+        [ name_text, value_text ]
+      end
+    end
+
+    # A binary copy of a String's bytes or a Symbol's name; nil for anything else.
+    def legal_name_text(object, symbol: true)
+      return String.new(object).b if object.is_a?(String)
+      return String.new(object.name).b if symbol && object.is_a?(Symbol)
+
+      nil
+    end
+
+    # nil when the pairs may be sent: one allowlisted entry with a value LEGL
+    # files as asked for an edit, none for a delete.
+    def legal_name_param_refusal(proc, pairs)
+      names = pairs.map(&:first)
+      return legal_name_failure(:invalid_param, "a parameter is named more than once") if names.uniq.size != names.size
+
+      unknown = names.find { |name| !LEGAL_NAME_PARMS.include?(name) }
+      return legal_name_failure(:invalid_param, "#{unknown.inspect} is not a Legal Names parameter") if unknown
+      return (pairs.empty? ? nil : legal_name_failure(:invalid_param, "a delete takes no parameters")) if proc == "D"
+      return legal_name_failure(:invalid_param, "an edit takes exactly one parameter") unless pairs.size == 1
+
+      name, value = pairs.first
+      problem = legal_name_value_problem(name, value)
+      problem && legal_name_failure(:invalid_param, "#{name} #{problem}")
+    end
+
+    # Why LEGL would not file the binary +text+ as the value of +name+, or nil.
+    def legal_name_value_problem(name, text)
+      return "needs a value" if text.empty?
+      return "must be printable ASCII bytes (0x20-0x7E)" unless text.each_byte.all? { |byte| byte.between?(0x20, 0x7e) }
+      return "must not be \"@\" (FileMan deletes the field)" if text == "@"
+      return "must not contain \"^\"" if text.include?("^")
+      return "must not have leading or trailing spaces" if text.start_with?(" ") || text.end_with?(" ")
+
+      rule, check = LEGAL_NAME_RULES.fetch(name)
+      check.call(text) ? nil : "must be #{rule}"
+    end
+
+    def legal_name_absolute_date?(text)
+      match = text.match(%r{\A(\d{2})/(\d{2})/(\d{4})\z})
+      return false unless match
+
+      month, day, year = match.captures.map { |part| Integer(part, 10) }
+      LEGAL_NAME_YEARS.cover?(year) && Date.valid_date?(year, month, day)
+    end
+
+    # One outer wire lock around the ownership read and LEGL, so no other
+    # thread interleaves between them: the client's synchronize_wire, else
+    # MODULE_WIRE_LOCK (the fallback RpmsRpc.synchronize_wire uses).
+    def legal_name_on_wire(client, &block)
+      return client.synchronize_wire(&block) if client.respond_to?(:synchronize_wire)
+
+      MODULE_WIRE_LOCK.synchronize(&block)
+    end
+
+    # The row's internal .02 as canonical DFN text, or nil when the read does
+    # not prove one: a stray, altered, error or malformed reply, or lines that
+    # are not exactly "[Data]" and "9000033^RIEN^.02^OWNER^" (GETSC^DDR2 cuts
+    # the IENS's comma, DDR2.m:32) with a canonical OWNER. A broker error
+    # raised by the read propagates.
+    def legal_name_patient(client, rien_text)
+      param = DdrFileman.gets_entry_param(file: LEGAL_NAME_FILE, iens: "#{rien_text},", fields: ".02", flags: "I")
+      raw = ContextScope.scoped(client, LEGAL_NAME_CONTEXT) do
+        client.call_rpc(DataMapper[:ddr_gets_entry_data].rpc_name, param)
+      end
+      read = DdrFileman.parse_gets_reply(raw, flags: "I")
+      return nil if read.nil? || read[:error] || read[:malformed] || read[:stray] || read[:altered]
+
+      header, row, *rest = DdrFileman.lines(raw).map(&:b)
+      return nil unless header == "[Data]" && row && rest.empty?
+
+      file, iens, field, owner, external, *extra = row.split("^", -1)
+      return nil unless [ file, iens, field, external ] == [ LEGAL_NAME_FILE, rien_text, ".02", "" ] && extra.empty?
+
+      owner.match?(/\A[1-9]\d*\z/) ? legal_name_wire(owner) : nil
+    end
+
+    # interpret_entry_write, plus: a success row must name the requested RIEN.
+    # Once LEGL is sent, a failure may follow a partial write: written: :unknown.
+    def legal_name_result(reply, rien_text)
+      result = interpret_entry_write(reply)
+      return result if result.nil?
+      unless result[:success]
+        return result.merge(message: legal_name_server_text(result[:message]), written: :unknown)
+      end
+
+      returned = parse_reply(reply)[:records].first[:rien].to_s
+      return result if returned == rien_text
+
+      { success: false, error: :legal_name_unverified, written: true,
+        message: "LEGL answered success for RIEN #{returned.inspect}, not #{rien_text}" }
+    end
+
+    # The server's bytes as a new UTF-8 String, each invalid byte one U+FFFD.
+    def legal_name_server_text(bytes) = String.new(bytes.to_s).force_encoding(Encoding::UTF_8).scrub("�")
+
     # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.
     def interpret_entry_write(reply)
       parsed = parse_reply(reply)
@@ -665,9 +901,10 @@ module RpmsRpc
       message = record[:message] || record[:error] || ""
       if record[:result].to_s == "1"
         dfn = record[:dfn].to_s
-        if dfn.empty? && require_dfn
+        if require_dfn && !dfn.match?(/\A[1-9]\d*\z/)
+          # ADD^AGGPTADD answers 1^^-1 when nothing was filed (AGGPTADD.m:119-121).
           return { success: false, error: :agg_malformed_reply,
-                   message: "AGG success record carried no DFN" }
+                   message: dfn.empty? ? "AGG success record carried no DFN" : "AGG success record carried DFN #{dfn}, not a patient" }
         end
         result = { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
         # UPD^AGGPTUPD's OTHER_PARMS names what a filing code created, e.g.

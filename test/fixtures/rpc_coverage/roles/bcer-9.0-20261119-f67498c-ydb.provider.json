@@ -1,0 +1,232 @@
+{
+  "backend": "bcer-9.0-20261119-f67498c-ydb",
+  "runs": [
+    {
+      "at": "2026-11-23T03:30:49Z",
+      "rpms_rpc": "0.4.0 @ 0a4006a9",
+      "host_label": "bcer-9.0-20261119-f67498c-ydb",
+      "role": "provider",
+      "context": "CIAV VUECENTRIC (sign-on)",
+      "cases": 58,
+      "tally": {
+        "ok": 55,
+        "raised-before-wire": 3
+      },
+      "signons": 1
+    }
+  ],
+  "rpcs": {
+    "BEHOCCD PHR": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOCIR GETNUM": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOPTCX PTINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOPTPC GETBDP": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOSICX SITEINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOVM TEMPLATE": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BEHOXQ ALRLIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BGOREF GETREA": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BGOVIMM PROFILE": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BMC GET PURPOSE OF REF API": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BMC HEALTH SUMMARY TYPE": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BMC SEARCH REFERRAL": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BSDX ALL APPOINTMENTS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BSDX CLINIC SETUP": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "BSDX HOSPITAL LOCATION": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "CIAVCXUS VIMINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "DDR GETS ENTRY DATA": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "DDR LISTER": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQAL LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPL AUDIT HIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPL DETAIL": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPL LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPL PROBLEM LEX SEARCH": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPL PROVIDER LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPS LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPX REMINDERS LIST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQPXRM REMINDERS APPLICABLE": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORQQVI VITALS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWDAL32 ALLERGY MATCH": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWDAL32 DEF": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWDAL32 SYMPTOMS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWOR EXPIRED": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWOR SHEETS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWOR TSALL": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWOR UNSIGN": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWORR AGET": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT ADMITLST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT APPTLST": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT CWAD": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT ID INFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT INPLOC": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT LIST ALL": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWPT SELECT": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWRA IMAGING EXAMS1": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWRP REPORT TEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWU NEWPERS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "ORWU USERINFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "TIU DOCUMENTS BY CONTEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "TIU TEMPLATE GETBOIL": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "TIU TEMPLATE GETITEMS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "TIU TEMPLATE GETROOTS": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "TIU TEMPLATE GETTEXT": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    },
+    "XUS GET USER INFO": {
+      "outcome": "ok",
+      "last_at": "2026-11-23T03:30:49Z"
+    }
+  }
+}

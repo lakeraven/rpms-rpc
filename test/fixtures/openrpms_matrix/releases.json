@@ -1,0 +1,90 @@
+[
+  {
+    "tag_name": "bcer-9.0-20261116-2a9b3fe-ydb",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-16T03:59:25Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261116-2a9b3fe-ydb-harness.json"
+      },
+      {
+        "name": "bcer-9.0-20261116-2a9b3fe-ydb-rpms-rpc-live.json"
+      }
+    ]
+  },
+  {
+    "tag_name": "bcer-9.0-20261116-2a9b3fe-iris",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-16T05:57:15Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261116-2a9b3fe-iris-harness.json"
+      },
+      {
+        "name": "bcer-9.0-20261116-2a9b3fe-iris-rpms-rpc-live.json"
+      }
+    ]
+  },
+  {
+    "tag_name": "bcer-9.0-20261113-3f5487a-ydb",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-13T22:38:13Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261113-3f5487a-ydb-harness.json"
+      },
+      {
+        "name": "bcer-9.0-20261113-3f5487a-ydb-rpms-rpc-live.json"
+      }
+    ]
+  },
+  {
+    "tag_name": "bcer-9.0-20261113-3f5487a-iris",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-15T18:44:55Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261113-3f5487a-iris-harness.json"
+      },
+      {
+        "name": "bcer-9.0-20261113-3f5487a-iris-rpms-rpc-live.json"
+      }
+    ]
+  },
+  {
+    "tag_name": "bcer-9.0-20261111-312e774-ydb",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-13T22:38:11Z",
+    "assets": []
+  },
+  {
+    "tag_name": "bcer-9.0-20261107-312e774-ydb",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-08T03:23:41Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261107-312e774-ydb-harness.json"
+      },
+      {
+        "name": "bcer-9.0-20261107-312e774-ydb-rpms-rpc-live.json"
+      }
+    ]
+  },
+  {
+    "tag_name": "bcer-9.0-20261107-312e774-iris",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-11-08T17:45:02Z",
+    "assets": [
+      {
+        "name": "bcer-9.0-20261107-312e774-iris-rpms-rpc-live.json"
+      }
+    ]
+  }
+]

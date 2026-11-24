@@ -1,0 +1,221 @@
+name: Tag openrpms releases
+# rpms-rpc tags itself from published openrpms releases (rpms-rpc#724). An openrpms gate runs rpms-rpc main at the
+# cut and records the commit in the release's <tag>-harness.json; this reads that record and the per-RPC record
+# (<tag>-rpms-rpc-live.json), and when the record's contract passed, tags that commit <tag> here and creates the
+# rpms-rpc release <tag> with both records, the two OpenAPI documents and the RPC inventory attached (rpms-rpc#826).
+#
+#   plan    tools/openrpms_tags.rb plan: which releases to tag, and why any is skipped or refused (the logic,
+#           unit-tested in test/tools/openrpms_tags_test.rb on real records)
+#   tag     one job per release: at the recorded commit, fetch that release, build the OpenAPI documents and the
+#           RPC inventory (rake rpc:inventory, paired with the newest release of the other engine), create the tag
+#           (never moved) and the release, add the inventory section to its notes, then read it all back. A commit
+#           too old to build an asset for this release goes without it, loudly (the step that says so explains why)
+#
+# Credentials. GITHUB_TOKEN writes this repository only, so no openrpms secret can write rpms-rpc. Reading
+# lakeraven/openrpms needs OPENRPMS_READ_TOKEN (Contents: read) while it is private. A release this job creates
+# with GITHUB_TOKEN triggers no release workflow, so everything it carries is attached here; this is the one
+# path that attaches the inventory.
+# Which pin lives where: openrpms docs/PINS.md.
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openrpms-tags
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      todo: ${{ steps.plan.outputs.todo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # merge-base --is-ancestor needs main's history.
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - name: Which releases to tag
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENRPMS_READ_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+        run: ruby tools/openrpms_tags.rb plan
+
+  tag:
+    name: Tag ${{ matrix.release.tag }}
+    needs: plan
+    # A refused release fails the plan, but the others still get tagged.
+    if: ${{ always() && needs.plan.outputs.todo != '' && needs.plan.outputs.todo != '[]' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        release: ${{ fromJSON(needs.plan.outputs.todo) }}
+    env:
+      TAG: ${{ matrix.release.tag }}
+      COMMIT: ${{ matrix.release.commit }}
+      ACTION: ${{ matrix.release.action }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.release.commit }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      # Every asset but the two records is built by the tagged commit's own tasks, because it describes that commit's
+      # code. A commit older than a task cannot build that asset for this release; building it from main would
+      # describe main instead, so the release goes without it, the run warns, and the notes say which and why.
+      - name: What this commit can build for the release
+        id: can
+        run: |
+          set -euo pipefail
+          tasks="$(bundle exec rake -P)"
+          has() { grep -qx "rake $1" <<<"$tasks"; }
+          openapi=false
+          inventory=false
+          if has openrpms:fetch && has openapi; then
+            openapi=true
+          else
+            echo "::warning title=No OpenAPI documents for $TAG::rpms-rpc ${COMMIT:0:12} has no rake openrpms:fetch (rpms-rpc#776), so its rake openapi would describe its own pinned release, not $TAG. The release carries no OpenAPI documents, and its notes say so."
+          fi
+          if has rpc:inventory_tags && has rpc:inventory_notes; then
+            inventory=true
+          else
+            echo "::warning title=No RPC inventory for $TAG::rpms-rpc ${COMMIT:0:12} predates the inventory as a release asset (rpms-rpc#833: rake rpc:inventory_tags, rpc:inventory_notes and the excluded and vuecentric_* columns). An inventory written from main would describe main's coverage, not this tag's, so the release carries none, and its notes say so."
+          fi
+          { echo "openapi=$openapi"; echo "inventory=$inventory"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "### What rpms-rpc ${COMMIT:0:12} builds for $TAG"
+            echo
+            echo "- OpenAPI documents: $openapi"
+            echo "- RPC inventory: $inventory"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fetch the release and its records
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+          OPENRPMS_RELEASE: ${{ matrix.release.tag }}
+          OPENAPI: ${{ steps.can.outputs.openapi }}
+        run: |
+          set -euo pipefail
+          if [ "$OPENAPI" = true ]; then
+            bundle exec rake openrpms:fetch
+          fi
+          mkdir -p pkg/release
+          gh release download "$TAG" --repo lakeraven/openrpms --dir pkg/release \
+            --pattern "$TAG-harness.json" --pattern "$TAG-rpms-rpc-live.json"
+          [ "$(jq -r .harness.rpms_rpc_commit "pkg/release/$TAG-harness.json")" = "$COMMIT" ] \
+            || { echo "::error::$TAG-harness.json no longer names $COMMIT"; exit 1; }
+      - name: Build the OpenAPI documents at this commit
+        if: steps.can.outputs.openapi == 'true'
+        run: GEM_COMMIT="$COMMIT" bundle exec rake openapi
+      # The inventory pairs this release with the newest published release of the other engine; the notes name both.
+      - name: Pick the openrpms release pair for the RPC inventory
+        id: pair
+        if: steps.can.outputs.inventory == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            *-ydb) export YDB="$TAG" ;;
+            *-iris) export IRIS="$TAG" ;;
+          esac
+          bundle exec rake rpc:inventory_tags | tee -a "$GITHUB_OUTPUT"
+      - name: Write the RPC inventory at this commit
+        if: steps.can.outputs.inventory == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+          IRIS: ${{ steps.pair.outputs.iris }}
+          YDB: ${{ steps.pair.outputs.ydb }}
+        run: bundle exec rake rpc:inventory IRIS="$IRIS" YDB="$YDB" OUT=pkg/rpc-inventory CACHE=tmp/rpc-inventory
+      - name: Tag the commit (never moved)
+        if: matrix.release.action == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$COMMIT" --jq .ref
+      - name: Read the tag back
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          got="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          [ "$got" = "$COMMIT" ] || { echo "::error::rpms-rpc tag $TAG names $got, not $COMMIT"; exit 1; }
+          echo "EXPLICIT SUCCESS: rpms-rpc tag $TAG names $COMMIT"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENAPI: ${{ steps.can.outputs.openapi }}
+          INVENTORY: ${{ steps.can.outputs.inventory }}
+        run: |
+          set -euo pipefail
+          # pkg/release/assets.txt lists what the release carries, for the proof step to read back.
+          printf '%s\n' "pkg/release/$TAG-harness.json" "pkg/release/$TAG-rpms-rpc-live.json" > pkg/release/assets.txt
+          if [ "$OPENAPI" = true ]; then printf '%s\n' pkg/openapi/rpc-surface.openapi.json pkg/openapi/client-api.openapi.json >> pkg/release/assets.txt; fi
+          if [ "$INVENTORY" = true ]; then printf '%s\n' pkg/rpc-inventory/rpc-inventory.csv pkg/rpc-inventory/rpc-inventory.md >> pkg/release/assets.txt; fi
+          {
+            echo "The rpms-rpc commit that judged openrpms release \`$TAG\`, tagged from the release's own record."
+            echo
+            echo "- \`$TAG-harness.json\`: which openrpms and rpms-rpc commits judged the release"
+            echo "- \`$TAG-rpms-rpc-live.json\`: what rpms-rpc proved there, per RPC, and the contract verdict"
+            if [ "$OPENAPI" = true ]; then
+              echo "- \`rpc-surface.openapi.json\`, \`client-api.openapi.json\`: the release's RPC surface and this commit's client API"
+            fi
+            if [ "$INVENTORY" = true ]; then
+              echo "- \`rpc-inventory.csv\`, \`rpc-inventory.md\`: every RPC on an IRIS and a YottaDB openrpms release, with what this commit covers (the RPC inventory section below)"
+            fi
+            echo
+            echo "A host pins this tag: \`gem \"rpms-rpc\", github: \"lakeraven/rpms-rpc\", tag: \"$TAG\"\`."
+            if [ "$OPENAPI" != true ] || [ "$INVENTORY" != true ]; then
+              echo
+              echo "Not attached: this commit predates the task that builds each of these for a release, and a later commit's build would describe that commit's code, not this tag's."
+              [ "$OPENAPI" = true ] || echo "- the OpenAPI documents (\`rake openrpms:fetch\`, rpms-rpc#776)"
+              [ "$INVENTORY" = true ] || echo "- the RPC inventory (\`rake rpc:inventory_notes\` and its columns, rpms-rpc#833)"
+            fi
+          } > pkg/release/notes.md
+          mapfile -t assets < pkg/release/assets.txt
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file pkg/release/notes.md "${assets[@]}"
+      - name: Add the RPC inventory section to the notes
+        if: steps.can.outputs.inventory == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IRIS: ${{ steps.pair.outputs.iris }}
+          YDB: ${{ steps.pair.outputs.ydb }}
+        run: |
+          set -euo pipefail
+          bundle exec rake rpc:inventory_notes RELEASE="$TAG" IRIS="$IRIS" YDB="$YDB" \
+            CSV=pkg/rpc-inventory/rpc-inventory.csv NOTES=pkg/release/notes-with-inventory.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file pkg/release/notes-with-inventory.md
+      - name: Prove the release carries what it lists, byte for byte
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENAPI: ${{ steps.can.outputs.openapi }}
+          INVENTORY: ${{ steps.can.outputs.inventory }}
+          IRIS: ${{ steps.pair.outputs.iris }}
+          YDB: ${{ steps.pair.outputs.ydb }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/released
+          while read -r f; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$(basename "$f")" --dir tmp/released --clobber
+            cmp "$f" "tmp/released/$(basename "$f")"
+          done < pkg/release/assets.txt
+          body="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          if [ "$INVENTORY" = true ]; then
+            grep -qF "rake rpc:inventory IRIS=$IRIS YDB=$YDB" <<<"$body" \
+              || { echo "::error::$TAG's notes do not name rake rpc:inventory IRIS=$IRIS YDB=$YDB"; exit 1; }
+          fi
+          if [ "$OPENAPI" != true ] || [ "$INVENTORY" != true ]; then
+            grep -qF "Not attached:" <<<"$body" || { echo "::error::$TAG's notes do not say what it goes without"; exit 1; }
+          fi
+          echo "EXPLICIT SUCCESS: rpms-rpc release $TAG carries $(xargs -n1 basename < pkg/release/assets.txt | paste -sd, -) (OpenAPI: $OPENAPI, inventory: $INVENTORY)"

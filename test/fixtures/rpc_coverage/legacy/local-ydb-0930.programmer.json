@@ -1,0 +1,42 @@
+{
+  "backend": "local-ydb-0930",
+  "runs": [
+    {
+      "at": "2026-10-03T17:13:51Z",
+      "rpms_rpc": "0.3.1 @ 8d8fe94",
+      "host_label": "local-ydb-0930",
+      "persona": "programmer",
+      "context": "CIAV VUECENTRIC (sign-on)",
+      "cases": 56,
+      "tally": {
+        "ok": 43,
+        "broker-error": 11,
+        "raised-before-wire": 1,
+        "no-rpc": 1
+      },
+      "signons": 1
+    }
+  ],
+  "rpcs": {
+    "AMHG GET SUICIDE FORMS": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:13:51Z"
+    },
+    "AMHG GET TREATMENT PLANS": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:13:51Z"
+    },
+    "AMHG GET VISITS": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:13:51Z"
+    },
+    "BEHOCACV CWAD": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:13:51Z"
+    },
+    "BEHOCCD PHR": {
+      "outcome": "ok",
+      "last_at": "2026-10-03T17:13:51Z"
+    }
+  }
+}

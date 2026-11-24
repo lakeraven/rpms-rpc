@@ -3,18 +3,24 @@
 require_relative "live_helper"
 require "rpms_rpc/api/registration"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/server_clock"
 
 # The registration edits of openrpms#1055, filed inside AG's edit lock and
 # read back through FileMan: the address history (rpms-ux S-REG-21.1) and
 # race and ethnicity (S-REG-20.2 to 20.4). The cell phone (S-REG-21.5) is
 # read only: DDR FILER cannot file #2 .134 (its AXENR13 index needs DFN).
 class RegistrationEditsLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-REG-20.2", "S-REG-20.4", "S-REG-21.1", "S-REG-21.7"
   writes!
 
   Reg = RpmsRpc::Registration
   Ddr = RpmsRpc::DdrFileman
   ADDRESS_DFN = 990_009 # INDIA,QUINN, a synthetic seed patient
   RACE_DFN = 990_010    # JULIETT,SAM, a synthetic seed patient
+
+  # The server's today (ORWU DT): the day the gem stamps and judges by.
+  def server_today = @server_today ||= RpmsRpc::ServerClock.today
 
   def fileman(file, iens, fields)
     reply = Ddr.gets_entry(file: file, iens: iens, fields: fields, flags: "I")
@@ -26,7 +32,11 @@ class RegistrationEditsLiveTest < LiveSpec::Test
   def test_s_reg_21_1_a_changed_address_keeps_the_old_one_ended_on_the_date_moved
     old = fileman("2", "#{ADDRESS_DFN},", ".111;.114;.115;.131")
     before = Reg.address_history(ADDRESS_DFN)
-    moved = Date.today - 2
+    # Two days back, unless the patient moved to the current address since: a
+    # move may not predate it, and an earlier run on this container (another
+    # persona, the same day) leaves it at today.
+    moved_to = RpmsRpc::FilemanDateParser.parse_date(fileman("9000001", "#{ADDRESS_DFN},", "7911")["7911"].to_s)
+    moved = [ server_today - 2, moved_to ].compact.max
 
     result = Reg.change_address(ADDRESS_DFN, moved_on: moved, address_line1: "12 LIVE TEST RD", city: "ELSEWHERE")
 
@@ -36,7 +46,7 @@ class RegistrationEditsLiveTest < LiveSpec::Test
     assert_equal before.size + 1, history.size
     kept = history.first
     entry = fileman("9000001.83", "#{kept[:ien]},#{ADDRESS_DFN},", ".01;.02;.05;.06;.08;.12")
-    assert_equal({ ".01" => RpmsRpc::FilemanDateParser.to_fileman(Date.today), ".02" => old[".111"], ".05" => old[".114"],
+    assert_equal({ ".01" => RpmsRpc::FilemanDateParser.to_fileman(server_today), ".02" => old[".111"], ".05" => old[".114"],
                    ".06" => old[".115"], ".08" => old[".131"], ".12" => RpmsRpc::FilemanDateParser.to_fileman(moved) }, entry)
     assert_equal RpmsRpc::FilemanDateParser.to_fileman(moved), fileman("9000001", "#{ADDRESS_DFN},", "7911")["7911"]
 
@@ -52,7 +62,7 @@ class RegistrationEditsLiveTest < LiveSpec::Test
   def test_s_reg_21_7_a_date_moved_in_the_future_files_nothing
     before = fileman("2", "#{ADDRESS_DFN},", ".111")
 
-    assert_equal :invalid, Reg.change_address(ADDRESS_DFN, moved_on: Date.today + 1, address_line1: "99 NEVER RD")[:error]
+    assert_equal :invalid, Reg.change_address(ADDRESS_DFN, moved_on: server_today + 1, address_line1: "99 NEVER RD")[:error]
     assert_equal before, fileman("2", "#{ADDRESS_DFN},", ".111")
   end
 
@@ -84,6 +94,9 @@ class RegistrationEditsLiveTest < LiveSpec::Test
     read = Reg.race_ethnicity(RACE_DFN)
     assert_equal [ [ white[:ien], self_id[:ien] ] ], read[:races].map { |r| [ r[:ien], r[:method] ] }
     assert_equal "WHITE", read[:races].first[:name]
+    # Each row carries its code file's 3 HL7 VALUE, the CDC code (rpms-rpc#830).
+    assert_equal "2106-3", read[:races].first[:hl7_value]
+    assert_equal [ "2186-5" ], read[:ethnicities].map { |e| e[:hl7_value] }
   end
 
   def test_s_reg_20_4_declined_beside_another_race_files_nothing

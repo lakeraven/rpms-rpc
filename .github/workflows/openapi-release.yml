@@ -1,10 +1,12 @@
 name: OpenAPI release assets
 # Attaches the two OpenAPI documents (rpms-rpc#395) to the gem's GitHub release, so a consumer (rpms-ux
 # /rpc/ and /api/) fetches them by the gem's tag:
-#   rpc-surface.openapi.json   every RPC the pinned build registers   (rake openapi:surface)
+#   rpc-surface.openapi.json   every RPC the openrpms release registers (rake openapi:surface)
 #   client-api.openapi.json    the gem's public methods, as resources (rake openapi:api)
 # Each names the gem commit (x-rpms-gem) and the build tag (x-rpms-build); the fields are in docs/openapi.md.
 # Runs when a release is published; workflow_dispatch re-attaches them to an existing release.
+# The documents describe the latest published openrpms -ydb release (rake openrpms:fetch); reading it needs
+# OPENRPMS_READ_TOKEN while lakeraven/openrpms is private, as in openrpms-release.yml.
 on:
   release:
     types: [published]
@@ -32,6 +34,15 @@ jobs:
           # (ubuntu-latest has only the latest 4.0.x), while .ruby-version pins what rbenv installs.
           ruby-version: "4.0"
           bundler-cache: true
+      - name: Fetch the openrpms release the documents describe
+        env:
+          GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=No access to openrpms releases::OPENRPMS_READ_TOKEN is not set, so the RPC surface has no release to describe."
+            exit 1
+          fi
+          bundle exec rake openrpms:fetch
       - name: Generate and check both documents
         # Each task fails unless its document is valid OpenAPI 3.1 with every verb + path unique.
         run: |

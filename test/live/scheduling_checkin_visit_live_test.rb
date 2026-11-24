@@ -9,6 +9,7 @@ require "rpms_rpc/api/ddr_fileman"
 # CHECKIN^BSDX25 creates a V VISIT (#9000010) only when the clinic's
 # hospital-location companion (#9009017.2) has CREATE VISIT (.09) set (rpms-rpc#530).
 class SchedulingCheckinVisitLiveTest < LiveSpec::Test
+  runs_as :scheduler
   writes!
 
   PATIENT = 3

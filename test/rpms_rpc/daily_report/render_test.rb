@@ -21,7 +21,7 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
       suites: [
         { name: "rake test", runs: 100, passed: 100, failures: 0, errors: 0, skips: 0, skip_issues: [],
           wall_seconds: 12.3, first_failures: [] },
-        { name: "rake test:live (PROV123)", runs: 5, passed: 4, failures: 1, errors: 0, skips: 0,
+        { name: "rake test:live (provider)", runs: 5, passed: 4, failures: 1, errors: 0, skips: 0,
           skip_issues: [], wall_seconds: 45.0, first_failures: [ "LiveProbe#test_one" ] }
       ],
       coverage: { ran: false, headline: nil, reason: "rpms-diffs checkout missing" }
@@ -38,7 +38,7 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
     assert_match(/pinned.*bcer-9\.0-20261012-pinned-ydb/m, md)
     assert_match(/rpms-rpc commit.*abc123def456/, md)
     assert_match(/\| rake test \| 100 \| 100 \| 0 \| 0 \| 0 \| \| 12\.3s \|/, md)
-    assert_match(/\| rake test:live \(PROV123\) \| 5 \| 4 \| 1 \| 0 \| 0 \| \| 45\.0s \|/, md)
+    assert_match(/\| rake test:live \(provider\) \| 5 \| 4 \| 1 \| 0 \| 0 \| \| 45\.0s \|/, md)
     assert_match(/LiveProbe#test_one/, md)
     assert_match(/rpc:coverage did not run: rpms-diffs checkout missing/, md)
     refute_match(SECRET_PATTERN, md)
@@ -76,7 +76,7 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
 
     refute_match(/<script>/, md)
     md.lines.grep(/^\|/).each do |row|
-      assert_operator row.count("|"), :<=, 9, "unescaped pipe broke the table: #{row.inspect}"
+      assert_operator row.count("|"), :<=, 10, "unescaped pipe broke the table: #{row.inspect}"
     end
     refute_match(/^\| rake test \| live \|/, md)
     refute_match(/`tick/, md)

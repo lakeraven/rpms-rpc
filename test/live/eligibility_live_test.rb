@@ -18,6 +18,7 @@ require "rpms_rpc/api/eligibility"
 #
 # The demo patients are DFN 3, 990001 and 990027.
 class EligibilityLiveTest < LiveSpec::Test
+  runs_as :provider
   CONTEXT = "CIAV VUECENTRIC"
   DEMO_DFNS = %w[3 990001 990027].freeze
 
@@ -31,7 +32,7 @@ class EligibilityLiveTest < LiveSpec::Test
     end
     assert_equal codes.map { |r| r[:code] }.uniq.size, codes.size, "a code is listed twice"
     %w[V01 V02 V03 V04 V05].each { |c| assert_includes codes.map { |r| r[:code] }, c }
-    puts "\n#{persona}: #{codes.map { |r| "#{r[:code]} #{r[:label]}" }.join(' | ')}"
+    puts "\n#{role}: #{codes.map { |r| "#{r[:code]} #{r[:label]}" }.join(' | ')}"
   end
 
   def test_for_patient_resolves_the_servers_default_to_a_code
@@ -48,7 +49,7 @@ class EligibilityLiveTest < LiveSpec::Test
     assert(resolved.values.any? { |r| r[:code] },
            "no demo patient resolved to an eligibility code: the build needs one with beneficiary type 1 " \
            "(#9000001 field 1111) at an IHS site")
-    puts "\n#{persona}: #{resolved.map { |d, r| "#{d}=#{r[:code].inspect}" }.join(' ')}"
+    puts "\n#{role}: #{resolved.map { |d, r| "#{d}=#{r[:code].inspect}" }.join(' ')}"
   end
 
   def test_an_invalid_dfn_is_nil_eligibility

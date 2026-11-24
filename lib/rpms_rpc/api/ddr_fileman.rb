@@ -120,6 +120,31 @@ module RpmsRpc
       }.compact.transform_values(&:to_s)
     end
 
+    # Every entry of a file (or of a subfile, with iens: ",<parent>,"),
+    # internal values, packed: [{ ien:, pieces: [...] }, ...], in the order
+    # of +xref+ ("B", or "#" for IEN order), only those whose index value
+    # starts with +part+ when it is given. Reads page by page (LIST^DIC's
+    # MORE^ continuation) until the list ends. A read that cannot be had
+    # whole raises Client::RpcError: no reply, an error reply, or a reply
+    # with no data section. It never answers a partial list or [] for a
+    # failed read.
+    def list_all(file:, fields:, iens: nil, part: nil, xref: "B", page: 500)
+      entries = []
+      from = nil
+      loop do
+        listed = lister(file: file, iens: iens, fields: fields, flags: "IP", max: page, from: from, part: part, xref: xref)
+        raise Client::RpcError, "DDR LISTER gave no reply for ##{file}" if listed.nil?
+        raise Client::RpcError, "DDR LISTER could not list ##{file}" if listed[:error] || !listed[:data]
+
+        entries.concat(listed[:entries])
+        return entries unless listed[:more]
+        raise Client::RpcError, "DDR LISTER on ##{file} did not move past #{from.inspect}" if listed[:more][:value] == from
+
+        from = listed[:more][:value]
+      end
+    end
+    shape :list_all, resource: "files", verb: "GET", path: "/files/{file}/all"
+
     # -- DDR LOCK/UNLOCK NODE ------------------------------------------------
 
     # Incremental M LOCK on a global node ('L +node:timeout',
@@ -329,8 +354,9 @@ module RpmsRpc
     #
     # Returns { valid:, error: } or nil (no response). Any reply other than
     # "1"/"0" (e.g. an M error text) is valid: false with the text in :error.
-    # NB: the pinned bcer-9.0 #8994 entry points at KEYVAL^DDR3, a label that
-    # does not exist, so the live broker currently answers LABELMISSING.
+    # The #8994 entry names KEYVAL^DDR4 from bcer-9.0-20261012-e7923a4-ydb on
+    # (openrpms#720); the 0930 build named KEYVAL^DDR3, a label that does not
+    # exist.
     def validate_key(values:)
       reply = lines(call(:ddr_key_validator, key_validator_param(values: values)))
       return nil if reply.nil?
@@ -406,9 +432,9 @@ module RpmsRpc
     end
 
     # Normalize a broker reply to an array of lines, the split #lister
-    # uses. Public for the same reason as #parse_lister_reply. MockClient
-    # returns an Array (or a single-line String); a live broker returns a
-    # CR+LF-joined stream. nil/empty → nil (no response at all).
+    # uses. Public for the same reason as #parse_lister_reply. A broker
+    # client returns an Array of lines, or a CR+LF-joined String stream;
+    # both become lines. nil/empty → nil (no response at all).
     def lines(response)
       return nil if response.nil?
 

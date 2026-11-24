@@ -8,7 +8,7 @@ require "rpms_rpc/api/ddr_fileman"
 # BGOVIMM GET (GET^BGOVIMM -> GET^BGOVIMM5, FOIA GUI Objects BGOVIMM5.m:206-275),
 # the read VueCentric's immunization component uses; Immunization.find filters
 # that read on the V IMMUNIZATION IEN. Both are in CIAV VUECENTRIC, the option
-# sign-on binds, for PROV123 and the programmer alike.
+# sign-on binds, for the provider and the operator alike.
 #
 # The spec asserts that the call answers for each demo patient, then checks
 # one row against the V IMMUNIZATION entry it came from (file 9000010.11, read
@@ -16,6 +16,7 @@ require "rpms_rpc/api/ddr_fileman"
 # the gem's contract, so the spec finds one with DDR LISTER rather than naming
 # a DFN. The spec reads only; it files nothing.
 class ImmunizationLiveTest < LiveSpec::Test
+  runs_as :provider
   DEMO_DFNS = %w[3 990001 990027].freeze
 
   # The keys the removed BIPC read returned. A host builds its model from
@@ -48,7 +49,7 @@ class ImmunizationLiveTest < LiveSpec::Test
     event = blank_to_nil(fields.dig("1201", :internal))
     assert_equal event && RpmsRpc::FilemanDateParser.parse_datetime_or_date(event), row[:occurrence_datetime],
                  "event date disagrees with field 1201"
-    puts "\n#{persona}: DFN #{dfn} V IMMUNIZATION #{v_imm_ien} -> #{row.slice(:vaccine_display, :occurrence_datetime, :performer_name).inspect}"
+    puts "\n#{role}: DFN #{dfn} V IMMUNIZATION #{v_imm_ien} -> #{row.slice(:vaccine_display, :occurrence_datetime, :performer_name).inspect}"
   end
 
   def test_find_returns_the_row_for_patient_returns

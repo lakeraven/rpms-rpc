@@ -141,8 +141,8 @@ class ClinicalDataApiTest < Minitest::Test
 
   # "No medications" comes back as the sentinel row "^No medications found."
   # (LIST^ORQQPS: ORQQPS.m:53): no id, so it is dropped, not surfaced as a
-  # phantom medication. No demo patient on the build has a medication, so no
-  # capture holds a medication row.
+  # phantom medication. Patient 4 has no medication on any demo build; the
+  # seed patient's medication rows are in medication-detail.yml (#837).
   def test_medication_for_patient_drops_no_medications_sentinel_row
     client = replay("ORQQPS LIST" => [ capture("medications_none") ])
 
@@ -150,24 +150,33 @@ class ClinicalDataApiTest < Minitest::Test
     assert_equal [ { rpc: "ORQQPS LIST", params: [ "4", "", "" ] } ], client.calls
   end
 
-  # Medication.find sends DETAIL(ORY,ORPT,ORMED)^ORQQPS the patient and the
-  # medication id (rpms-rpc#678; the id alone died in M on ORMED). The replies
-  # are the build's to the frame the gem sent (medication-detail.yml): no demo
-  # patient has a medication, so both answer the routine's own "not found" text.
-  def test_medication_find_sends_the_patient_and_the_outpatient_id
-    client = replay(CapturedReplies.flow_script("medication-detail", "find_outpatient"))
+  # Medication.find lists the patient's medications (ORQQPS LIST from FileMan
+  # date 1, the whole history), then sends DETAIL(ORY,ORPT,ORMED)^ORQQPS the
+  # patient and the id (rpms-rpc#678; the id alone died in M on ORMED). The
+  # replies are the build's to the frames the gem sent (medication-detail.yml):
+  # the demo build seeds USER,TEST (DFN 2) prescription 1R;O.
+  def test_medication_find_lists_then_sends_the_patient_and_its_own_id
+    client = replay(CapturedReplies.flow_script("medication-detail", "find_own"))
 
-    assert_equal "No detailed information found.", RpmsRpc::Medication.find(4, "1R;O").strip
-    assert_equal [ { rpc: "ORQQPS DETAIL", params: [ "4", "1R;O" ] } ], client.calls
-    assert_equal CapturedReplies.flow_calls("medication-detail", "find_outpatient"),
+    text = RpmsRpc::Medication.find(2, "1R;O")
+    assert_equal "ASPIRIN", text.lines.first.strip
+    assert_includes text, "Status: ACTIVE"
+    assert_equal [ { rpc: "ORQQPS LIST", params: [ "2", "1", "" ] }, { rpc: "ORQQPS DETAIL", params: [ "2", "1R;O" ] } ],
+                 client.calls
+    assert_equal CapturedReplies.flow_calls("medication-detail", "find_own"),
                  client.calls.map { |c| [ c[:rpc], c[:params] ] }
   end
 
-  def test_medication_find_sends_the_patient_and_the_inpatient_id
-    client = replay(CapturedReplies.flow_script("medication-detail", "find_inpatient"))
+  # DETAIL reads a prescription by its id alone, so DETAIL for DFN 4 and DFN
+  # 2's 1R;O answered DFN 2's prescription (rpms-rpc#837). find sends no
+  # DETAIL for an id the patient's own list does not give, and answers nil.
+  def test_medication_find_sends_no_detail_for_an_id_not_on_the_patients_list
+    %w[find_another_patients find_inpatient_not_listed].zip([ [ 4, "1R;O" ], [ "2", "1U;I" ] ]).each do |flow, (dfn, id)|
+      client = replay(CapturedReplies.flow_script("medication-detail", flow))
 
-    assert_equal "No detailed information found.", RpmsRpc::Medication.find("4", "1U;I").strip
-    assert_equal [ { rpc: "ORQQPS DETAIL", params: [ "4", "1U;I" ] } ], client.calls
+      assert_nil RpmsRpc::Medication.find(dfn, id), "find(#{dfn.inspect}, #{id.inspect})"
+      assert_equal [ { rpc: "ORQQPS LIST", params: [ dfn.to_s, "1", "" ] } ], client.calls
+    end
   end
 
   def test_medication_find_sends_nothing_without_a_patient_and_a_list_id
@@ -200,5 +209,22 @@ class ClinicalDataApiTest < Minitest::Test
     error = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Encounter.for_patient("1") }
     assert_equal "ORWPT APPTLST could not read appointments for patient 1: Error encountered", error.message
     assert_equal [ { rpc: "ORWPT APPTLST", params: [ "1" ] } ], client.calls
+  end
+
+  # APPTTIME is the appointment's FileMan date and time (APPTLST^ORWPT:
+  # ORWPT.m:151-162). The capture is DFN 3, booked on DEMO IHS CLINIC at 13:15
+  # (test/fixtures/captured_replies/orwpt-apptlst.yml); read as a date, the
+  # 13:15 was lost (rpms-rpc#221).
+  def test_encounter_for_patient_keeps_the_appointment_time
+    flow = CapturedReplies.flow("orwpt-apptlst", "for_patient_booked")
+    client = replay("ORWPT APPTLST" => flow.map { |c| c.fetch("raw_return").b })
+    booked_on = flow.first.fetch("raw_return")[/\d{7}/]
+
+    rows = RpmsRpc::Encounter.for_patient("3")
+
+    assert_equal [ { rpc: "ORWPT APPTLST", params: [ "3" ] } ], client.calls
+    day = RpmsRpc::FilemanDateParser.parse_date(booked_on)
+    assert_equal [ { datetime: Time.new(day.year, day.month, day.day, 13, 15), location_ien: 3,
+                     location: "DEMO IHS CLINIC", status: nil } ], rows
   end
 end

@@ -25,7 +25,7 @@
 # unlock, and sign when the read-back is evidence and
 # RPMS_ESIG was supplied. It is refused before the socket unless the broker
 # host resolves to loopback, CONTAINER is unset, the access code is a
-# synthetic persona, ONLY is blank (the TIU flow is captured together), and
+# test role's account, ONLY is blank (the TIU flow is captured together), and
 # RPMS_ESIG is unset or 6-20 characters with no leading or trailing
 # whitespace (field 20.4 stores the exact code). A write run dials the
 # resolved loopback address, not the host name. The signature code is read
@@ -42,10 +42,11 @@ $LOAD_PATH.unshift(lib)
 require "rpms_rpc/version"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/wire_capture"
+require "rpms_rpc/test_roles"
 
 host = ENV.fetch("BROKER_HOST", "127.0.0.1")
 port = ENV.fetch("BROKER_PORT", "9100").to_i
-acc = ENV.fetch("RPMS_ACCESS", "SYS123")
+acc = ENV.fetch("RPMS_ACCESS", RpmsRpc::TestRoles.fetch(:operator).access)
 ver = ENV.fetch("RPMS_VERIFY", "RPMS.000")
 writes = ENV["WRITES"] == "1"
 # Judged before the socket. A blank ONLY is unset; a write run captures the TIU flow as one unit.

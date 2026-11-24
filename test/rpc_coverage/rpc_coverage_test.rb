@@ -131,12 +131,12 @@ class RpcCoverageTest < Minitest::Test
     assert_equal [ "exclusion \"A ONE\" (no_context) answered live: the exclusion is stale, remove it" ], problems
   end
 
-  # --- exclusions generated from the pinned build's reach classes (#278, #394, #406) ----------
+  # --- exclusions computed from a release's reach classes (#278, #394, #406, #724) ------------
 
   P = PinnedRpcsTestHelper
 
-  # A build's rpcs.json of real pinned records, one per reach class openrpms publishes. The pinned
-  # build has no RPC in the inactive class, so that one is a real record with its class changed.
+  # A build's rpcs.json of real records (the committed fixture), one per reach class openrpms publishes.
+  # The fixture has no RPC in the inactive class, so that one is a real record with its class changed.
   def surface(records)
     dir = P.write_inventory(@dir, P::TAG, records)
     RpmsRpc::Conformance::BuildSurface.load(dir, P::TAG)
@@ -175,16 +175,19 @@ class RpcCoverageTest < Minitest::Test
     assert_equal [ "NOT REGISTERED" ], result.not_in_registry
   end
 
-  def test_generated_exclusions_round_trip_and_cite_their_source
-    reg = registry("A ONE", "SD W/L PRIORITY(#409.3)", "A: B")
-    excl = { "SD W/L PRIORITY(#409.3)" => "no_context", "A ONE" => "no_routine_on_image", "A: B" => "gui_plumbing" }
-    text = RpcCoverage.exclusions_yaml(excl, source: [ "reach: some/rpc_reach.txt", "sha256: abc" ])
-    path = write("exclusions.yml", text)
-    assert_equal excl, RpcCoverage.load_exclusions(path)
-    assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(path), reg)
-    assert_includes text, "# reach: some/rpc_reach.txt\n# sha256: abc\n"
-    assert_includes text, "#   context_out_of_order"
-    assert_equal %w[A\ ONE A:\ B SD\ W/L\ PRIORITY(#409.3)], RpcCoverage.load_exclusions(path).keys, "sorted by name"
+  def test_exclusions_for_adds_the_computed_reasons_to_the_reviewed_ones
+    s = surface([ P.record_of_class("no-context"), P.record("ORWPT SELECT") ])
+    reg = RpcCoverage.load_registry(File.join(@dir, P::TAG, "#{P::TAG}-rpcs.json"))
+    no_context = P.record_of_class("no-context")["name"]
+    result = RpcCoverage.exclusions_for({ "ORWPT SELECT" => "gui_plumbing" }, s, reg)
+    assert_equal({ no_context => "no_context", "ORWPT SELECT" => "gui_plumbing" }, result.exclusions)
+  end
+
+  def test_the_committed_file_holds_reviewed_reasons_only
+    assert_empty RpcCoverage.reviewed_problems({ "A ONE" => "gui_plumbing", "A TWO" => "write_needs_fixture" })
+    problems = RpcCoverage.reviewed_problems({ "A THREE" => "no_context" })
+    assert_match(/"A THREE" has reason "no_context": exclusions.yml holds only reviewed reasons/, problems.join)
+    assert_equal %w[gui_plumbing write_needs_fixture], RpcCoverage::REVIEWED_REASONS
   end
 
   def test_registry_with_duplicates_or_over_long_names_fails
@@ -234,9 +237,9 @@ class RpcCoverageTest < Minitest::Test
     assert_equal 2, ev["runs"].size
   end
 
-  # The registry rpc:coverage reads is the pinned build's own rpcs.json (#222, #406); its tag is the
+  # The registry rpc:coverage reads is a release's own rpcs.json (#222, #406); its tag is the
   # document's.
-  def test_load_registry_reads_the_pinned_rpcs_json
+  def test_load_registry_reads_a_release_rpcs_json
     reg = RpcCoverage.load_registry(P::PATH)
     assert_equal P::TAG, reg.tag
     assert_equal P.pinned_doc["rpcs"].map { |r| r["name"] }, reg.names
@@ -260,47 +263,32 @@ class RpcCoverageTest < Minitest::Test
     write("repo/lib/rpms_rpc/mappings/a.rb", %(DataMapper.define(:a) do |m|\n  m.rpc "A ONE"\nend\n))
     write("repo/lib/rpms_rpc/api/x.rb", %(OTHER = "NOT AN RPC"\nraise Error, "RPC FAILED HERE"\n))
     write("repo/lib/rpms_rpc/cia_client.rb", %(pk("RPC"), pk("CIANBRPC AUTH")\nSIGNON = "CIANB MAIN MENU"\n))
-    write("repo/lib/rpms_rpc/mock_client.rb", %(call_rpc("MOCK ONLY")\n))
+    write("repo/lib/rpms_rpc/api/y.rb", %(client.call_rpc("API SENDS")\n))
     names = RpcCoverage.declared_names(root).keys.sort
-    assert_equal [ "A ONE", "CIANBRPC AUTH" ], names
+    assert_equal [ "A ONE", "API SENDS", "CIANBRPC AUTH" ], names
+  end
+
+  # The committed exclusions are reviewed decisions only (#724): the reach-derived ones are computed
+  # per release, so none of them is written down to go stale.
+  def test_the_committed_exclusions_are_reviewed_decisions_only
+    root = File.expand_path("../..", __dir__)
+    reviewed = RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml"))
+    assert_empty RpcCoverage.reviewed_problems(reviewed)
   end
 
   # Live evidence is not in this repo (it lives in rpms-diffs), so it is checked when rpc:coverage
-  # reads it, not here.
-  def test_the_pinned_registry_and_config_in_this_repo_pass_their_own_gates
+  # reads it, not here. On the release under test, the registry and every exclusion (reviewed and
+  # computed) pass their own gates.
+  def test_the_release_under_test_and_its_exclusions_pass_their_own_gates
+    inv = ReleaseUnderTest.inventory(self)
     root = File.expand_path("../..", __dir__)
-    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
-    reg = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
+    reg = RpcCoverage.load_registry(inv.rpcs_json)
     assert_empty RpcCoverage.registry_problems(reg)
-    assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml")), reg)
-  end
-
-  # #278, #394, #406: every RPC the pinned release's rpcs.json says no client can call is excluded
-  # with a reason, the file cites the pinned document it came from, and regenerating it from that
-  # document changes nothing (the committed file is what `rake rpc:exclusions` writes, not a local atlas).
-  def test_the_committed_exclusions_are_generated_from_the_pinned_rpcs_json
-    root = File.expand_path("../..", __dir__)
-    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
-    tag = cfg.fetch("release")
-    path = File.join(root, "data/rpc_coverage/exclusions.yml")
-    text = File.read(path)
-    excl = RpcCoverage.load_exclusions(path)
-    refute_empty excl
-
-    rpcs_file = "#{tag}-rpcs.json"
-    lock = YAML.safe_load_file(File.join(root, "data/fingerprints/rpms-ops.lock.yml"))
-    assert_includes text, "# rpcs: data/inventories/#{tag}/#{rpcs_file}\n"
-    assert_includes text, "# rpcs sha256: #{lock.dig('releases', tag, 'assets', rpcs_file)} "
-    assert_match(/^# registry: #{Regexp.escape(tag)} \(\d+ names\)$/, text)
-    assert_match(/^# regenerate: bundle exec rake rpc:exclusions$/, text)
-    refute_match(/atlas/i, text)
-    counts = text.scan(/^# count (\w+): (\d+)$/).to_h { |r, n| [ r, n.to_i ] }
-    assert_equal excl.values.tally, counts, "the header counts match the entries"
-
-    surface = RpmsRpc::Conformance::BuildSurface.load(File.join(root, "data/inventories", tag), tag)
-    registry = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
-    regenerated = RpcCoverage.regenerate_exclusions(excl, RpcCoverage.unreachable_from_surface(surface), registry)
-    assert_equal excl, regenerated.exclusions, "exclusions.yml is stale against the pinned rpcs.json: run rake rpc:exclusions"
-    assert_empty regenerated.not_in_registry
+    reviewed = RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml"))
+    result = RpcCoverage.exclusions_for(reviewed, inv.surface, reg)
+    assert_empty RpcCoverage.exclusion_problems(result.exclusions, reg)
+    assert_empty result.not_in_registry
+    assert_equal inv.surface.uncallable.size, (result.exclusions.keys - reviewed.keys).size,
+                 "every RPC the release's reach classes call uncallable is excluded"
   end
 end

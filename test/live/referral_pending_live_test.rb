@@ -20,6 +20,7 @@ require "rpms_rpc/api/ddr_fileman"
 # date in a window no other spec files in (2001 and 2002), and a rerun files
 # only the ones not already on file, so the answer for the window is known.
 class ReferralPendingLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   REFERRAL_FILE = "90001"
@@ -61,7 +62,7 @@ class ReferralPendingLiveTest < LiveSpec::Test
       assert_equal STATUS_NAMES.fetch(fixture[:status]), row[:status], "referral #{iens[i]}: status"
     end
     assert_equal 2, rows.map { |r| r[:patient_dfn] }.uniq.size, "two patients hold the pending referrals"
-    puts "\n#{persona}: Referral.pending(#{WINDOW}) answered #{rows.size} of #{FIXTURES.size} fixture referrals: " \
+    puts "\n#{role}: Referral.pending(#{WINDOW}) answered #{rows.size} of #{FIXTURES.size} fixture referrals: " \
          "#{rows.map { |r| "#{r[:ien]} #{r[:patient_dfn]} #{r[:status]}" }.join(', ')}"
   end
 
@@ -73,7 +74,7 @@ class ReferralPendingLiveTest < LiveSpec::Test
 
     assert_equal PAGED_COUNT, rows.size, "pending should read all #{PAGED_COUNT} referrals, not the first page"
     assert_equal iens.sort, rows.map { |r| r[:ien] }.sort, "each referral once, and only the fixtures"
-    puts "\n#{persona}: Referral.pending(#{PAGED_DATES.first}..#{PAGED_DATES.last}) answered #{rows.size} referrals"
+    puts "\n#{role}: Referral.pending(#{PAGED_DATES.first}..#{PAGED_DATES.last}) answered #{rows.size} referrals"
   end
 
   # A page is resumed from the last date it reached, so more than 100 on one

@@ -11,13 +11,16 @@ require "rpms_rpc/fileman_date_parser"
 # on RPMS; stock ORQQPL stays read-only in the gem (rpms-rpc#527). Both RPCs
 # are in CIAV VUECENTRIC, the option CIA sign-on binds.
 #
-# The spec adds a problem, edits it, refuses an edit and a delete named with
-# another patient, then deletes it, and reads the PROBLEM (#9000011) entry back
-# with DDR after each step: what was filed, by whom, and what the delete
-# recorded.
+# The spec adds a problem, edits it, re-letters its status with the .12
+# internal letter and refuses a status BGOPROB does not know (#923), keeps
+# the status on file through an edit that names none (#925), refuses
+# an edit and a delete named with another patient, then deletes it, and reads
+# the PROBLEM (#9000011) entry back with DDR after each step: what was filed,
+# by whom, and what the delete recorded.
 #
 # WRITES against a disposable local container only.
 class ProblemWriteLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   DFN = 990_055 # a synthetic seed patient; unused by other live specs
@@ -32,7 +35,7 @@ class ProblemWriteLiveTest < LiveSpec::Test
     duz = client.duz.to_s
     location = problem_location!
     stamp = Time.now.utc.strftime("%H%M%S")
-    narrative = "SYNTH LIVE PROBLEM #{persona} #{stamp}"
+    narrative = "SYNTH LIVE PROBLEM #{role} #{stamp}"
     problem = { icd_code: ICD, description: narrative, location_ien: location, status: "Chronic", onset_date: "11/01/2026" }
 
     added = RpmsRpc::Problem.add(DFN, problem)
@@ -55,9 +58,32 @@ class ProblemWriteLiveTest < LiveSpec::Test
     assert_equal "*#{edited_text}", row.dig(".05", :external).split("|").first, "the edit did not file the new narrative"
     assert_equal DFN.to_s, row.dig(".02", :internal), "an edit must not move the problem"
 
+    # The internal letter a caller reads back from .12 is mapped to the name
+    # PROB^BGOPROB3 matches; sent as "A" it files as E (#923). From I, only
+    # the mapping yields A.
+    relettered = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "A", description: edited_text))
+    assert_equal({ success: true, ien: ien, raw: ien.to_s }, relettered)
+    assert_equal "A", entry(ien).dig(".12", :internal), "status \"A\" must file as A (Chronic), not as the build's EPISODIC fallback (#923)"
+
+    # PROB^BGOPROB3 files .12 on every SET, an edit included, from piece 8
+    # or else the concept's default or EPISODIC; so an edit that does not
+    # name a status sends the one on file, and a chronic problem stays
+    # chronic (#925).
+    kept_text = "SYNTH LIVE PROBLEM KEPT #{stamp}"
+    kept = RpmsRpc::Problem.update(DFN, ien, problem.except(:status).merge(description: kept_text))
+    assert_equal({ success: true, ien: ien, raw: ien.to_s }, kept)
+    row = entry(ien)
+    assert_equal "A", row.dig(".12", :internal), "an edit that names no status must keep Chronic (A), not re-file the build's default (#925)"
+    assert_equal "*#{kept_text}", row.dig(".05", :external).split("|").first, "the narrative-only edit did not file the narrative"
+
+    guessed = RpmsRpc::Problem.update(DFN, ien, problem.merge(status: "ACTIVE-ISH", description: edited_text))
+    refute guessed[:success], "a status BGOPROB does not know must be refused, got #{guessed.inspect}"
+    assert_includes guessed[:error].to_s, "ACTIVE-ISH", "the refusal names the status"
+    assert_equal "A", entry(ien).dig(".12", :internal), "a refused status reached BGOPROB SET: PROBLEM #{ien} .12 changed"
+
     assert_equal :wrong_patient, RpmsRpc::Problem.update(OTHER_DFN, ien, problem)[:error]
     assert_equal :wrong_patient, RpmsRpc::Problem.delete(OTHER_DFN, ien, reason: "Entered in error")[:error]
-    assert_equal "I", entry(ien).dig(".12", :internal), "a refused edit or delete changed PROBLEM #{ien}"
+    assert_equal "A", entry(ien).dig(".12", :internal), "a refused edit or delete changed PROBLEM #{ien}"
 
     before = server_now
     deleted = RpmsRpc::Problem.delete(DFN, ien, reason: "Entered in error")
@@ -70,7 +96,7 @@ class ProblemWriteLiveTest < LiveSpec::Test
     assert_equal "Entered in error", row.dig("2.03", :internal), "2.03 is not the reason sent"
 
     assert_equal :not_found, RpmsRpc::Problem.delete(DFN, 999_999_999, reason: "Entered in error")[:error]
-    puts "\n#{persona}: PROBLEM #{ien} on DFN #{DFN} added, edited and deleted through BGOPROB SET / DEL"
+    puts "\n#{role}: PROBLEM #{ien} on DFN #{DFN} added, edited and deleted through BGOPROB SET / DEL"
   end
 
   private

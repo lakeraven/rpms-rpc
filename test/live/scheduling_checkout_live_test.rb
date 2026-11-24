@@ -11,6 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 # S-SCH-07.1, 07.2, 07.3, 07.6). The appointment is booked on a weekday in the
 # past, so every time sent is behind the server's clock whatever its zone.
 class SchedulingCheckoutLiveTest < LiveSpec::Test
+  runs_as :scheduler
   writes!
 
   PATIENT = 3
@@ -66,7 +67,9 @@ class SchedulingCheckoutLiveTest < LiveSpec::Test
 
   private
 
-  def fm(time) = RpmsRpc::FilemanDateParser.to_fileman(time).sub(/0+\z/, "").chomp(".")
+  def fm(time) = trim_fm(RpmsRpc::FilemanDateParser.to_fileman(time))
+
+  def trim_fm(value) = value.include?(".") ? value.sub(/0+\z/, "").chomp(".") : value
 
   def duz = client.duz.to_s
 
@@ -77,6 +80,8 @@ class SchedulingCheckoutLiveTest < LiveSpec::Test
 
   # [check-in time, check-in user, check-out time, check-out user] of the
   # patient's appointment at start on the clinic, as FileMan holds them.
+  # Only the two times (309, 303) lose FileMan's trailing zeros; the users
+  # (302, 304) are NEW PERSON pointers, so DUZ 200 stays "200" (#799).
   def on_clinic(start)
     listed = client.with_context(RpmsRpc::SchedulingSetup::CONTEXT) do
       RpmsRpc::DdrFileman.lister(file: "44.003", iens: ",#{fm(start)},#{clinic[:location_ien]},", fields: FIELDS, flags: "IP", max: "50")
@@ -84,7 +89,8 @@ class SchedulingCheckoutLiveTest < LiveSpec::Test
     flunk "DDR LISTER on #44.003 gave no reply" if listed.nil?
     flunk "DDR LISTER on #44.003 refused: #{listed.inspect}" if listed[:error]
     row = listed[:entries].find { |e| e[:pieces][0] == PATIENT.to_s } || flunk("DFN #{PATIENT} is not on #{CLINIC_NAME} at #{start}")
-    row[:pieces][1, 4].map { |v| v.to_s.sub(/0+\z/, "").chomp(".") }
+    checkin, checkin_user, checkout, checkout_user = row[:pieces][1, 4].map(&:to_s)
+    [ trim_fm(checkin), checkin_user, trim_fm(checkout), checkout_user ]
   end
 
   def clinic

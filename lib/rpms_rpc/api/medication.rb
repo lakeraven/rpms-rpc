@@ -58,6 +58,35 @@ module RpmsRpc
     end
     shape :active_for_patient, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/active"
 
+    # The patient's medication profile over the last +days+ (default 365),
+    # as VueCentric's medication component lists it, with the IHS fields
+    # ORWPS ACTIVE does not carry. Underlying RPC: BEHORXFN GETRXS
+    # (GETRXS^BEHORXFN): OCL^PSOORRL from today minus DAYS, one "~" header
+    # per medication, then its instruction lines and "t" comment lines.
+    #
+    #   profile(dfn, days: 365)
+    #   => [{ order_id:, type:, name:, status:, stop_date:, order_ien:, last_filled:, days_supply:,
+    #         quantity:, refills_remaining:, start_date:, prescription_number:, ndc:, rxnorm:,
+    #         indication:, instructions: [], comments: [] }, ...]
+    #
+    # The header is "~"TYPE (OP, UD, IV or NV) ^ the twelve OCL pieces ^
+    # CHRONIC ^ START ^ RX # ^ PROVIDER ^ REASON ^ DEA ^ LOCATION ^
+    # INDICATION ^ DAW ^ NON-VA ^ NDC ^ RXNORM ^ ... (BEHORXFN GETRXS,
+    # ADDOUT). Status is OCL piece 9 as sent (a held order reads
+    # "ACTIVE/SEE DETAILS"), stop_date piece 4 except for a non-VA row.
+    # Instructions and comments are grouped as for {active_for_patient}.
+    def profile(dfn, days: 365)
+      return [] unless dfn.to_s.match?(/\A[1-9]\d*\z/) && days.to_s.match?(/\A[1-9]\d*\z/)
+
+      lines = DataMapper.medication_profile.lines!(dfn.to_s, days.to_s)
+      raise Client::RpcError, "BEHORXFN GETRXS answered #{lines.first.inspect} before any medication" if lines.first && !lines.first.start_with?("~")
+
+      parse_active(lines.join("\n")).zip(lines.select { |line| line.start_with?("~") }).map do |row, header|
+        row.merge(profile_fields(header.delete_prefix("~").split("^", -1)))
+      end
+    end
+    shape :profile, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/profile"
+
     # A medication's id as ORQQPS LIST gives it, piece 1 of a row: the
     # order or prescription number, a kind letter, ";", and O (outpatient)
     # or I (inpatient). PSOORRL writes "<IFN>R;O", "<IFN>P;O" and
@@ -65,16 +94,31 @@ module RpmsRpc
     # inpatient pharmacy (PSOORRL.m:53).
     MEDICATION_ID = /\A\d+[A-Z]*;[A-Z]\z/
 
-    # Detail text for one medication on a patient's list. Underlying RPC:
-    # ORQQPS DETAIL. Formals: DETAIL(ORY,ORPT,ORMED) (ORQQPS.m:56): the
-    # patient, then the medication's id from ORQQPS LIST (see
-    # {MEDICATION_ID}); both go over the wire. A frame with the id alone
-    # left ORMED undefined and the call died in M (#678). A medication the
-    # patient does not have answers "No detailed information found."
-    # (ORQQPS.m:63), returned as the text it is. nil, with nothing sent,
-    # for a DFN that is not a positive integer or a medication id not of that shape.
+    # The start date find lists a patient's medications from: FileMan date 1,
+    # before any record, so the list is the patient's whole history.
+    HISTORY_START = "1"
+
+    # Detail text for one medication on a patient's list. Underlying RPCs:
+    # ORQQPS LIST, then ORQQPS DETAIL. Formals: DETAIL(ORY,ORPT,ORMED)
+    # (ORQQPS.m:56): the patient, then the medication's id from ORQQPS LIST
+    # (see {MEDICATION_ID}); both go over the wire. A frame with the id alone
+    # left ORMED undefined and the call died in M (#678).
+    #
+    # DETAIL does not check that the id is the patient's: OEL^PSOORRL reads
+    # ^PSRX(IFN) by the id alone (PSOORRL.m:52-58), so DETAIL for one patient
+    # and another patient's prescription answers that prescription (seen live
+    # on bcer-9.0-20261119-f67498c-ydb, rpms-rpc#837). So find first lists the
+    # patient's medications over their whole history (ORQQPS LIST from
+    # FileMan date 1: OCL^PSOORRL starts 120 days back, and inpatient today,
+    # only when the start is empty) and sends DETAIL only for an id on that
+    # list. nil for an id the patient's list does not give, with only the list
+    # sent; nil, with nothing sent, for a DFN that is not a positive integer
+    # or a medication id not of that shape. An id on the list whose detail the
+    # build cannot find answers DETAIL's "No detailed information found."
+    # (ORQQPS.m:63), returned as the text it is.
     def find(dfn, medication_id)
       return nil unless dfn.to_s.match?(/\A[1-9]\d*\z/) && medication_id.to_s.match?(MEDICATION_ID)
+      return nil unless DataMapper.medication_list.fetch_many(dfn.to_s, HISTORY_START, "").any? { |row| row[:id] == medication_id.to_s }
 
       DataMapper.medication_detail.fetch_text(dfn.to_s, medication_id.to_s)
     end
@@ -127,6 +171,13 @@ module RpmsRpc
       return nil if type == "NV"
 
       FilemanDateParser.parse_date(piece)
+    end
+
+    def profile_fields(pieces)
+      value = ->(i) { pieces[i].to_s.strip.empty? ? nil : pieces[i].strip }
+      { order_ien: value[8]&.to_i, refills_remaining: value[5], last_filled: FilemanDateParser.parse_date(pieces[10].to_s),
+        days_supply: value[11], quantity: value[12], start_date: FilemanDateParser.parse_date(pieces[14].to_s),
+        prescription_number: value[15], indication: value[20], ndc: value[23], rxnorm: value[24] }
     end
 
     def finish_active(row)

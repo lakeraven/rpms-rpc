@@ -7,10 +7,30 @@ module RpmsRpc
   # Symbolic API for visit health-factor entry — IHS-specific structured
   # observations (tobacco use, food security, social risk, etc.) with an
   # optional severity level.
-  # Underlying RPC: BGOVHF SET (SET^BGOVHF — BGOVHF.m:45).
+  # Underlying RPCs: BGOVHF GET (GET^BGOVHF — BGOVHF.m:8), BGOVHF SET
+  # (SET^BGOVHF — BGOVHF.m:45).
   module HealthFactor
     extend self
     extend Shape::Declarable
+
+    # The health factors recorded for a patient, as VueCentric's Health
+    # Factors component lists them: BGOVHF GET (GET^BGOVHF), grouped by
+    # factor, newest visit first.
+    #
+    #   for_patient(dfn, learn_only: false)
+    #     => [{ category:, factor:, visit_date:, severity:, quantity:,
+    #           visit_ien:, ien:, factor_ien:, comment:, visit_locked:,
+    #           event_date:, start_date:, end_date: }, ...]
+    #
+    # ien is the V HEALTH FACTORS (#9000010.23) IEN; the dates are Dates.
+    # learn_only: true keeps the learning-readiness factors only
+    # ($$ISLEARN^BGOVHF). A -n^text reply raises Client::RpcError.
+    def for_patient(dfn, learn_only: false)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.patient_health_factors.fetch_many!("#{dfn}^#{learn_only ? 1 : ''}^")
+    end
+    shape :for_patient, resource: "health-factors", verb: "GET", path: "/patients/{dfn}/health-factors"
 
     # Add a health factor to an open visit.
     #

@@ -12,6 +12,7 @@ require "rpms_rpc/fileman_date_parser"
 # (GMRAGUI1.m UPDATE), not on #120.8. It WRITES against a disposable local
 # container only.
 class AllergyWriteLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   # Isolated synthetic patient (not DFN 8 wire-capture input, not ADD_DFN).
@@ -54,7 +55,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
 
     assert_filed_adverse_severity!(ADD_DFN, row[:ien], SEVERITY_CODE)
 
-    puts "\n#{persona}: allergy #{row[:ien]} (#{agent[:name]}) on DFN #{ADD_DFN} reads back through LIST and #120.8"
+    puts "\n#{role}: allergy #{row[:ien]} (#{agent[:name]}) on DFN #{ADD_DFN} reads back through LIST and #120.8"
   end
 
   def test_no_known_allergies_marks_an_unassessed_patient_nka
@@ -85,7 +86,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
     rerun = RpmsRpc::Allergy.no_known_allergies(NKA_DFN)
     assert rerun[:success], "already-NKA should stay success (GMRAGUI1 NKA^): #{rerun.inspect}"
 
-    puts "\n#{persona}: DFN #{NKA_DFN} reads assessed NKA after no_known_allergies"
+    puts "\n#{role}: DFN #{NKA_DFN} reads assessed NKA after no_known_allergies"
   end
 
   private

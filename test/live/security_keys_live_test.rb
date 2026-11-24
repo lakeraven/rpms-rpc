@@ -14,9 +14,10 @@ require "rpms_rpc/api/authentication"
 # is the build's seed, not the gem's contract. Each persona's answers are
 # printed so a run shows them.
 #
-# ORWU HASKEY is in CIAV VUECENTRIC, the option sign-on binds, for PROV123 and
-# for the programmer alike. The spec reads only; it files nothing.
+# ORWU HASKEY is in CIAV VUECENTRIC, the option sign-on binds, for every role
+# alike. The spec reads only; it files nothing.
 class SecurityKeysLiveTest < LiveSpec::Test
+  runs_as :provider, :nurse, :medical_assistant, :front_desk_clerk, :registration_supervisor, :scheduler, :operator
   KEYS = %i[
     registration_menu registration_manager registration_view_only registration_view_ssn benefits_case_reopen
     scheduling_menu scheduling_supervisor scheduling_registration_menu
@@ -32,12 +33,12 @@ class SecurityKeysLiveTest < LiveSpec::Test
       [ name, reply.first == "1" ]
     end
 
-    puts "\n#{persona} holds: #{answers.select { |_, v| v }.keys.join(', ').then { |s| s.empty? ? '(none of them)' : s }}"
+    puts "\n#{role} holds: #{answers.select { |_, v| v }.keys.join(', ').then { |s| s.empty? ? '(none of them)' : s }}"
   end
 
   def test_has_security_key_reports_what_the_server_answers
     duz = client.duz
-    refute_nil duz, "sign-on as #{persona} set no DUZ"
+    refute_nil duz, "sign-on as #{role} set no DUZ"
 
     KEYS.each do |symbol|
       name = RpmsRpc::SecurityKeys.rpms_name(symbol)

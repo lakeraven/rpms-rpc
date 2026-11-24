@@ -20,7 +20,11 @@ namespace :rpc do
     $LOAD_PATH.unshift(File.join(api_root, "lib"))
     require "rpms_rpc"
 
-    report = ApiCoverage.build(api_root)
+    begin
+      report = ApiCoverage.build(api_root)
+    rescue RpmsRpc::Conformance::ReleaseInventory::Error => e
+      abort "rpc:api_coverage: #{e.message}"
+    end
     entries = report[:entries]
     conflicts = ApiCoverage.shape_conflicts(entries)
     unless conflicts.empty?
@@ -46,22 +50,22 @@ namespace :rpc do
   # The RPCs this release sends, per API module, for client.compatibility (rpms-rpc#366). Ships in
   # the gem; test/api_coverage/required_rpcs_test.rb fails until this is re-run after a change to
   # what a public method sends.
-  desc "Write lib/rpms_rpc/required_rpcs.json: the RPCs each public API module sends (#366)"
+  desc "Write lib/rpms_rpc/required_rpcs.json: the RPCs each public API module sends (#366), and the contract openrpms gates on (#724)"
   task :required_rpcs do
     abort "rpc:required_rpcs needs a source checkout (#{api_tool} is not in the gem)" unless File.exist?(api_tool)
     require api_tool
     $LOAD_PATH.unshift(File.join(api_root, "lib"))
     require "rpms_rpc"
 
-    report = ApiCoverage.build(api_root)
+    report = ApiCoverage.build(api_root, surface: nil)
     unresolved = report[:entries].reject { |e| e[:unresolved].empty? }
     abort "rpc:required_rpcs: #{unresolved.size} method(s) have RPCs static analysis cannot resolve; fix them first" unless unresolved.empty?
 
-    doc = ApiCoverage.required_rpcs(report[:entries], build: report[:registry_tag])
+    doc = ApiCoverage.required_rpcs(report[:entries], root: api_root)
     out = RpmsRpc::Compatibility::REQUIRED_PATH
     File.write(out, ApiCoverage.required_rpcs_json(doc))
     abort "rpc:required_rpcs: #{out} does not hold what was generated" unless JSON.parse(File.read(out)) == doc
 
-    puts "#{ApiCoverage.rel(out, api_root)}: #{doc['modules'].values.flatten.uniq.size} RPCs over #{doc['modules'].size} modules, derived on #{doc['build']}"
+    puts "#{ApiCoverage.rel(out, api_root)}: #{doc['modules'].values.flatten.uniq.size} RPCs over #{doc['modules'].size} modules"
   end
 end

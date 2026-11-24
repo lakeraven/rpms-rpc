@@ -1,16 +1,18 @@
-# The pinned openrpms build signature
+# The openrpms release signature
 
-rpms-rpc conforms to the RPC signature of a named openrpms build (#160, #222).
-A reference fingerprint answers "what does build X provide?", and it is only a
-reference if its bytes trace to a real, artifact-bound capture of that build.
-openrpms produces that capture as a build output; this repo pins it like a
-dependency. Nothing here boots an engine.
+rpms-rpc is tested against the RPC signature of the latest published openrpms YottaDB release
+(#160, #222, #724). A reference fingerprint answers "what does build X provide?", and it is only a
+reference if its bytes trace to a real, artifact-bound capture of that build. openrpms produces that
+capture as a build output; this repo fetches it when the tests run. Nothing is pinned or committed per
+release, and nothing here boots an engine.
+Which pin lives where, across openrpms, rpms-rpc, lakeraven-ehr and cloud-rpms, is stated once, in openrpms
+[docs/PINS.md](https://github.com/lakeraven/openrpms/blob/main/docs/PINS.md).
 
 ## The contract
 
 For every gated release tag, openrpms attaches the RPC surface that build serves to the GitHub
 release (openrpms `bin/release_inventory.sh` and `bin/release_rpcs_json.rb`, run by the gate
-workflows, then `bin/publish_inventory.sh`). `conformance:pin` takes the one document of that
+workflows, then `bin/publish_inventory.sh`). `rake openrpms:fetch` takes the one document of that
 surface and the faces it does not carry (rpms-rpc#406):
 
 | asset | content |
@@ -23,20 +25,29 @@ surface and the faces it does not carry (rpms-rpc#406):
 | `<tag>-PROVENANCE.json` | the build record: `release`, `rpms_ops_commit` (the commit the build was cut from) |
 
 The raw files rpcs.json is projected from (`<tag>-broker_8994.txt`, `-rpc_reach.txt`,
-`-rpc_signatures.txt`) stay on the release, and the sidecar still names them; the pin does not
-commit them. rpcs.json is bound to them through its `inputs`: each must be the sidecar's sha256.
+`-rpc_signatures.txt`) stay on the release, and the sidecar still names them; the fetch does not
+download them. rpcs.json is bound to them through its `inputs`: each must be the sidecar's sha256.
 
 A build tag is `bcer-<RPMS version>-<yyyymmdd>-<openrpms short commit>-<ydb|iris>`.
 The RPMS version and engine come from the tag; the build commit comes from the
 build record and must start with the tag's short commit.
 
-On this side (`lib/rpms_rpc/conformance/inventory_lock.rb`):
+On this side (`lib/rpms_rpc/conformance/release_inventory.rb`, `rake openrpms:fetch`):
 
-| file | role |
+| what | role |
 | --- | --- |
-| `data/fingerprints/rpms-ops.lock.yml` | **the pin**: tag, RPMS version, engine, build commit, artifact sha, image (by digest), inventory tool commit, reach class counts, sha256 per asset, counts. Written by `conformance:pin`; never hand-edited. |
-| `data/inventories/<tag>/` | **the signature**: the six assets, byte for byte. |
-| `data/fingerprints/uncallable_exceptions.yml` | RPCs the gem sends that a pinned build does not let a client call, kept only as a recorded build defect with its upstream issue. Printed on every run; a stale entry fails. |
+| which release | `OPENRPMS_RELEASE=<tag>` when set; otherwise the newest published (not draft, not prerelease) `bcer-*-ydb` release that carries every asset above. Looked up with `gh api` each time, so it moves when openrpms publishes. |
+| `tmp/openrpms/<tag>/` | the downloaded assets (not committed; `OPENRPMS_INVENTORIES=` moves the cache). Each byte must equal the release's asset digest, and the set must verify (below) before anything reads it. |
+| `tmp/openrpms/current.json` | the release this checkout tests against: tag, how it was chosen, image by digest, build commit, rpcs.json sha256. Features, the gates, `rpc:coverage` and the live specs' build label read it offline. CI publishes it, with the test result, as the `tested-against` artifact. |
+| `test/fixtures/inventories/<tag>/` | a small inventory cut verbatim from a real release (`tools/fixture_inventory.rb`, names in `test/fixtures/release_inventory/names.txt`), so the readers' unit tests run offline. |
+| `data/fingerprints/uncallable_exceptions.yml` | RPCs the gem sends that the release under test does not let a client call, kept only as a recorded build defect with its upstream issue. Printed on every run; a stale entry fails. |
+
+Verification: the sidecar matches the bytes it covers; the provenance is `artifact_bound`, its
+`release_tag` is the tag, its engine the tag's, it has the `rpc_reach` and `rpc_signatures` faces and
+`image.digest == artifact_sha256`; the build record's release is the tag and its `rpms_ops_commit`
+starts with the tag's commit; rpcs.json names this tag, engine, RPMS version and commit, each of its
+`inputs` is the sidecar's sha256, and it lists as many RPCs, in the same reach classes, as the
+provenance counts. A release that fails is not tested against: a gap is data, fixed in the build.
 
 ## One reader
 
@@ -49,83 +60,57 @@ name/type/required, `formals`, and with `rpcs.v2` the #8994 text: `description`,
 description, max_length and sequence, `returns`, `word_wrap`, `version`) and its package. It refuses
 a schema it does not know, a document for another tag, an empty, repeated or unsorted list, a reach
 class it does not know, and formals-sourced parameters that disagree with the formals. Checksums
-are `InventoryLock`'s job; it verifies the bytes and then reads them through this class.
+are `ReleaseInventory`'s job; it verifies the bytes and then reads them through this class.
 
-With `<tag>-contexts_19_05.txt` pinned, `contexts?` is true and the surface answers the broker's context
+With `<tag>-contexts_19_05.txt` present, `contexts?` is true and the surface answers the broker's context
 questions: `bind_refusal(option, keys:)` (the option is not a context on the build, or its `LOCK` is a key not
 held) and `context_refusal(option, rpc, keys:)` (the bound option's RPC multiple does not list the RPC, or its
 `RPC_KEY` is not held; XUS SIGNON's RPCs and broker-exempt ones are never refused, and `RPC_RULES` is not run).
-`MockClient#enforce_contexts!(surface, keys:)` holds a mock to them, so a test sees the refusal the server would
-give (rpms-rpc#416).
 
 The registered-names gate, the callable gate, `Features`, `rake rpc:exclusions`, `rake rpc:coverage`,
-`rake rpc:api_coverage`, `conformance:pin`/`check` and `rake openapi:surface` all read through it.
+`rake rpc:api_coverage`, `rake openrpms:fetch` and `rake openapi:surface` all read through it.
 The per-file parsers of `broker_8994.txt` and `rpc_reach.txt` (and of `rpc_signatures.txt`) are gone
-(#394 AC 4, #406). Two flat readers stay, each for a contract with openrpms rather than a pinned
+(#394 AC 4, #406). Two flat readers stay, each for a contract with openrpms rather than a published
 release: `rake conformance:ingest DUMP=` reads the flat #8994 dump `bin/assess_instance.sh --emit-flat`
 writes for an instance, and `RpcCoverage.load_registry` reads the names file openrpms
 `bin/rpms_rpc_live_score.rb` scores with.
-| `data/fingerprints/references/<tag>.yml` | the fingerprint ingested from exactly those bytes; its `source.inventory` face repeats the build and the shas. |
 
 ## What the gates read
 
-- `test/rpms_rpc/registered_rpc_names_test.rb`: every RPC name the gem uses is
-  available on every pinned build: registered, with an entry point (TAG and
-  ROUTINE), and not INACTIVE for local use (`.06` = 1 or 2).
-- `test/rpms_rpc/pinned_build_signature_test.rb`: the lock names the build; the
-  committed signature and the fingerprint match the lock; every wire fixture's RPC
-  is registered and its `cite:` leads with the entry point the build registers;
-  `rake rpc:coverage` reads the pinned signature (`data/rpc_coverage/config.yml`).
-- `test/rpms_rpc/callable_rpc_names_test.rb` (#394): every RPC a public method
-  sends (and every other RPC name lib/ sends) is **callable** on every pinned build:
-  its reach class is `client-callable` or `broker-exempt`. A failure names the RPC,
-  its reach class and the methods that send it. An entry in
-  `data/fingerprints/uncallable_exceptions.yml` (a build defect, with its issue)
-  turns a failure into a loud warning; a stale entry fails.
-- `rake conformance:check` runs the same lock check from the command line.
+All of these read the release under test; with `OPENRPMS_OFFLINE=1` (the hermetic CI job) each skips
+and says so, and the `Release gate` job in `.github/workflows/openrpms-release.yml` runs them with the
+release fetched. Without that flag, a release that cannot be fetched fails the test with the reason.
+
+- `test/rpms_rpc/registered_rpc_names_test.rb` (`max_unregistered: 0`): every RPC name the gem uses is
+  available on the release: registered, with an entry point (TAG and ROUTINE), and not INACTIVE for
+  local use (`.06` = 1 or 2).
+- `test/rpms_rpc/callable_rpc_names_test.rb` (#394): every RPC a public method sends (and every other
+  RPC name lib/ sends) is **callable** on the release: its reach class is `client-callable` or
+  `broker-exempt`. A failure names the RPC, its reach class and the methods that send it. An entry in
+  `data/fingerprints/uncallable_exceptions.yml` (a build defect, with its issue) turns a failure into a
+  loud warning; a stale entry fails.
+- `rake rpc:coverage` counts against the release's registry, minus the RPCs its reach classes call
+  uncallable (computed per release) and the reviewed exclusions committed in
+  `data/rpc_coverage/exclusions.yml` (`gui_plumbing`, `write_needs_fixture`).
 
 "Callable" is stronger than "available": the entry point must exist on the image,
 and a context (or a broker exemption) must allow the RPC. Whether a write files
-what it claims is proven by a live call (ADR 0008 rule 4), not by the signature.
-
-## Pin a build
+what it claims is proven by a live call (ADR 0008 rule 4), not by the signature: the `Live` jobs run
+`rake test:live` against the same release's image as PROV123 and SYS123.
 
 ```sh
-bundle exec rake conformance:pin RELEASE=bcer-9.0-20261012-e7923a4-ydb
-# 1. gh release download the six assets above (REPO= overrides lakeraven/openrpms)
-# 2. each file's sha256 must equal the release's asset digest
-# 3. verify: sidecar matches the bytes it covers; provenance artifact_bound, release_tag == tag,
-#    engine == the tag's, has rpc_reach and rpc_signatures faces, image.digest == artifact_sha256;
-#    build record release == tag, rpms_ops_commit starts with the tag's commit;
-#    rpcs.json names this tag, engine, RPMS version and commit, each of its inputs is the
-#    sidecar's sha256, it lists as many RPCs as the provenance counts, in the same reach classes
-# 4. ingest rpcs.json -> data/fingerprints/references/<tag>.yml (backend iris_rpms | yottadb_rpms)
-# 5. record the pin in data/fingerprints/rpms-ops.lock.yml
-bundle exec rake rpc:exclusions
-git add data/rpc_coverage/exclusions.yml data/fingerprints/rpms-ops.lock.yml data/fingerprints/references/<tag>.yml data/inventories/<tag>
+bundle exec rake openrpms:fetch                                          # the latest -ydb release
+OPENRPMS_RELEASE=bcer-9.0-20261116-2a9b3fe-ydb bundle exec rake openrpms:fetch   # a specific one
+bundle exec rake openrpms:current                                        # what this checkout tests against
 ```
 
-A release published before openrpms#732 has no rpcs.json and cannot be pinned until it is re-gated.
-After a re-pin, run `rake rpc:exclusions` (the unreachable exclusions come from the pinned rpcs.json).
+## Reference fingerprints
 
-`SOURCE=<dir>` copies the six assets from a directory instead of downloading them
-(a workflow artifact, say), and skips step 2.
-`ENV=` overrides the fingerprint name (default `references/<tag>`).
-To move `rake rpc:coverage` to the new build, point `release`, `registry` and
-`packages` in `data/rpc_coverage/config.yml` at it.
-To retire the build it replaces, remove that tag's entry from the lock through
-`InventoryLock` (`entries.delete(tag)`, then `save`, which keeps the header and order), delete its
-`data/inventories/<tag>/` and its entries in `data/fingerprints/uncallable_exceptions.yml`.
-Its `references/<tag>.yml` fingerprint stays, as a rung `conformance:probe` ranks against.
-
-A rejected inventory is not fixed here. A gap is data: fix the build, re-cut, re-pin.
-
-The pre-2026-09 seed placeholders (`references/bcer-5.0.yml`, `bcer-8.0.yml`) are not
-pinned and not checked, and `conformance:probe` does not rank against them: a file whose
-first line says `PLACEHOLDER` is listed as "Not ranked". They are replaced as their rungs
-get an inventory published.
-
-Then, as before:
+`data/fingerprints/references/<tag>.yml` were ingested from earlier pinned releases; they stay as the
+rungs `conformance:probe` ranks against, unchanged until their owner decides where they live (#724).
+The pre-2026-09 seed placeholders (`references/bcer-5.0.yml`, `bcer-8.0.yml`) are not checked, and
+`conformance:probe` does not rank against them: a file whose first line says `PLACEHOLDER` is listed as
+"Not ranked".
 
 ```sh
 bundle exec rake conformance:probe TARGET=<some fingerprint>.yml [REQUIRED=references/<tag>.yml]
@@ -134,13 +119,14 @@ bundle exec rake conformance:probe TARGET=<some fingerprint>.yml [REQUIRED=refer
 ## Raw ingest (no gated release)
 
 `rake conformance:ingest DUMP=<broker_8994.txt> ENV=<name> [PACKAGES=] [RELEASE=] [DAT_SHA=]`
-is the same transformation without the pin: for a dump you captured yourself (openrpms
+turns a dump into a fingerprint: for a dump you captured yourself (openrpms
 `bin/assess_instance.sh --emit-flat --engine <iris|yottadb> ...` against any instance,
 including a deployed stack over SSM). The result carries no `source.inventory` face and
 is therefore an observation, not a reference; do not put it under `references/`.
 
 ## Do not
 
-- Do not hand-edit a lock entry, a committed signature or a fingerprint: the tests fail, by design.
-- Do not pin an inventory whose provenance is not `artifact_bound`: `pin` refuses it (openrpms#482).
+- Do not commit a release's inventory or pin a tag: the tests look the release up.
+- Do not hand-edit a fingerprint or the fixture inventory: regenerate the fixture with `tools/fixture_inventory.rb`.
+- Do not test against an inventory whose provenance is not `artifact_bound`: the fetch refuses it (openrpms#482).
 - Do not boot rung containers here to capture registries; that is openrpms's build side.

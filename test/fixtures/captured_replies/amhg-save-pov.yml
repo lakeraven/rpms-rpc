@@ -1,0 +1,298 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-save-pov.rb.
+---
+rpc: AMHG SAVE POV
+entry_point: POV^AMHGSVF
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair), the clinician that holds
+  AMHGRPC
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-20T03:31:03Z'
+note: Run on a throwaway container. Setup files one BH visit for DFN 990035 (BehavioralHealth.save_visit,
+  as the live spec does) and lists the first MHSS problems (9002012.2) and psychosocial
+  stressors (9002012.9); the flows run in this order on that visit. Synthetic patient
+  and text only.
+captures:
+- name: save_problem_not_on_file
+  inputs:
+  - E|2|999999~~SYNTH POV NARR A||||990035|
+  context: AMHG SAVE POV sent a problem pointer no MHSS problem entry has (the gem
+    refuses it first)
+  raw_return: "4\0T00030Result\x1E2\x1E\x1F"
+  sha256: 65ffff597c04c29400ac278d35a4aeb7f5367aa191bce5f58d10fb34626366cd
+- name: save_record_not_on_file
+  inputs:
+  - E|999999|1~~SYNTH POV NARR A||||990035|
+  context: AMHG SAVE POV sent a record IEN no BH visit has (the gem refuses it first)
+  raw_return: "5\0T00030Result\x1E999999\x1E\x1F"
+  sha256: b49e76cb9d0bf1f265eb726be4e8a05a00be22211d6e5a4a994d6f0e3b6c074f
+- name: save/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "5\0[Data]\r9002011^2^.08^990035^\r9002011^2^1112^^\r"
+  sha256: 316c95e7dcba031fce1da5d47b0f133d627edc9a25c46ce844bc841508edeba3
+- name: save/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "6\0[Data]\r9002012.2^1^.01^1^\r"
+  sha256: a8479e31f2a5747d5c99b00922565560accc02c1f1a4baf594cfb0b52afdb91f
+- name: save/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 544,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "7\0[Data]\r9002012.2^544^.01^1.1^\r"
+  sha256: a1832b0b30cfd9bdc969e84b9670ea7d7b957c094de70b348d8ef988c6b04091
+- name: save/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.9'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "8\0[Data]\r9002012.9^1^.01^1^\r"
+  sha256: 91fce1f4d617d220fb29d79f78c4243f8cf8914c155540faeaa3d77695a96b3b
+- name: save/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.9'
+    IENS: 2,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "9\0[Data]\r9002012.9^2^.01^2^\r"
+  sha256: 12aa18664a49dcff23c0542d33c8e0f896912558badeb4ac4df404dfd12f31e3
+- name: save/6
+  rpc: AMHG SAVE POV
+  inputs:
+  - E|2|1~~SYNTH POV NARR A*544~~SYNTH POV NARR B|SYNTH AXIS III LINE|1~~*2~~|55|990035|12
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "1\0T00030Result\x1E2\x1E"
+  sha256: 2341a31286c007a7ab8e9c8cf8d3c88adca21c03c99d74a373040817e9d47c0e
+- name: save/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.01'
+    FIELDS: ".01;.02;.03;.04E"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '2'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=2
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "2\0[Data]\r4^1^990035^2^SYNTH POV NARR A\r5^544^990035^2^SYNTH POV
+    NARR B\r"
+  sha256: f0ac5fba3b29fddc64387508cc8407434e4b40d16f7eefce35a63f9c6b3f69b6
+- name: save/8
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.06101'
+    IENS: ",2,"
+    FIELDS: ".01"
+    FLAGS: IP
+    MAX: '25'
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "3\0[Data]\r1^1\r2^2\r"
+  sha256: 3fca18a33f4c8def3c088b6c5a234d611f87c1ab61e3e5331a15c1b51538f166
+- name: save/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".14;1115"
+    FLAGS: IE
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "4\0[Data]\r9002011^2^.14^55^55\r9002011^2^1115^12^12\r"
+  sha256: 1aa53b2ed895a21106fab794edc2601654b92460c2c03b32bbfb56edf7be767d
+- name: save/10
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: '5301'
+    FLAGS: E
+  context: 'save_pov: two diagnoses, Axis III, two Axis IV stressors, Axis V 55, GAF
+    12'
+  raw_return: "5\0[Data]\r9002011^2^5301^[WORD PROCESSING]\rSYNTH AXIS III LINE\r$$END$$\r"
+  sha256: feb3ae35d62ebce479c4a1dd2bac1743af02d8b615ad617d7cd4db2e8f0b71e2
+- name: replace/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "5\0[Data]\r9002011^2^.08^990035^\r9002011^2^1112^^\r"
+  sha256: 316c95e7dcba031fce1da5d47b0f133d627edc9a25c46ce844bc841508edeba3
+- name: replace/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 2,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "6\0[Data]\r9002012.2^2^.01^2^\r"
+  sha256: 18a532d26df227f5e89aa0afd1ac204a8bb2a71368d7568d5dcaca3bfb83765f
+- name: replace/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.9'
+    IENS: 3,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "7\0[Data]\r9002012.9^3^.01^3^\r"
+  sha256: 78fe38ba40c8ee4c96f86dd3f863de31a1078f00461eaab3e8343beb2a6d28ff
+- name: replace/4
+  rpc: AMHG SAVE POV
+  inputs:
+  - E|2|2~~SYNTH POV NARR C||3~~|70|990035|
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "8\0T00030Result\x1E2\x1E"
+  sha256: 1dc950bd49da81f6134aa25d18f9cb00154fa23999521abe7b1ee56dd1ce5cb6
+- name: replace/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.01'
+    FIELDS: ".01;.02;.03;.04E"
+    FLAGS: IP
+    MAX: '25'
+    FROM: '0'
+    PART: '2'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=2
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "9\0[Data]\r4^2^990035^2^SYNTH POV NARR C\r"
+  sha256: 8169ae1d8085ef49a97407ab4e4a06b4bc58b163488d2c88354d07a911ccb4d3
+- name: replace/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.06101'
+    IENS: ",2,"
+    FIELDS: ".01"
+    FLAGS: IP
+    MAX: '25'
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "1\0[Data]\r1^3\r"
+  sha256: 6f560dbc9edeefcb927b216bd17d11262f453a4fd628e786cea317c0d29872c5
+- name: replace/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".14;1115"
+    FLAGS: IE
+  context: 'save_pov again: one other diagnosis, one other stressor, Axis V 70, GAF
+    and Axis III cleared'
+  raw_return: "2\0[Data]\r9002011^2^.14^70^70\r9002011^2^1115^^\r"
+  sha256: 3505c4e2bbabc0850bc827e95473c6bda2d078ca378fe6c7178fd9680b8192d3
+- name: other_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_pov naming DFN 990036 on DFN 990035''s visit: refused after the pre-read'
+  raw_return: "5\0[Data]\r9002011^2^.08^990035^\r9002011^2^1112^^\r"
+  sha256: 316c95e7dcba031fce1da5d47b0f133d627edc9a25c46ce844bc841508edeba3
+- name: problem_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_pov with a problem pointer no MHSS problem entry has: refused after
+    the pointer read'
+  raw_return: "5\0[Data]\r9002011^2^.08^990035^\r9002011^2^1112^^\r"
+  sha256: 316c95e7dcba031fce1da5d47b0f133d627edc9a25c46ce844bc841508edeba3
+- name: problem_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov with a problem pointer no MHSS problem entry has: refused after
+    the pointer read'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: axis_iv_not_on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 2,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'save_pov with an Axis IV pointer no psychosocial stressor entry has: refused
+    after the pointer read'
+  raw_return: "5\0[Data]\r9002011^2^.08^990035^\r9002011^2^1112^^\r"
+  sha256: 316c95e7dcba031fce1da5d47b0f133d627edc9a25c46ce844bc841508edeba3
+- name: axis_iv_not_on_file/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov with an Axis IV pointer no psychosocial stressor entry has: refused
+    after the pointer read'
+  raw_return: "6\0[Data]\r9002012.2^1^.01^1^\r"
+  sha256: a8479e31f2a5747d5c99b00922565560accc02c1f1a4baf594cfb0b52afdb91f
+- name: axis_iv_not_on_file/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.2'
+    IENS: 544,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov with an Axis IV pointer no psychosocial stressor entry has: refused
+    after the pointer read'
+  raw_return: "7\0[Data]\r9002012.2^544^.01^1.1^\r"
+  sha256: a1832b0b30cfd9bdc969e84b9670ea7d7b957c094de70b348d8ef988c6b04091
+- name: axis_iv_not_on_file/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002012.9'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'save_pov with an Axis IV pointer no psychosocial stressor entry has: refused
+    after the pointer read'
+  raw_return: "8\0[ERROR]\r"
+  sha256: cfc34b4a5c6783aeb30f7ac92255e8a5ae344fe3a6b01d34f1c952d502929429

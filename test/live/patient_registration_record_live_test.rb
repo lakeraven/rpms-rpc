@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
+require_relative "free_ssn"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/ddr_fileman"
 require "securerandom"
@@ -14,17 +15,38 @@ require "securerandom"
 # Each spec registers its own synthetic patient, so no seed patient is
 # changed. There is no supported patient-delete RPC: discard the container.
 class PatientRegistrationRecordLiveTest < LiveSpec::Test
+  include FreeSsn
+
+  runs_as :front_desk_clerk
+  proves "S-REG-20.1", "S-REG-20.7", "S-REG-20.10", "S-REG-21.4", "S-REG-21.5"
   writes!
 
   IHS_PATIENT_FILE = "9000001"
 
   def register!(**extra)
     suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
-    attrs = { name_last: "ZZEDIT#{suffix}", name_first: "DEMO", dob: Date.new(1950, 1 + rand(12), 1 + rand(28)),
-              sex: "F", ssn: "6660#{format('%05d', rand(100_000))}" }.merge(extra)
+    attrs = { name_last: "ZZEDIT#{suffix}", name_first: "DEMO", dob: free_birth_date(suffix),
+              sex: "F", ssn: fresh_ssn }.merge(extra)
     result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert result && result[:success], "could not register a synthetic patient: #{result.inspect}"
     [ result[:dfn], attrs ]
+  end
+
+  # A 1950 birth date no DEMO patient holds: AG's duplicate lookup matches a
+  # candidate on the date and first name, so a date another spec's synthetic
+  # patient already holds made the registration a duplicate.
+  def free_birth_date(suffix)
+    dob = Date.new(1950, 1 + rand(12), 1 + rand(28))
+    365.times do
+      found = RpmsRpc.with_client(lookup_client) do
+        RpmsRpc::Agg.registration_candidates("AGGPTLNM" => "ZZEDIT#{suffix}", "AGGPTFNM" => "DEMO",
+                                             "AGGPTDOB" => dob.strftime("%m/%d/%Y"))
+      end
+      return dob if found.empty?
+
+      dob = dob.next_day
+    end
+    flunk "no free synthetic 1950 birth date for ZZEDIT#{suffix}"
   end
 
   def fileman(file, dfn, fields)

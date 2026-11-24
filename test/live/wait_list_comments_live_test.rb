@@ -11,6 +11,8 @@ require "rpms_rpc/api/ddr_fileman"
 # with FileMan (GETS^DIQ through DDR GETS ENTRY DATA): DDR LISTER cannot list
 # a word-processing subfile.
 class WaitListCommentsLiveTest < LiveSpec::Test
+  runs_as :scheduler
+  proves "S-SCH-10.1"
   writes!
 
   WL = RpmsRpc::WaitList

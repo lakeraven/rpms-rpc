@@ -6,12 +6,13 @@ require "rpms_rpc"
 require "rpms_rpc/mappings"
 require "rpms_rpc/api/procedure"
 require_relative "captured_replies"
+require_relative "release_under_test"
 
 # ADR 0011: every RPC the gem sends that the build registers in CIAV
 # VUECENTRIC and no other broker option is listed in the ADR's table, with
 # why it is kept (rpms-rpc#528). The set is computed: lib/rpms_rpc/required_rpcs.json
-# joined with the broker-option inventory of the build it names
-# (data/inventories/<build>/<build>-contexts_19_05.txt).
+# joined with the broker-option inventory of the openrpms release under test
+# (<tag>-contexts_19_05.txt, the latest published -ydb release; rpms-rpc#724).
 class VuecentricOnlyRpcsTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   REQUIRED = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -24,9 +25,8 @@ class VuecentricOnlyRpcsTest < Minitest::Test
 
   # RPC name => the broker options the build lists it in.
   def options_by_rpc
-    build = required.fetch("build")
-    path = File.join(ROOT, "data/inventories", build, "#{build}-contexts_19_05.txt")
-    assert File.file?(path), "no broker-option inventory for #{build} at #{path}"
+    inv = ReleaseUnderTest.inventory(self)
+    path = inv.asset("contexts_19_05.txt")
     File.foreach(path).drop(1).each_with_object(Hash.new { |h, k| h[k] = [] }) do |line, out|
       option, _type, _lock, rpc = line.chomp.split("\t")
       out[rpc] << option unless rpc.to_s.empty?

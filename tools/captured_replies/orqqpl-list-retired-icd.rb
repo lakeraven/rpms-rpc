@@ -17,7 +17,7 @@ CAPTURE = {
         "location 1, SPEC 1). Patient 4's seeded problems carry ICD-10 codes, which this build's " \
         "LIST^GMPLUTL2 answers with $$ICDDX error text in piece 4, also marked '#'.",
   setup: lambda { |client|
-    line = [ "P", "", "", "Retired code demo", "203.1", "1", "", "A", "", "", "" ].join("^")
+    line = [ "P", "", "", "Retired code demo", "203.1", "1", "", "Chronic", "", "", "" ].join("^") # piece 8 takes the name (#923)
     reply = client.call_rpc("BGOPROB SET", "4", "", "", [ line ], "1").first.to_s
     abort "setup: BGOPROB SET did not file the problem: #{reply.inspect}" unless reply.match?(/\A[1-9]\d*\z/)
   },

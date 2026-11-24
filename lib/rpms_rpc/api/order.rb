@@ -3,6 +3,7 @@
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../valid_signature"
+require_relative "../fileman_date_parser"
 
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
@@ -282,6 +283,106 @@ module RpmsRpc
     end
     shape :list, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders"
 
+    # The DISPLAY GROUP (#100.98) IEN for a display group name, the value
+    # #list takes as display_group: ORWORDG IEN (IEN^ORWORDG, the B index;
+    # the name as filed, e.g. "ALL SERVICES", "LABORATORY"). nil when no
+    # group has that name.
+    def display_group_ien(name)
+      return nil if name.to_s.strip.empty? || name.to_s.include?("^")
+
+      raw = DataMapper.order_display_group_ien.fetch_scalar(name.to_s)
+      raw.to_s.match?(/\A[1-9]\d*\z/) ? raw.to_i : nil
+    end
+    shape :display_group_ien, resource: "orders", verb: "GET", path: "/orders/display-group-ien"
+
+    # Whether order checking is on at this site: ORWDXC ON (ON^ORWDXC),
+    # the ORK SYSTEM ENABLE/DISABLE parameter at the division, system or
+    # package. true for "E", false for "D"; any other reply raises
+    # Client::RpcError rather than reading as either.
+    def checking_enabled?
+      raw = DataMapper.order_checking_state.fetch_scalar.to_s
+      return true if raw == "E"
+      return false if raw == "D"
+
+      raise Client::RpcError, "ORWDXC ON answered #{raw.inspect}, neither E nor D"
+    end
+    shape :checking_enabled?, resource: "orders", verb: "GET", path: "/orders/checking-enabled"
+
+    # The patient's delayed-order events still waiting (admission,
+    # transfer, discharge): [{ event_ien:, text: }]. OREVNTX PAT
+    # (PAT^OREVNTX): each PATIENT EVENT (#100.2) entry on the AE index that
+    # has not lapsed, been processed, or got child events, as
+    # PATEVT^"Delayed <event>", under a count line. [] when there is none.
+    def delayed_events(dfn)
+      return [] unless strict_positive_id?(dfn)
+
+      lines = DataMapper.order_delayed_events.lines!(dfn.to_s)
+      lines = lines.drop(1) if lines.first.to_s.match?(/\A\d+\z/)
+      lines.map do |line|
+        ien, text = line.split("^", 2)
+        raise Client::RpcError, "OREVNTX PAT answered #{line.inspect}" unless strict_positive_id?(ien)
+
+        { event_ien: ien.to_i, text: text.to_s }
+      end
+    end
+    shape :delayed_events, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/delayed-events"
+
+    # The fields of each order named, as the Orders tab refreshes a list:
+    # ORWORR GET4LST (GET4V11^ORWORR -> GETFLDS). +order_ids+ are ORDER
+    # (#100) IENs, or "IFN;ACT" for one action.
+    #
+    #   summaries(order_ids)
+    #   => [{ order_id:, display_group_ien:, ordered_at:, start_at:, stop_at:, status_ien:,
+    #         signature_status:, provider_duz:, provider:, flagged:, location:, location_ien:,
+    #         text: [lines] }, ...]
+    #
+    # Each order is a "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^Sig^Nrs^Clk^PrvID^
+    # PrvNam^Act^Flagged^...^LOC" header (LOC "NAME:IEN") then its "t" text
+    # lines (trailing blank ones dropped); an order not on file answers a
+    # header with only its id. Lines that are neither raise Client::RpcError.
+    def summaries(order_ids)
+      ids = Array(order_ids).map(&:to_s)
+      return [] if ids.empty? || !ids.all? { |id| id.match?(/\A[1-9]\d*(;[1-9]\d*)?\z/) }
+
+      list = ids.each_with_index.to_h { |id, i| [ (i + 1).to_s, id ] }
+      DataMapper.order_details.lines!("", "", list).each_with_object([]) do |line, orders|
+        if line.start_with?("~")
+          orders << details_header(line.delete_prefix("~").split("^", -1))
+        elsif line.start_with?("t") && orders.last
+          orders.last[:text] << line.delete_prefix("t")
+        else
+          raise Client::RpcError, "ORWORR GET4LST answered #{line.inspect}"
+        end
+      end.each { |order| order[:text].pop while order[:text].last&.strip&.empty? }
+    end
+    shape :summaries, resource: "orders", verb: "GET", path: "/orders/summaries"
+
+    # The clinical indications an order may name for a patient's visit,
+    # from the patient's problems with a SNOMED CT concept: ORWDXIHS
+    # CLININD (CLININD^ORWDXIHS -> SNOMED). A problem the visit addresses
+    # comes first as :visit_diagnosis with the visit's POV code; the other
+    # active, chronic, episodic, sub-acute, routine and administrative
+    # problems follow as :problem_list.
+    #
+    #   clinical_indications(dfn, visit_ien: nil, orderable_ien: nil)
+    #   => [{ name:, source:, icd:, problem_ien:, snomed: }, ...]
+    #
+    # Row: NARRATIVE ^ POV|PL ^ ICD ^ PROBLEM IEN ^ CONCEPT ID. A -N^text
+    # reply raises Client::RpcError.
+    def clinical_indications(dfn, visit_ien: nil, orderable_ien: nil)
+      return [] unless strict_positive_id?(dfn)
+      return [] unless [ visit_ien, orderable_ien ].all? { |v| v.nil? || strict_positive_id?(v) }
+
+      DataMapper.order_clinical_indications.lines!(dfn.to_s, visit_ien.to_s, orderable_ien.to_s, "").map do |line|
+        name, source, icd, problem, concept = line.split("^", -1)
+        raise Client::RpcError, "ORWDXIHS CLININD answered #{line.inspect}" unless %w[POV PL].include?(source)
+
+        { name: name.to_s.strip, source: source == "POV" ? :visit_diagnosis : :problem_list, icd: icd.to_s.empty? ? nil : icd,
+          problem_ien: strict_positive_id?(problem) ? problem.to_i : nil, snomed: concept.to_s.empty? ? nil : concept }
+      end
+    end
+    shape :clinical_indications, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/clinical-indications"
+
     # Result text for a single order. Returns the raw text blob or nil
     # if the order is unknown / has no result.
     #
@@ -313,12 +414,20 @@ module RpmsRpc
     end
     shape :result_history, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/{order_ien}/result-history"
 
-    # Free-text describing the user-facing action available on an order.
-    # Returns nil if either argument is blank.
-    def action_text(order_ien, action_code)
-      return nil if invalid_id?(order_ien) || blank?(action_code)
+    # The activity of an order: for each action on it, the lines ACT^ORQ20
+    # writes (when and by whom it was entered, its text, nature, signature
+    # and release). nil for an invalid IEN or when nothing came back.
+    #
+    # ACTXT(ORY,ORIFN) (ORWOR.m:139) takes one actual, ORIFN, read as
+    # IFN;ACT: it lists the actions after ACT, and stops at the first
+    # subscript that is not positive (ORWOR.m:142-144). A bare IFN starts
+    # $O at "" and meets the multiple's 0 header first, so it lists nothing;
+    # IFN;0 lists every action. Sending a second actual died in M
+    # (ACTLSTTOOLONG, #823).
+    def action_text(order_ien)
+      return nil unless strict_positive_id?(order_ien)
 
-      text = DataMapper.order_action_text.fetch_text(order_ien.to_s, action_code.to_s)
+      text = DataMapper.order_action_text.fetch_text("#{order_ien.to_i};0")
       return nil if blank?(text)
 
       text
@@ -348,7 +457,9 @@ module RpmsRpc
     end
     shape :sheets_for_patient, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/sheets"
 
-    # Site-level catalog of order sheets, independent of patient.
+    # The site's active treating specialties (file 45.7), independent of
+    # patient: [{ ien:, name: }]. TSALL^ORWOR (ORWOR.m:44-46) lists those,
+    # not order sheets, whatever the method's name says.
     def all_sheets
       Array(DataMapper.order_sheets_all.fetch_many)
     end
@@ -357,7 +468,7 @@ module RpmsRpc
     # File a new order and leave it unsigned. ORWDX SAVE (SAVE^ORWDX) takes
     # the eleven actuals after REC. Formals (FOIA ORWDX.m:80):
     # SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,ORIT,ORIFN,ORDIALOG,ORDEA,ORAPPT,ORSRC).
-    # The repo's BCER inventory (data/inventories/.../rpc_signatures.txt,
+    # The BCER release inventory (rpc_signatures.txt of
     # bcer-9.0-20261012-e7923a4-ydb) lists OREVTDF as a 13th formal on RPMS
     # too, as WorldVistA ORWDX.m:52 does. Sending eleven actuals leaves that
     # formal undefined. SAVE does not handle it with $G: WorldVistA declares
@@ -617,6 +728,21 @@ module RpmsRpc
 
     # GET1^ORWORR1 sets the .1 node to TOT^TXTVW^ORYD (ORWORR1.m:13), and
     # .1 collates before every row, so the first line is never an order.
+    def details_header(pieces)
+      location, location_ien = pieces[18].to_s.split(":", 2)
+      { order_id: pieces[0], display_group_ien: detail_ien(pieces[1]),
+        ordered_at: FilemanDateParser.parse_datetime_or_date(pieces[2].to_s),
+        start_at: FilemanDateParser.parse_datetime_or_date(pieces[3].to_s),
+        stop_at: FilemanDateParser.parse_datetime_or_date(pieces[4].to_s), status_ien: detail_ien(pieces[5]),
+        signature_status: pieces[6].to_s.empty? ? nil : pieces[6], provider_duz: detail_ien(pieces[9]),
+        provider: pieces[10].to_s.empty? ? nil : pieces[10], flagged: pieces[12] == "1",
+        location: location.to_s.empty? ? nil : location, location_ien: detail_ien(location_ien), text: [] }
+    end
+
+    def detail_ien(value)
+      strict_positive_id?(value) ? value.to_i : nil
+    end
+
     def drop_aget_header(reply)
       return [] if reply.nil? || reply.empty?
 

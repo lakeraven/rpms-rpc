@@ -12,6 +12,7 @@ require "rpms_rpc/api/ddr_fileman"
 # prevents access goes in through the scheduling client's own BSDX ADD/EDIT
 # ACCESS TYPE, and the clinic's #44 fields through DDR FILER, put back after.
 class SchedulingSetupLiveTest < LiveSpec::Test
+  runs_as :scheduler
   writes!
 
   PREVENTS = "LIVE SPEC PREVENTS"
@@ -52,7 +53,7 @@ class SchedulingSetupLiveTest < LiveSpec::Test
 
   def test_a_clinics_booking_rules_read_back_as_filed
     resource = RpmsRpc::Scheduling.resources.find { |r| r[:name] == CLINIC }
-    assert resource, "the persona has no #{CLINIC} resource"
+    assert resource, "the role has no #{CLINIC} resource"
     ien = resource[:hospital_location_id]
     original = RpmsRpc::SchedulingSetup.clinic_rules(ien)
     inactive_on = Date.today + 200

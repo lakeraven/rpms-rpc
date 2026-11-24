@@ -1,0 +1,118 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-race-ethnicity.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-19T22:29:32Z'
+note: 'Run on a throwaway container. Setup files #10 entry 3, an inactive legacy race
+  with no HL7 VALUE, for DFN 990011 through DDR FILER before the flows run.'
+captures:
+- name: code_not_on_file
+  inputs:
+  - FILE: '10'
+    IENS: 999999,
+    FIELDS: '3'
+    FLAGS: I
+  context: 'the 3 HL7 VALUE of a #10 entry the build does not have'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: on_file/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 4,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'race_ethnicity(4): AMERICAN INDIAN OR ALASKA NATIVE and NOT HISPANIC OR
+    LATINO on file'
+  raw_return: "5\0[Data]\r9000001^4^.01^4^\r"
+  sha256: 2b79ff1d8c2246965d524c9f86f89c6c0ee4e0362a25d6feb24ade2975c058f5
+- name: on_file/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",4,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: 'race_ethnicity(4): AMERICAN INDIAN OR ALASKA NATIVE and NOT HISPANIC OR
+    LATINO on file'
+  raw_return: "6\0[Data]\r2^AMERICAN INDIAN OR ALASKA NATIVE^4^UNKNOWN\r"
+  sha256: 23689b23c19168bbf2ec0ef2bc0a1e75f9c570f4caae35d348bea14b4b5bd14e
+- name: on_file/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 2,
+    FIELDS: '3'
+    FLAGS: I
+  context: 'race_ethnicity(4): AMERICAN INDIAN OR ALASKA NATIVE and NOT HISPANIC OR
+    LATINO on file'
+  raw_return: "7\0[Data]\r10^2^3^1002-5^\r"
+  sha256: de9a778bc7485b2d02d2a01b420299e440419c89ddff221c85753dbaa2a396dd
+- name: on_file/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",4,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: 'race_ethnicity(4): AMERICAN INDIAN OR ALASKA NATIVE and NOT HISPANIC OR
+    LATINO on file'
+  raw_return: "8\0[Data]\r2^NOT HISPANIC OR LATINO^1^SELF IDENTIFICATION\r"
+  sha256: fa5c970c9b98b75284ce2a970c2469d75c08b257f111f6569d9fd7297db25d6d
+- name: on_file/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.2'
+    IENS: 2,
+    FIELDS: '3'
+    FLAGS: I
+  context: 'race_ethnicity(4): AMERICAN INDIAN OR ALASKA NATIVE and NOT HISPANIC OR
+    LATINO on file'
+  raw_return: "9\0[Data]\r10.2^2^3^2186-5^\r"
+  sha256: 3200299af26a83afc744c35ba52fa01d85a9061f3ead3d21edfe6b0ae63a557a
+- name: legacy_code/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990011,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'race_ethnicity(990011): a legacy race whose #10 entry has no HL7 VALUE'
+  raw_return: "5\0[Data]\r9000001^990011^.01^990011^\r"
+  sha256: 8b22aca9207cb55dea07acbd9b57ae0dd93bca906c27def1803d1612569c0595
+- name: legacy_code/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",990011,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: 'race_ethnicity(990011): a legacy race whose #10 entry has no HL7 VALUE'
+  raw_return: "6\0[Data]\r3^WHITE, NOT OF HISPANIC ORIGIN^1^SELF IDENTIFICATION\r"
+  sha256: 21a4ffdba86ae00afcd740cfe36b1709ec423d9c9980f6ebce0ab6eaed2b55ed
+- name: legacy_code/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 3,
+    FIELDS: '3'
+    FLAGS: I
+  context: 'race_ethnicity(990011): a legacy race whose #10 entry has no HL7 VALUE'
+  raw_return: "7\0[Data]\r10^3^3^^\r"
+  sha256: e2d9c3b9557db32fa4270bf38d6b651cafc6024ada03cc5d27cbd12d4a010c24
+- name: legacy_code/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",990011,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: 'race_ethnicity(990011): a legacy race whose #10 entry has no HL7 VALUE'
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87

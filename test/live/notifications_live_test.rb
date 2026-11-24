@@ -17,19 +17,24 @@ require "rpms_rpc/api/notifications"
 # the CAN DELETE piece ALRLIST answers. Whatever an alert's test leaves behind
 # is deleted with LOC=DELETE (DELETE^XQALERT), for every recipient.
 #
-# XQAL GUI ALERTS is in no option but its own, so the persona must be one CIA
-# lets call it: SYS123 on the pinned build (XUPROGMODE, CIANBACT.m:49).
-# Another persona is refused at the send, and the spec says so. The second
-# user is a published demo persona of the build, signed on on its own
+# XQAL GUI ALERTS is in no option but its own, so the spec binds that option
+# for the send and the delete: a user who holds it as a secondary menu may
+# call it (the provider, since openrpms#1277), and a holder of XUPROGMODE may
+# call it under any option (CIANBACT.m:141). Another role is refused at
+# the send, and the spec says so. The second
+# user is another test role (its published pair), signed on on its own
 # connection, as in scoped_client_two_identities_live_test.rb.
 class NotificationsLiveTest < LiveSpec::Test
+  runs_as :provider
+  # PROFILE,MD holds XQAL GUI ALERTS since bcer-9.0-20261124-60d39b6-ydb (openrpms#1277).
+  needs "XQAL GUI ALERTS", tracked: "openrpms#1277"
   writes!
 
   SEND_RPC = "XQAL GUI ALERTS"
   DFN = 3 # MOUSE,MICKEY M, a demo patient of the image
   OTHER_DFN = 4
-  OTHER_PAIR = [ "PSCH123", "PSCH123!!" ].freeze
-  THIRD_PAIR = [ "PREG123", "PREG123!!" ].freeze
+  def other_pair = pair_of(:scheduler)
+  def third_pair = pair_of(:front_desk_clerk)
 
   def teardown
     Array(@sent).each { |alert_id| delete_alert(alert_id) }
@@ -38,7 +43,7 @@ class NotificationsLiveTest < LiveSpec::Test
     super
   end
 
-  # Send an alert to +to+ (DUZs, default the persona) and answer its ID, as
+  # Send an alert to +to+ (DUZs, default the run's role) and answer its ID, as
   # Kernel completed it (XQAID;sender;time). +xqaid+ is unique per call, so
   # two alerts sent in the same second never share an ID.
   def send_alert(message, to: [ client.duz ], removable: false, xqaid: "BEHOXQ,LIVESPEC#{SecureRandom.hex(3).upcase}")
@@ -46,9 +51,9 @@ class NotificationsLiveTest < LiveSpec::Test
     to.each { |duz| data["XQA,#{duz}"] = "" }
     data["XQACNDEL"] = "1" if removable
     begin
-      client.call_rpc(SEND_RPC, data)
+      client.with_context(SEND_RPC) { client.call_rpc(SEND_RPC, data) }
     rescue RpmsRpc::Client::RpcError => e
-      flunk "#{persona} may not send an alert through #{SEND_RPC} (#{e.message}): run this spec as SYS123"
+      flunk "#{role} may not send an alert through #{SEND_RPC} (#{e.message}): does the role hold the #{SEND_RPC} option?"
     end
     reader = to.include?(client.duz) ? client : other
     alert_id = RpmsRpc.with_client(reader) { inbox_ids }.find { |id| id.start_with?("#{xqaid};") }
@@ -58,15 +63,15 @@ class NotificationsLiveTest < LiveSpec::Test
   end
 
   def delete_alert(alert_id)
-    client.call_rpc(SEND_RPC, { "LOC" => "DELETE", "XQAID" => alert_id })
+    client.with_context(SEND_RPC) { client.call_rpc(SEND_RPC, { "LOC" => "DELETE", "XQAID" => alert_id }) }
   end
 
   def other
-    @other ||= connect_as(OTHER_PAIR).tap { |c| refute_equal client.duz, c.duz, "the second persona is another user" }
+    @other ||= connect_as(other_pair).tap { |c| refute_equal client.duz, c.duz, "the second role is another user" }
   end
 
   def third
-    @third ||= connect_as(THIRD_PAIR).tap { |c| refute_includes [ client.duz, other.duz ], c.duz, "the third persona is another user" }
+    @third ||= connect_as(third_pair).tap { |c| refute_includes [ client.duz, other.duz ], c.duz, "the third role is another user" }
   end
 
   def connect_as(pair)
@@ -78,6 +83,10 @@ class NotificationsLiveTest < LiveSpec::Test
 
   def inbox_ids = RpmsRpc::Notifications.inbox.map { |row| row[:alert_id] }
   def as_other(&) = RpmsRpc.with_client(other, &)
+
+  # The user's NEW PERSON name, as sign-on read it from CIAVCXUS VIMINFO
+  # (#849; signon_name_live_test.rb checks it against #200 .01).
+  def name_of(session) = session.signon_user || flunk("DUZ #{session.duz} signed on with no name")
 
   def test_s_sgn_02_1_an_alert_sent_to_me_is_listed_with_its_patient
     before = inbox_ids
@@ -92,7 +101,7 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_equal message, alert[:message]
     assert_equal DFN, alert[:patient_dfn]
     assert_equal "MOUSE,MICKEY M", alert[:patient_name]
-    assert_equal client.signon_user, alert[:sender]
+    assert_equal name_of(client), alert[:sender]
     assert_equal :high, alert[:priority]
     assert_equal false, alert[:info_only]
     assert_equal "BEHOXQ", alert[:type]
@@ -102,7 +111,7 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_includes RpmsRpc::Notifications.inbox(patient_dfn: DFN).map { |r| r[:alert_id] }, alert[:alert_id]
     refute_includes RpmsRpc::Notifications.inbox(patient_dfn: OTHER_DFN).map { |r| r[:alert_id] }, alert[:alert_id],
                     "with another patient in context, this patient's alert is not listed"
-    puts "\n#{persona}: alert #{alert[:alert_id]} for DFN #{DFN} listed by BEHOXQ ALRLIST"
+    puts "\n#{role}: alert #{alert[:alert_id]} for DFN #{DFN} listed by BEHOXQ ALRLIST"
   end
 
   def test_i_remove_a_removable_notification_and_it_leaves_my_inbox
@@ -112,7 +121,7 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_equal({ alert_id: alert_id, removed: true }, RpmsRpc::Notifications.remove(alert_id))
 
     refute_includes inbox_ids, alert_id, "BEHOXQ ALRPP removed it from my notifications"
-    puts "\n#{persona}: alert #{alert_id} removed through BEHOXQ ALRPP"
+    puts "\n#{role}: alert #{alert_id} removed through BEHOXQ ALRPP"
   end
 
   def test_a_notification_rpms_marks_not_removable_is_refused_and_stays
@@ -158,10 +167,10 @@ class NotificationsLiveTest < LiveSpec::Test
       refute_nil row, "the forwarded alert is in the recipient's notifications"
       assert_equal message, row[:message]
       assert_equal DFN, row[:patient_dfn]
-      assert_equal client.signon_user, row[:sender], "ALRLIST names the original sender"
-      refute_equal other.signon_user, row[:sender], "not the forwarder"
+      assert_equal name_of(client), row[:sender], "ALRLIST names the original sender"
+      refute_equal name_of(other), row[:sender], "not the forwarder"
       assert_equal comment, RpmsRpc::Notifications.message(alert_id).first, "BEHOXQ ALRMSG answers the forwarding comment first"
     end
-    puts "\n#{persona}: alert #{alert_id} forwarded by DUZ #{other.duz} to DUZ #{third.duz} with its comment"
+    puts "\n#{role}: alert #{alert_id} forwarded by DUZ #{other.duz} to DUZ #{third.duz} with its comment"
   end
 end

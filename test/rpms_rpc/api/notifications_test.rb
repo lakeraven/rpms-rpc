@@ -2,56 +2,65 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/notifications"
+require_relative "../captured_replies"
 
-# RpmsRpc::Notifications.inbox reads what BEHOXQ ALRLIST answers: the rows
-# below are the reply a rpms-ydb e9b78c8 container gave PROFILE,MD on
-# 2026-11-04, after three alerts were sent to that user through Kernel's
-# XQAL GUI ALERTS (SEND): two OE/RR UNSCHEDULED VISIT notifications for the
-# demo patient MOUSE,MICKEY M, and one IHS EHR (BEHOXQ) alert with no patient.
-# The layout is ALRLIST^BEHOXQ's (mappings/ihs.rb, :notifications_inbox).
+# RpmsRpc::Notifications reads and acts on what BEHOXQ ALRLIST, ALRPP,
+# FORWARD and ALRMSG answered on the pinned build. The replies are
+# test/fixtures/captured_replies/notifications.yml (spec
+# tools/captured_replies/notifications.rb): five alerts sent through XQAL GUI
+# ALERTS, beside the OR consult alert the image carries, replayed through
+# CiaClient's own reply grammar. Each test checks the gem sent exactly the
+# recorded calls. The round trip itself is test/live/notifications_live_test.rb.
 class NotificationsTest < Minitest::Test
-  CAPTURED = [
-    "1^0^^  ^Staff meeting moved to 3 PM.^3261104.175352^MANAGER,SYSTEM^0^BEHOXQ^BEHOXQ,PROBE;4;3261104.175352^0^PRI=1^INF=0",
-    "2^1^MOUSE,MICKEY M    (1001)^  ^Unscheduled visit.^3261104.174742^POSTMASTER^3^OR.19^OR,3,19;.5;3261104.174742^1^",
-    "2^1^MOUSE,MICKEY M    (1001)^  ^Unscheduled visit (probe).^3261104.175206^MANAGER,SYSTEM^3^OR.19^OR,3,19;4;3261104.175206^1^"
-  ].freeze
-
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed_raw_lines(:notifications_inbox, "", CAPTURED)
-      m.seed_raw_lines(:notifications_inbox, "4", CAPTURED.first(1))
-    end
-  end
+  SLUG = "notifications"
+  KEEP_ID = "BEHOXQ,CAPKEEP;200;3261120.050509"
+  REMOVABLE_ID = "BEHOXQ,CAPDEL;200;3261120.050509"
+  NO_PATIENT_ID = "BEHOXQ,CAPNOPT;200;3261120.050509"
+  TIU_ID = "TIU,CAPTIU;200;3261120.050509"
+  FORWARD_ID = "BEHOXQ,CAPFWD;200;3261120.050509"
+  ELSEWHERE_ID = "BEHOXQ,ELSE;9;3261104.1"
 
   def teardown
     RpmsRpc.reset!
   end
 
+  def replay(flow)
+    client = CapturedReplies::ReplayCiaClient.new(flow ? CapturedReplies.flow_script(SLUG, flow) : {})
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def sent(client) = client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
+  def recorded(flow) = CapturedReplies.flow_calls(SLUG, flow)
+
   def test_s_sgn_02_1_each_notification_carries_its_patient
+    replay("inbox")
     rows = RpmsRpc::Notifications.inbox
 
-    assert_equal 3, rows.size
-    visit = rows[1]
+    assert_equal 5, rows.size
     assert_equal({
-      alert_id: "OR,3,19;.5;3261104.174742",
+      alert_id: KEEP_ID,
       patient_dfn: 3,
       patient_name: "MOUSE,MICKEY M",
       hrn: "1001",
       location: nil,
-      message: "Unscheduled visit.",
-      delivered_at: Time.new(2026, 11, 4, 17, 47, 42),
-      sender: "POSTMASTER",
-      priority: :moderate,
-      info_only: true,
-      removable: true,
-      type: "OR.19"
-    }, visit)
+      message: "Review the visit.",
+      delivered_at: Time.new(2026, 11, 20, 5, 5, 9),
+      sender: "PROVIDER,TEST",
+      priority: :high,
+      info_only: false,
+      removable: false,
+      type: "BEHOXQ"
+    }, rows.find { |r| r[:alert_id] == KEEP_ID })
+    consult = rows.find { |r| r[:type] == "OR.27" }
+    assert_equal [ 2, "USER,TEST", "123456", :moderate, true, "PROFILE,MD" ],
+                 consult.values_at(:patient_dfn, :patient_name, :hrn, :priority, :removable, :sender)
   end
 
   def test_an_alert_with_no_patient_has_no_dfn_or_name
-    row = RpmsRpc::Notifications.inbox.first
+    replay("inbox")
+    row = RpmsRpc::Notifications.inbox.find { |r| r[:alert_id] == NO_PATIENT_ID }
 
     assert_nil row[:patient_dfn], "ALRLIST sends DFN 0 for an alert with no patient"
     assert_nil row[:patient_name]
@@ -63,134 +72,101 @@ class NotificationsTest < Minitest::Test
   end
 
   def test_the_read_sends_behoxq_alrlist_for_the_signed_on_user
+    client = replay("inbox")
     RpmsRpc::Notifications.inbox
 
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BEHOXQ ALRLIST", call[:rpc]
-    assert_empty call[:params].to_a, "ALRLIST reads DUZ: no user is passed"
+    assert_equal [ [ "BEHOXQ ALRLIST", [] ] ], sent(client), "ALRLIST reads DUZ: no user is passed"
+    assert_equal recorded("inbox"), sent(client)
   end
 
   def test_a_patient_limits_the_read
+    client = replay("inbox_patient")
     rows = RpmsRpc::Notifications.inbox(patient_dfn: 4)
 
-    assert_equal [ "4" ], RpmsRpc.client.received_calls.last[:params].to_a
-    assert_equal [ "BEHOXQ,PROBE;4;3261104.175352" ], rows.map { |r| r[:alert_id] }
+    assert_equal recorded("inbox_patient"), sent(client)
+    assert_equal [ [ "BEHOXQ ALRLIST", [ "4" ] ] ], sent(client)
+    assert_equal [ NO_PATIENT_ID, TIU_ID ], rows.map { |r| r[:alert_id] }, "another patient's alerts are not listed"
   end
 
   def test_no_alerts_is_an_empty_list
-    RpmsRpc.mock! { |m| m.seed_raw_lines(:notifications_inbox, "", []) }
+    replay("inbox_empty")
 
     assert_equal [], RpmsRpc::Notifications.inbox
   end
 
   # -- remove / forward / message ---------------------------------------------
-  #
-  # Replies a rpms-ydb e9b78c8 container gave on 2026-11-04: MANAGER,SYSTEM
-  # sent itself a BEHOXQ alert marked XQACNDEL=1 (CAN DELETE), then forwarded
-  # it to PROFILE,SCHED with a comment. BEHOXQ ALRPP answers the alert
-  # handler's IEN (3, the BEHOXQ handler in #90460.021), whether or not that
-  # handler deleted anything; BEHOXQ FORWARD answers 0 always (BEHOXQ.m:56-59).
-  REMOVABLE = "1^0^MOUSE,MICKEY M    (1001)^  ^Lab result to review.^3261104.195631^MANAGER,SYSTEM^3^BEHOXQ^" \
-              "BEHOXQ,PROBE4;4;3261104.195631^1^DFN=3^PRI=1^INF=0"
-  REMOVABLE_ID = "BEHOXQ,PROBE4;4;3261104.195631"
-  NOT_REMOVABLE_ID = "BEHOXQ,PROBE;4;3261104.175352" # CAPTURED.first: CAN DELETE 0
-
-  # The mock answers the seeded inbox until +rpc+ is sent, then +after+:
-  # the two ALRLIST replies the container gave before and after the write.
-  def inbox_changes_after(rpc, after)
-    RpmsRpc.client.define_singleton_method(:call_rpc) do |name, *params|
-      reply = super(name, *params)
-      seed_raw_lines(:notifications_inbox, "", after) if name == rpc
-      reply
-    end
-  end
-
-  def seed_removable(handler: "3")
-    RpmsRpc.mock! do |m|
-      m.seed_raw_lines(:notifications_inbox, "", [ REMOVABLE ] + CAPTURED)
-      m.seed_raw_lines(:notifications_remove, REMOVABLE_ID, [ handler ])
-    end
-  end
-
-  def sent_rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
 
   def test_remove_sends_behoxq_alrpp_as_vuecentric_does_and_confirms_it_is_gone
-    seed_removable
-    inbox_changes_after("BEHOXQ ALRPP", CAPTURED)
+    client = replay("remove")
 
     assert_equal({ alert_id: REMOVABLE_ID, removed: true }, RpmsRpc::Notifications.remove(REMOVABLE_ID))
-
-    assert_equal [ "BEHOXQ ALRLIST", "BEHOXQ ALRPP", "BEHOXQ ALRLIST" ], sent_rpcs, "listed, removed, confirmed"
-    assert_equal [ REMOVABLE_ID ], RpmsRpc.client.received_calls[1][:params].to_a
+    assert_equal recorded("remove"), sent(client), "listed, removed, confirmed"
+    assert_equal [ "BEHOXQ ALRLIST", "BEHOXQ ALRPP", "BEHOXQ ALRLIST" ], sent(client).map(&:first)
   end
 
   def test_remove_refuses_an_alert_rpms_marks_not_removable_and_sends_nothing
-    seed_removable
+    client = replay("remove_not_removable")
 
-    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(NOT_REMOVABLE_ID) }
+    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(KEEP_ID) }
     assert_match(/may not be removed/, error.message)
-    refute_includes sent_rpcs, "BEHOXQ ALRPP"
+    assert_equal recorded("remove_not_removable"), sent(client)
+    refute_includes sent(client).map(&:first), "BEHOXQ ALRPP"
   end
 
   def test_remove_refuses_an_alert_that_is_not_in_my_notifications
-    seed_removable
+    client = replay("remove_not_listed")
 
-    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove("BEHOXQ,ELSE;9;3261104.1") }
+    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(ELSEWHERE_ID) }
     assert_match(/not in your notifications/, error.message)
-    refute_includes sent_rpcs, "BEHOXQ ALRPP"
+    assert_equal recorded("remove_not_listed"), sent(client)
+    refute_includes sent(client).map(&:first), "BEHOXQ ALRPP"
   end
 
+  # The TIU alert handler (#90460.021 entry 2) has no post-processing: ALRPP
+  # answers its IEN, 2, and the alert is still listed.
   def test_remove_raises_when_the_alert_is_still_listed_afterwards
-    seed_removable # the inbox never changes: the handler deleted nothing
+    client = replay("remove_still_listed")
 
-    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(REMOVABLE_ID) }
+    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(TIU_ID) }
     assert_match(/still listed/, error.message)
-  end
-
-  def test_remove_raises_when_no_alert_handler_matched
-    seed_removable(handler: "0")
-
-    error = assert_raises(RpmsRpc::Notifications::RefusedError) { RpmsRpc::Notifications.remove(REMOVABLE_ID) }
-    assert_match(/no alert handler/, error.message)
+    assert_equal recorded("remove_still_listed"), sent(client)
   end
 
   def test_forward_sends_behoxq_forward_with_the_recipients_and_comment
-    seed_removable
-    RpmsRpc.client.seed_raw_lines(:notifications_forward, REMOVABLE_ID, [ "0" ])
+    client = replay("forward")
 
-    result = RpmsRpc::Notifications.forward(REMOVABLE_ID, to: 208, comment: "Please review today.")
+    result = RpmsRpc::Notifications.forward(FORWARD_ID, to: 207, comment: "Please review today.")
 
-    assert_equal({ alert_id: REMOVABLE_ID, forwarded_to: [ 208 ], comment: "Please review today." }, result)
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BEHOXQ FORWARD", call[:rpc]
-    assert_equal [ REMOVABLE_ID, { "1" => "208" }, "Please review today." ], call[:params].to_a
+    assert_equal({ alert_id: FORWARD_ID, forwarded_to: [ 207 ], comment: "Please review today." }, result)
+    assert_equal recorded("forward"), sent(client)
+    assert_equal [ "BEHOXQ FORWARD", [ FORWARD_ID, { "1" => "207" }, "Please review today." ] ], sent(client).last
   end
 
   def test_forward_refuses_an_alert_that_is_not_in_my_notifications
-    seed_removable
+    client = replay("inbox")
 
     error = assert_raises(RpmsRpc::Notifications::RefusedError) do
-      RpmsRpc::Notifications.forward("BEHOXQ,ELSE;9;3261104.1", to: 208)
+      RpmsRpc::Notifications.forward(ELSEWHERE_ID, to: 207)
     end
     assert_match(/not in your notifications/, error.message)
-    refute_includes sent_rpcs, "BEHOXQ FORWARD"
+    assert_equal recorded("inbox"), sent(client), "listed, then nothing more"
   end
 
   def test_forward_refuses_a_recipient_that_is_not_a_duz_and_a_comment_rpms_cannot_hold
-    seed_removable
+    client = replay(nil)
 
-    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(REMOVABLE_ID, to: []) }
-    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(REMOVABLE_ID, to: "G.SCHEDULERS") }
-    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(REMOVABLE_ID, to: 0) }
-    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(REMOVABLE_ID, to: 208, comment: "a" * 246) }
-    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(REMOVABLE_ID, to: 208, comment: "a^b") }
-    assert_empty RpmsRpc.client.received_calls, "nothing is sent for an argument RPMS would not take"
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(FORWARD_ID, to: []) }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(FORWARD_ID, to: "G.SCHEDULERS") }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(FORWARD_ID, to: 0) }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(FORWARD_ID, to: 207, comment: "a" * 246) }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.forward(FORWARD_ID, to: 207, comment: "a^b") }
+    assert_empty sent(client), "nothing is sent for an argument RPMS would not take"
   end
 
   def test_message_answers_the_forwarding_comment_first
-    RpmsRpc.mock! { |m| m.seed_raw_lines(:notifications_message, REMOVABLE_ID, [ "Please review today." ]) }
+    client = replay("message")
 
-    assert_equal [ "Please review today." ], RpmsRpc::Notifications.message(REMOVABLE_ID)
-    assert_equal "BEHOXQ ALRMSG", RpmsRpc.client.received_calls.last[:rpc]
+    assert_equal [ "Please review today." ], RpmsRpc::Notifications.message(FORWARD_ID)
+    assert_equal recorded("message"), sent(client)
   end
 end

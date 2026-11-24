@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# bin/cloud_rpms — run this gem's pinned RPMS release on a machine with Docker but no route to a
+# bin/cloud_rpms — run an openrpms release on a machine with Docker but no route to a
 # staging stack (a cloud agent VM), so wire:capture, bin/console and live tests reach a broker.
 #
-#   bin/cloud_rpms up       start dockerd if needed, then run the pinned image; wait until healthy
+#   bin/cloud_rpms up       start dockerd if needed, then run the release's image; wait until healthy
 #   bin/cloud_rpms down     stop and remove the container (the volume stays)
 #   bin/cloud_rpms status   show the container and its health
 #
@@ -13,10 +13,11 @@
 # Which release, first match wins:
 #   RPMS_IMAGE=<ref>   any image ref, e.g. a digest
 #   RPMS_TAG=<tag>     a gated openrpms release tag, to reproduce a specific build
-#   PINNED=1           the newest `image:` in data/fingerprints/rpms-ops.lock.yml (what the
-#                      conformance fixtures were captured from)
-#   (default)          the openrpms release marked Latest, the newest one that passed the gate;
-#                      the lock pin when the releases API can't be reached
+#   PINNED=1           the release this checkout tests against: the `image` in
+#                      tmp/openrpms/current.json, written by `rake openrpms:fetch` (rpms-rpc#724)
+#   (default)          the newest published bcer-*-ydb release (the Latest may be an -iris one,
+#                      which ships databases, not an image); the PINNED=1 image when the releases
+#                      API can't be reached
 #
 # The compose project is named rpms-rpc. A release refuses another build's /data (openrpms#514),
 # so when the release changes, `up` removes this project's container and volume first: it holds
@@ -28,7 +29,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EHR="${LAKERAVEN_EHR_PATH:-$ROOT/../lakeraven-ehr}"
-LOCK="$ROOT/data/fingerprints/rpms-ops.lock.yml"
+CURRENT="${OPENRPMS_INVENTORIES:-$ROOT/tmp/openrpms}/current.json"
 LOG_DIR="${TMPDIR:-/tmp}"
 
 log() { printf '[cloud_rpms] %s\n' "$*" >&2; }
@@ -40,26 +41,27 @@ compose() {
 
 REPO_IMAGE=ghcr.io/lakeraven/openrpms   # the image name since openrpms#1175 (rpms-ydb holds releases gated before it)
 
-lock_image() {
+current_image() {
   local img
-  img=$(grep -E '^[[:space:]]+image: ' "$LOCK" | tail -1 | awk '{print $2}')
-  [ -n "$img" ] || { log "no image: in $LOCK; set RPMS_IMAGE= or RPMS_TAG="; exit 1; }
+  img=$(jq -r '.image // empty' "$CURRENT" 2>/dev/null || true)
+  [ -n "$img" ] || { log "no image in $CURRENT (run: bundle exec rake openrpms:fetch); or set RPMS_IMAGE= or RPMS_TAG="; exit 1; }
   echo "$img"
 }
 
 wanted_image() {
   if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
   if [ -n "${RPMS_TAG:-}" ]; then echo "$REPO_IMAGE:$RPMS_TAG"; return; fi
-  if [ -n "${PINNED:-}" ]; then lock_image; return; fi
+  if [ -n "${PINNED:-}" ]; then current_image; return; fi
   # On failure gh still prints the error body to stdout, so take the tag only on success and only
   # when it is a well-formed Docker tag.
   local tag
-  if tag=$(gh api repos/lakeraven/openrpms/releases/latest --jq .tag_name 2>/dev/null) &&
+  if tag=$(gh api --paginate --slurp repos/lakeraven/openrpms/releases 2>/dev/null |
+             jq -r 'add | [.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^bcer-.*-ydb$")))] | sort_by(.published_at) | last | .tag_name // empty') &&
      [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
     echo "$REPO_IMAGE:$tag"; return
   fi
-  log "can't read the Latest openrpms release; using the lock pin"
-  lock_image
+  log "can't read the openrpms releases; using the release this checkout tests against"
+  current_image
 }
 
 ensure_dockerd() {

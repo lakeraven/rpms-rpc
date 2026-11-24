@@ -17,9 +17,10 @@ require "rpms_rpc/api/ddr_fileman"
 # synthetic seed patients are DFNs 9900xx. When the seed changes, a spec fails
 # and names what it expected; it never skips.
 #
-# Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
-# and for the programmer alike. These specs read only; they file nothing.
+# Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for the provider
+# and for the operator alike. These specs read only; they file nothing.
 class PatientLiveTest < LiveSpec::Test
+  runs_as :provider
   MICKEY = { dfn: 3, name: "MOUSE,MICKEY M", sex: "M", dob: Date.new(1910, 2, 14), ssn: "000009999" }.freeze
   DEMO_ONE = { dfn: 4, name: "DEMO,PATIENT ONE", sex: "F", dob: Date.new(2001, 1, 1), mrn: "99901" }.freeze
   SEED_DFNS = (990_000..990_099)
@@ -101,7 +102,13 @@ class PatientLiveTest < LiveSpec::Test
       refute_nil id_info, "ORWPT ID INFO #{dfn}"
 
       assert_equal row[:name], select[:name], "SELECT name for #{dfn}"
-      %i[name sex dob ssn].each { |k| assert_equal select[k], id_info[k], "#{k} for #{dfn}" }
+      # A sensitive record (DG SECURITY LOG, #38.1) the user is not cleared
+      # for: ID INFO answers "*SENSITIVE*" in place of the SSN and the DOB,
+      # where SELECT answers both. The demo build has one since
+      # bcer-9.0-20261124-60d39b6-ydb (TANGO,MARLOWE).
+      masked = id_info[:ssn] == "*SENSITIVE*"
+      assert_nil id_info[:dob], "ID INFO masks the DOB of sensitive #{dfn}" if masked
+      (masked ? %i[name sex] : %i[name sex dob ssn]).each { |k| assert_equal select[k], id_info[k], "#{k} for #{dfn}" }
       assert_includes %w[M F], select[:sex], "sex for #{dfn}"
       assert_kind_of Date, select[:dob], "dob for #{dfn}"
       assert_match(/\A\d{9}\z/, select[:ssn], "ssn for #{dfn}")
@@ -193,7 +200,10 @@ class PatientLiveTest < LiveSpec::Test
       header = RpmsRpc::Patient.brief_header(row[:dfn])
       found = RpmsRpc::Patient.find(row[:dfn])
       refute_nil header, "no chart banner for #{row[:dfn]}"
-      %i[name sex dob].each { |k| assert_equal found[k], header[k], "#{k} for #{row[:dfn]}" }
+      # Patient.find takes the DOB from ID INFO, which masks a sensitive
+      # record's; the banner (BEHOPTCX PTINFO) does not (see the test above).
+      keys = found[:ssn] == "*SENSITIVE*" ? %i[name sex] : %i[name sex dob]
+      keys.each { |k| assert_equal found[k], header[k], "#{k} for #{row[:dfn]}" }
       refute_empty header[:mrn].to_s, "MRN for #{row[:dfn]}"
       assert_includes [ true, false ], header[:allergy_flag]
     end

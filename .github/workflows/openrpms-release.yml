@@ -1,0 +1,178 @@
+name: openrpms release
+# The gem against the latest published openrpms YottaDB release, looked up when this runs
+# (rpms-rpc#724 step 1). No release is pinned in this repository.
+#
+#   Release gate  resolves the release (`rake openrpms:fetch`), then runs `rake test` with its RPC surface:
+#                 the name gate, the callable gate, Features and the stock-RPC checks run against it.
+#                 Writes tested-against.json (which release, how chosen, the result) as an artifact.
+#   Live          runs the live specs (`rake test:live`) against that release's image, once per test role
+#                 a live spec runs as (README, Test roles). Each role signs on with its row's published
+#                 pair (lib/rpms_rpc/test_roles.rb); the operator, the one role holding XUPROGMODE, takes
+#                 its verify code from a secret.
+#
+# Access. lakeraven/openrpms and its image are private, and GITHUB_TOKEN reaches only this repository:
+#   OPENRPMS_READ_TOKEN        a token that can read lakeraven/openrpms releases (Contents: read)
+#   GITHUB_TOKEN packages:read pulls the image once the openrpms package grants this repository
+#                              read access ("Manage Actions access" in the package settings)
+#   OPENRPMS_OPERATOR_VERIFY   the operator role's verify code (SYS123's, the one pair not published)
+# A missing one fails its job with an error naming it; nothing is skipped quietly.
+#
+# The Release gate runs on every push to main and every pull request, daily (a new release moves "latest"
+# with no commit here), and by hand with a release tag to test a specific one. Live runs on the same events
+# except pull requests: the image is private and this repository is public, so a run must not hand a fork
+# code that can pull it (the rule lakeraven-ehr's live job states too).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 14 * * *"
+  workflow_dispatch:
+    inputs:
+      openrpms_release:
+        description: "openrpms release tag to test against (blank: the latest published -ydb release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release gate (latest openrpms)
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.fetch.outputs.tag }}
+      image: ${{ steps.fetch.outputs.image }}
+    env:
+      GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+      OPENRPMS_RELEASE: ${{ inputs.openrpms_release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # rpc_tiers_test diffs data/rpc_tiers/grandfathered.yml against the base branch.
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Resolve and fetch the openrpms release
+        id: fetch
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=No access to openrpms releases::OPENRPMS_READ_TOKEN is not set (or this is a fork's pull request, which gets no secrets). lakeraven/openrpms is private and GITHUB_TOKEN reaches only this repository, so this job cannot read the release to test against. An organization admin adds a token with Contents: read on lakeraven/openrpms as the OPENRPMS_READ_TOKEN secret."
+            exit 1
+          fi
+          bundle exec rake openrpms:fetch
+      - name: Run the tests against it (gates included)
+        id: tests
+        env:
+          RUBYOPT: --enable-frozen-string-literal
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq stunnel4
+          bundle exec rake test
+      - name: Record what was tested
+        if: always() && steps.fetch.outcome == 'success'
+        env:
+          OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          jq --arg outcome "$OUTCOME" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '. + {rpms_rpc_commit: $sha, tests: $outcome, run: $run}' tmp/openrpms/current.json > tested-against.json
+          {
+            echo "### Tested against openrpms $(jq -r .tag tested-against.json)"
+            echo
+            echo "chosen by: $(jq -r .chosen_by tested-against.json) · image: \`$(jq -r .image tested-against.json)\` · tests: $OUTCOME"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat tested-against.json
+      - name: Upload tested-against.json
+        if: always() && steps.fetch.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-against
+          path: tested-against.json
+
+  live:
+    name: Live (${{ matrix.role }})
+    needs: release
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every role a live spec declares (LiveSpec.roles_in_use; live_spec_guard_test.rb checks the two agree).
+        role: [provider, nurse, medical_assistant, front_desk_clerk, registration_supervisor, scheduler, bh_provider, operator]
+    env:
+      GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
+      OPENRPMS_RELEASE: ${{ needs.release.outputs.tag }}
+      IMAGE: ${{ needs.release.outputs.image }}
+      ROLE: ${{ matrix.role }}
+      BROKER_HOST: 127.0.0.1
+      BROKER_PORT: "9100"
+      BMX_PORT: "9101"
+      LIVE_DISPOSABLE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Record the release under test
+        run: bundle exec rake openrpms:fetch
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull the release image
+        run: |
+          if ! docker pull "$IMAGE"; then
+            echo "::error title=No access to the openrpms image::GITHUB_TOKEN cannot pull $IMAGE. The openrpms package is private: grant lakeraven/rpms-rpc read access under the package's Manage Actions access."
+            exit 1
+          fi
+      - name: Start RPMS
+        run: |
+          docker run -d --name rpms -p 127.0.0.1:9100:9100 -p 127.0.0.1:9101:9101 "$IMAGE"
+          for _ in $(seq 1 90); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' rpms)" = healthy ] && exit 0
+            sleep 5
+          done
+          docker logs rpms | tail -20
+          echo "::error::RPMS did not become healthy"
+          exit 1
+      # Every other role signs on with its row's published pair; only the operator's verify code is a secret.
+      - name: The operator's verify code
+        if: matrix.role == 'operator'
+        env:
+          OPERATOR_VERIFY: ${{ secrets.OPENRPMS_OPERATOR_VERIFY }}
+        run: |
+          if [ -z "$OPERATOR_VERIFY" ]; then
+            echo "::error title=No operator verify code::OPENRPMS_OPERATOR_VERIFY is not set, so the operator role's live run cannot sign on. An organization admin adds SYS123's verify code as that secret."
+            exit 1
+          fi
+          echo "::add-mask::$OPERATOR_VERIFY"
+          echo "RPMS_VERIFY=$OPERATOR_VERIFY" >> "$GITHUB_ENV"
+      - name: Run the live specs
+        run: |
+          set -o pipefail
+          bundle exec rake test:live 2>&1 | tee live.log
+      - name: Name the failing specs
+        if: failure()
+        run: |
+          {
+            echo "### Live specs that failed as $ROLE on $OPENRPMS_RELEASE"
+            echo
+            grep -E '^ +[0-9]+\) (Failure|Error):' -A1 live.log | grep -E '^[A-Za-z].*#test_' | sed 's/^/- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the live summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-${{ matrix.role }}
+          path: |
+            coverage/live/
+            live.log
+          if-no-files-found: ignore

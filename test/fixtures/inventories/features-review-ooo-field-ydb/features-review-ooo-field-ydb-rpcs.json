@@ -1,0 +1,184 @@
+{
+  "schema": "rpcs.v2",
+  "tag": "features-review-ooo-field-ydb",
+  "commit": "60d39b6",
+  "engine": "yottadb",
+  "rpms_version": "bcer-9.0",
+  "inputs": {
+    "broker_8994.txt": "5c5037dbd8551edad0a0806bf732023f2c45689acde06c98e757277dabe33ed8",
+    "rpc_signatures.txt": "5af0f492deb91395be3d7ed1b84555cf3ff0c5f33438205a72b86bffda2f6673",
+    "rpc_reach.txt": "96c709b06fa228fbdc1a693a1486268133c401b2da3cd832bb0b5e0d93461747",
+    "packages_9_4.txt": "2853405b07cd3d6a974bb600de88b7b732b84e690493a9d1a59f24d18db5261b",
+    "INVENTORY-PROVENANCE.json": "4bbdb27a8e57f135f6acb7a98b225b56720bb9d99587e2ffe52a2d4dbf8ded23"
+  },
+  "rpcs": [
+    {
+      "name": "BEHOPTCX PTINFO",
+      "entry_point": {
+        "tag": "PTINFO",
+        "routine": "BEHOPTCX",
+        "formals": [
+          "DATA",
+          "DFN",
+          "SLCT"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "word_wrap": null,
+      "version": null,
+      "description": [],
+      "returns": [],
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals",
+          "sequence": null,
+          "max_length": null,
+          "description": []
+        },
+        {
+          "name": "SLCT",
+          "type": null,
+          "required": null,
+          "source": "formals",
+          "sequence": null,
+          "max_length": null,
+          "description": []
+        }
+      ],
+      "package": {
+        "prefix": "BEHO",
+        "name": "BEH COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "ZZ BROKEN OPTION",
+          "CIAV VUECENTRIC",
+          "VEN RPC"
+        ],
+        "exemptions": [],
+        "out_of_order": [
+          "ZZ BROKEN OPTION"
+        ]
+      }
+    },
+    {
+      "name": "BEHOPTPC GETBDP",
+      "entry_point": {
+        "tag": "GETBDP",
+        "routine": "BEHOPTPC",
+        "formals": [
+          "RET",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "word_wrap": "1",
+      "version": null,
+      "description": [
+        "Return a list of designated providers for a patient.",
+        "Returns Null if none are found"
+      ],
+      "returns": [
+        "Array in the format:",
+        "Name of category^name of provider^ien of provider^provider class of provider^date updated",
+        "",
+        "RET(1)=\"CASE MANAGER^USER,DEMO^1^MD^3120612\"",
+        "RET(2)=\"DESIGNATED PRIMARY PROVIDER^USER,DEMO^1^MD^3100121\"",
+        "RET(3)=\"OB CARE^USER,DEMO^1^MD^3120612\"",
+        "RET(4)=\"WOMEN'S HEALTH CASE MANAGER^USER,DEMO^1^MD^3120612\""
+      ],
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": true,
+          "source": "8994",
+          "sequence": "1",
+          "max_length": null,
+          "description": [
+            "IEN of the patient to return data on."
+          ]
+        }
+      ],
+      "package": {
+        "prefix": "BEHO",
+        "name": "BEH COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "ZZ BROKEN OPTION",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": [],
+        "out_of_order": [
+          "ZZ BROKEN OPTION"
+        ]
+      }
+    },
+    {
+      "name": "ORWPT CWAD",
+      "entry_point": {
+        "tag": "CWAD",
+        "routine": "ORWPT",
+        "formals": [
+          "Y",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "word_wrap": null,
+      "version": null,
+      "description": [
+        "Returns the CWAD flag(s) for a patient."
+      ],
+      "returns": [],
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": null,
+          "source": "8994",
+          "sequence": null,
+          "max_length": "16",
+          "description": []
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "ZZ BROKEN OPTION",
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": [],
+        "out_of_order": [
+          "ZZ BROKEN OPTION"
+        ]
+      }
+    }
+  ]
+}

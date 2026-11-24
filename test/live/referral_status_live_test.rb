@@ -24,6 +24,7 @@ require "rpms_rpc/api/ddr_fileman"
 #   RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' \
 #   bundle exec ruby -Ilib -Itest test/live/referral_status_live_test.rb
 class ReferralStatusLiveTest < LiveSpec::Test
+  runs_as :provider
   writes!
 
   REFERRAL_FILE = "90001"
@@ -44,7 +45,7 @@ class ReferralStatusLiveTest < LiveSpec::Test
     assert active[:success], "record_status(#{ien}, A) answered #{active.inspect}"
     assert_equal [ ACTIVE, APPROVED ], active.values_at(:status, :previous_status)
     assert_equal ACTIVE, status_of(ien)
-    puts "\n#{persona}: referral #{ien} .15 A -> A1 (#{approved[:raw].inspect}) -> A (#{active[:raw].inspect})"
+    puts "\n#{role}: referral #{ien} .15 A -> A1 (#{approved[:raw].inspect}) -> A (#{active[:raw].inspect})"
   ensure
     restore_active(ien)
   end
@@ -91,7 +92,7 @@ class ReferralStatusLiveTest < LiveSpec::Test
     result = RpmsRpc::Referral.record_status(ien, APPROVED)
     assert_equal [ false, :locked, nil ], result.values_at(:success, :error, :raw), result.inspect
     assert_equal ACTIVE, status_of(ien), "the update was filed under another session's lock"
-    puts "\n#{persona}: referral #{ien} locked by a second session: #{result[:message]}"
+    puts "\n#{role}: referral #{ien} locked by a second session: #{result[:message]}"
   ensure
     if other
       RpmsRpc.configure { |cfg| cfg.client = other }
@@ -121,7 +122,7 @@ class ReferralStatusLiveTest < LiveSpec::Test
     again = RpmsRpc::Referral.record_status(second, APPROVED)
     assert_equal [ false, :session_poisoned ], again.values_at(:success, :error), again.inspect
     assert_equal APPROVED, status_of(first), "the update of referral #{second} did not re-file referral #{first}'s queued A1"
-    puts "\n#{persona}: after #{failed[:raw].inspect}, record_status(#{second}) re-filed referral #{first} A1: #{again[:raw].inspect}"
+    puts "\n#{role}: after #{failed[:raw].inspect}, record_status(#{second}) re-filed referral #{first} A1: #{again[:raw].inspect}"
   ensure
     # A fresh session, and DDR FILER, which does not go through UPDTSTRF's FDA.
     @client&.disconnect

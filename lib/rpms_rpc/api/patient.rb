@@ -244,6 +244,37 @@ module RpmsRpc
     end
     shape :flags, resource: "patients", verb: "GET", path: "/patients/{dfn}/flags"
 
+    POSTING_KINDS = { "A" => :allergies, "C" => :crisis_note, "W" => :clinical_warning,
+                      "D" => :advance_directive, "F" => :record_flag }.freeze
+
+    # The patient's postings, as VueCentric's postings component lists them
+    # behind the CWAD letters: BEHOCACV LIST (LIST^BEHOCACV). The TIU
+    # postings come first (ENCOVER^TIUPP3: a known-allergies line, then
+    # crisis notes, clinical warnings and advance directives, each a TIU
+    # DOCUMENT #8925), then each active patient record flag:
+    #
+    #   postings(dfn) => [{ kind:, ien:, title:, modifier:, date: }, ...]
+    #
+    # kind is :allergies, :crisis_note, :clinical_warning,
+    # :advance_directive or :record_flag; ien is the TIU DOCUMENT (or, for a
+    # flag, the PRF ASSIGNMENT #26.13) IEN, nil on the allergies line; title
+    # the document title or the flag name; modifier the posting's text or
+    # the flag type; date a Time or Date. A row of another kind raises
+    # Client::RpcError.
+    def postings(dfn)
+      return [] unless dfn.to_s.match?(/\A[1-9]\d*\z/)
+
+      DataMapper.patient_postings.lines!(dfn.to_s).map do |line|
+        ien, letter, title, modifier, date = line.split("^", -1)
+        kind = POSTING_KINDS[letter]
+        raise Client::RpcError, "BEHOCACV LIST answered a row of kind #{letter.inspect}" unless kind
+
+        { kind: kind, ien: ien.to_s.match?(/\A[1-9]\d*\z/) ? ien.to_i : nil, title: title.to_s.empty? ? nil : title,
+          modifier: modifier.to_s.empty? ? nil : modifier, date: FilemanDateParser.parse_datetime_or_date(date.to_s) }
+      end
+    end
+    shape :postings, resource: "patients", verb: "GET", path: "/patients/{dfn}/postings"
+
     shape :brief_header, resource: "patients", verb: "POST", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
@@ -501,8 +532,8 @@ module RpmsRpc
       # XwbClient/BmxClient answer with an Array from split_response, and with
       # word wrap off a type-4 reply arrives as ONE element holding the whole
       # framed blob — join before looking for framing, or it reads as a single
-      # unparseable row. MockClient's seeded line arrays have no framing and
-      # fall through to the unchanged return below.
+      # unparseable row. A reply with no framing falls through to the
+      # unchanged return below.
       body = raw.is_a?(Array) ? raw.join : raw
       return raw unless body.is_a?(String)
 

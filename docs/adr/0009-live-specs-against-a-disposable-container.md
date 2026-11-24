@@ -29,7 +29,7 @@ testable because the container is thrown away.
    openrpms#713; the exclusions, #323, generated from the pinned reach face, #394).
 2. **Contract.** A generated live sweep makes one safe read call per callable
    RPC from its `#8994` input parameters and RETURN VALUE TYPE, and records the
-   reply's shape per build and persona (#348). Its output is the build's
+   reply's shape per build and test role (#348). Its output is the build's
    contract catalogue, stored in lakeraven/rpms-diffs as evidence for client
    builders. It is not a test. `rake wire:capture` output moves there (#347).
    Writes are not swept; they enter at layer 3.
@@ -38,6 +38,11 @@ testable because the container is thrown away.
 4. **Data surfaces.** FileMan through the DDR RPCs, and the BMW SQL projection.
 
 Coverage is reported per layer: accounted for, contract known, typed in the gem.
+Every live record names the test role that signed on, never a pair: the live
+specs' summaries, `rake rpc:live` evidence (`<backend>.<role>.json`) and the
+wire cases openrpms runs as `operator` and `provider` (amended 2026-11-22, when
+the coverage tooling dropped the least-privilege and programmer labels). A run
+as the operator, which holds XUPROGMODE, never counts toward a number.
 
 ### Live specs prove layer 3
 
@@ -46,8 +51,14 @@ Coverage is reported per layer: accounted for, contract known, typed in the gem.
   runs them; `rake test` does not.
 - It asserts shape and invariants, not demo-data values. Data it needs, it
   makes through a registered RPC and removes afterwards.
-- It runs once per persona: the least-privilege PROV123 (the headline) and the
-  programmer SYS123. A spec binds the context the RPC's package serves it under.
+- It runs as the test role whose work it proves, named for the clinic persona
+  it plays (`runs_as :provider`, rpms-rpc#452, amended 2026-11-18 and
+  2026-11-20); a run signs on as one role (`ROLE=provider`) and runs that
+  role's specs. A role's account, sign-on pair, options, keys and XUPROGMODE
+  are its row in `lib/rpms_rpc/test_roles.rb`, defined once. Each row is
+  minimal, and `role_refusal_live_test.rb` proves it by what the role is
+  refused; a run fails when the signed-on account's XUPROGMODE disagrees with
+  its row. A spec binds the context the RPC's package serves it under.
 - A spec that writes declares so, and fails closed unless the target is
   declared disposable and on this machine.
 - A run speaks one broker line, `BROKER_PROTOCOL=cia` (the default) or `xwb`.

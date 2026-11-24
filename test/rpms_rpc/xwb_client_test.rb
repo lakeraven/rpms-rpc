@@ -340,3 +340,48 @@ class XwbClientDivisionTest < Minitest::Test
     refute(writes.any? { |w| w.include?("XUS DIVISION SET") })
   end
 end
+
+# A refused XWB CREATE CONTEXT raises ContextBindRefusedError naming the
+# option (#756). CRCONTXT^XWBSEC sets XWBSEC to its reason, and SND^XWBRW
+# sends XWBSEC as the security packet ahead of the data, so over XWB the
+# refusal reaches the client through read_response. These frames are that
+# SNDERR layout, built by hand: they cover the client's refusal channel,
+# not RPMS (the BMX live spec, test/live/bmx/context_bind_refused_live_test.rb,
+# proves the server side).
+class XwbClientContextBindRefusedTest < Minitest::Test
+  def connected_client(reply)
+    c = XwbClientDivisionTest.new(nil).connected_client([ reply ])
+    c.set_authenticated("900001")
+    c
+  end
+
+  def security_frame(text) = "#{text.bytesize.chr}#{text}\x00#{text}\x04"
+
+  def test_a_refusal_in_the_security_packet_names_the_option
+    c = connected_client(security_frame("User does not have access to option AGGRPC"))
+
+    error = assert_raises(RpmsRpc::Client::ContextBindRefusedError) { c.create_context("AGGRPC") }
+
+    assert_equal "AGGRPC", error.option
+    assert_kind_of RpmsRpc::Client::RpcRefusedError, error
+    assert_match(/Failed to create context 'AGGRPC': User does not have access to option AGGRPC/, error.message)
+    assert_nil c.current_context
+  end
+
+  def test_a_refusal_in_the_reply_names_the_option
+    c = connected_client("\x00\x00The context 'ZZ NONE' does not exist on server.\x04")
+
+    error = assert_raises(RpmsRpc::Client::ContextBindRefusedError) { c.create_context("ZZ NONE") }
+
+    assert_equal "ZZ NONE", error.option
+  end
+
+  def test_an_m_error_while_binding_is_not_a_refusal
+    c = connected_client(security_frame("M  ERROR=<UNDEFINED>CRCONTXT+3^XWBSEC"))
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { c.create_context("AGGRPC") }
+
+    refute_kind_of RpmsRpc::Client::ContextBindRefusedError, error
+    assert_nil c.current_context
+  end
+end

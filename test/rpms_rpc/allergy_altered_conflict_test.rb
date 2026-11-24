@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 
 # rpms-rpc#463 x #483: the altered flag composes with the allergy classifier.
 # Altered text is never a conflict by itself, never NKA, and the flag follows
