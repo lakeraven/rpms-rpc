@@ -148,6 +148,7 @@
 "RpmsRpc::DdrFileman.gets_entry_param": read
 "RpmsRpc::DdrFileman.key_validator_param": read
 "RpmsRpc::DdrFileman.lines": read
+"RpmsRpc::DdrFileman.list_all": read
 "RpmsRpc::DdrFileman.lister": non_idempotent_write
 "RpmsRpc::DdrFileman.lister_param": read
 "RpmsRpc::DdrFileman.lock": non_idempotent_write
@@ -180,6 +181,7 @@
 "RpmsRpc::Encounter.visits": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
 "RpmsRpc::ExamComponent.for_patient": read
+"RpmsRpc::ExamComponent.types": read
 "RpmsRpc::HealthFactor.add": non_idempotent_write
 "RpmsRpc::HealthFactor.for_patient": read
 "RpmsRpc::HealthSummary.clinical_reminders": read
@@ -208,6 +210,7 @@
 "RpmsRpc::Measurement.for_visit": read
 "RpmsRpc::Measurement.latest": read
 "RpmsRpc::Measurement.newest_by_type": read
+"RpmsRpc::Measurement.types": read
 "RpmsRpc::Medication.active_for_patient": read
 "RpmsRpc::Medication.find": read
 "RpmsRpc::Medication.for_patient": read
@@ -444,6 +447,8 @@
 "RpmsRpc::Site.list": read
 "RpmsRpc::Symptom.defaults": read
 "RpmsRpc::Symptom.search": read
+"RpmsRpc::Taxonomy.list": read
+"RpmsRpc::Taxonomy.members": read
 "RpmsRpc::Tribal.communities": read
 "RpmsRpc::Tribal.eligibility": read
 "RpmsRpc::Tribal.enrollment": read

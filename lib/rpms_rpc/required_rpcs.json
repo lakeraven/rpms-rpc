@@ -203,7 +203,8 @@
     ],
     "RpmsRpc::ExamComponent": [
       "BGOVEXAM GET",
-      "BGOVEXAM SET"
+      "BGOVEXAM SET",
+      "DDR LISTER"
     ],
     "RpmsRpc::HealthFactor": [
       "BGOVHF GET",
@@ -248,6 +249,7 @@
       "BGOVMSR LAST",
       "BGOVMSR SET",
       "DDR GETS ENTRY DATA",
+      "DDR LISTER",
       "ORQQVI VITALS"
     ],
     "RpmsRpc::Medication": [
@@ -502,6 +504,9 @@
     "RpmsRpc::Symptom": [
       "ORWDAL32 DEF",
       "ORWDAL32 SYMPTOMS"
+    ],
+    "RpmsRpc::Taxonomy": [
+      "DDR LISTER"
     ],
     "RpmsRpc::Tribal": [
       "DDR GETS ENTRY DATA",
@@ -2338,13 +2343,16 @@
         "RpmsRpc::ClinicalReview.record": "non_idempotent_write",
         "RpmsRpc::Coverage.delete_medicare_record": "non_idempotent_write",
         "RpmsRpc::Coverage.delete_private_insurance": "non_idempotent_write",
+        "RpmsRpc::DdrFileman.list_all": "read",
         "RpmsRpc::DdrFileman.lister": "non_idempotent_write",
+        "RpmsRpc::ExamComponent.types": "read",
         "RpmsRpc::HealthSummary.component_data": "read",
         "RpmsRpc::HealthSummary.for_patient": "read",
         "RpmsRpc::HealthSummary.generate_selective": "read",
         "RpmsRpc::HealthSummary.summary_types": "read",
         "RpmsRpc::ImmunizationLot.list": "read",
         "RpmsRpc::Location.search": "read",
+        "RpmsRpc::Measurement.types": "read",
         "RpmsRpc::Patient.register": "non_idempotent_write",
         "RpmsRpc::PatientApplication.add": "non_idempotent_write",
         "RpmsRpc::PatientApplication.for_patient": "read",
@@ -2398,6 +2406,8 @@
         "RpmsRpc::SchedulingSetup.resource_users": "read",
         "RpmsRpc::SchedulingSetup.set_clinic_note": "non_idempotent_write",
         "RpmsRpc::SchedulingSetup.set_default_provider": "non_idempotent_write",
+        "RpmsRpc::Taxonomy.list": "read",
+        "RpmsRpc::Taxonomy.members": "read",
         "RpmsRpc::Tribal.communities": "read",
         "RpmsRpc::Tribal.tribes": "read",
         "RpmsRpc::WaitList.add": "non_idempotent_write",
@@ -2418,6 +2428,7 @@
         "test/fixtures/captured_replies/health-summary.yml",
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/patient-application.yml",
+        "test/fixtures/captured_replies/reference-code-lists.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",

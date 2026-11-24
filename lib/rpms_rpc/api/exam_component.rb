@@ -2,6 +2,7 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for visit exam-component entry — structured physical-exam
@@ -75,6 +76,26 @@ module RpmsRpc
       failure.merge(error: e.message)
     end
     shape :add, resource: "exam-components", verb: "POST", path: "/patients/{dfn}/exam-components"
+
+    # EXAM file (#9999999.15, ^AUTTEXAM).
+    EXAM_FILE = "9999999.15"
+
+    # Every exam type on file, inactive ones included and flagged, so a code
+    # system can still resolve a historical code (rpms-rpc#917):
+    #
+    #   types => [{ ien:, code:, name:, inactive: }, ...]
+    #
+    # code is CODE (.02, "01"), name NAME (.01), inactive INACTIVE FLAG
+    # (.04) = 1. ClinicalEvent.exam_types (ORWPCE GET EXAM TYPE) lists only
+    # the active ones, without their codes. Read through DDR LISTER; a read
+    # that cannot be had whole raises Client::RpcError.
+    def types
+      DdrFileman.list_all(file: EXAM_FILE, fields: "@;.02;.01;.04").map do |entry|
+        code, name, inactive = entry[:pieces]
+        { ien: entry[:ien].to_i, code: code.to_s, name: name.to_s, inactive: inactive == "1" }
+      end
+    end
+    shape :types, resource: "exam-components", verb: "GET", path: "/exam-components/types"
 
     private
 
