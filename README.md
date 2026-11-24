@@ -766,7 +766,7 @@ Point it at a broker in either of two ways.
 - **An already-running broker.** Set `BROKER_HOST` and `BROKER_PORT` (a loopback address; `rake test:live` refuses any other host), and `BMX_PORT` for that target's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609). `BUILD`, when set, is the build under test; otherwise the build is the tag of the Docker image that publishes that port. A publish bound to `0.0.0.0` or `::` counts only when that host is loopback (`127.0.0.1`, `localhost`, or `::1`). When the tag cannot be determined, the report records `unknown` and the command exits non-zero.
 - **A fresh container of the newest `bcer-*-ydb` release.** `FRESH=1` starts that release's image with its CIA broker (9100) and BMX broker (9101) published on free `127.0.0.1` ports, passes the BMX port to each live run as `BMX_PORT`, waits until the CIA connect answers, runs the suites, and removes the container when it finishes, including after a suite failure, a connect timeout, or an interrupt. The build in the report is that release's tag, including when the image is pinned by digest. A `BUILD` value that names a different tag is an error and the suites do not run; a dry run applies the same check. Each run chooses a unique container name, the time plus a random hex token, before `docker run`, and removes only that name. A failed removal is reported and exits non-zero. `FRESH=1 DRY_RUN=1` prints the plan and leaves Docker, coverage, and the suites untouched. The release is the newest published GitHub release. When `gh api` cannot read that list, or `BUILD` does not match that tag, the error is written to the error stream, no plan is printed, and the command exits non-zero.
 
-Each role signs on with its row's published pair (`lib/rpms_rpc/test_roles.rb`), or with `<ROLE>_ACCESS` and `<ROLE>_VERIFY` when they are set (`PROVIDER_ACCESS`, `OPERATOR_VERIFY`, and so on). The operator's verify code is the one the table does not publish, so `OPERATOR_VERIFY` must be set; without it the operator's live run is skipped, records `missing OPERATOR_ACCESS/OPERATOR_VERIFY`, and the command exits non-zero. Each role's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that role's `rake test:live` child, with `ROLE` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. A signing role's electronic signature code is its row's; `<ROLE>_ESIG` (`PROVIDER_ESIG`), when set, is placed in `RPMS_ESIG` in that child only. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only. A published access code (PMD123) is left as it is; verify and signature codes are always scrubbed.
+Each role signs on with its row's published pair (`lib/rpms_rpc/test_roles.rb`), or with `<ROLE>_ACCESS` and `<ROLE>_VERIFY` when they are set (`PROVIDER_ACCESS`, `OPERATOR_VERIFY`, and so on). Every row's pair is the openrpms `-demo` image's, the operator's included (MANAGER,SYSTEM, `SYS123` / `RPMS.000`, the development credential the openrpms README publishes); a target that is not a `-demo` image sets its own, and `<ROLE>_ACCESS` / `<ROLE>_VERIFY` name it. A role whose pair is then blank is skipped, records `missing <ROLE>_ACCESS/<ROLE>_VERIFY`, and the command exits non-zero. Each role's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that role's `rake test:live` child, with `ROLE` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. A signing role's electronic signature code is its row's; `<ROLE>_ESIG` (`PROVIDER_ESIG`), when set, is placed in `RPMS_ESIG` in that child only. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only. A published access code (PMD123) is left as it is; verify and signature codes are always scrubbed.
 
 The file is `<rpms-diffs>/rpc-coverage/daily/<date>-<build>.md`. `rpms-diffs` is the checkout beside this repo, or `RPMS_DIFFS_DIR`. The command stops before the suites, and before coverage, when `rpc-coverage/daily` is missing. Coverage does not run for `FRESH=1 DRY_RUN=1`. When `rake rpc:coverage` can run, its headline is included. When it cannot, the report says why. `rake rpc:coverage` reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR`.
 
@@ -775,7 +775,7 @@ The same checks can still be run one at a time:
 ```sh
 bundle exec rake report:daily
 FRESH=1 DRY_RUN=1 bundle exec rake report:daily
-FRESH=1 OPERATOR_VERIFY=... bundle exec rake report:daily
+FRESH=1 bundle exec rake report:daily
 
 bundle exec rake test
 bundle exec rake rpc:coverage
@@ -798,7 +798,7 @@ ROLE=provider bundle exec rake test:live
 ROLE=front_desk_clerk bundle exec rake test:live
 ROLE=scheduler bundle exec rake test:live
 ROLE=nurse bundle exec rake test:live   # and medical_assistant, registration_supervisor
-ROLE=operator RPMS_VERIFY=... bundle exec rake test:live
+ROLE=operator bundle exec rake test:live
 
 docker rm -f rpms-live
 ```
@@ -822,7 +822,7 @@ A spec that declares no role fails, and so does one run by hand as a role it doe
 `bundle exec rake test:live_roles` lists every spec under the role that runs it.
 
 Each role's account is defined once, in `lib/rpms_rpc/test_roles.rb`; the harness, `rake report:daily`, the wire captures and CI all read it.
-The accounts are the openrpms build's published demo users (SEEDPERS) on synthetic data, so their pairs are published there; only the operator's verify code is not, and a run as the operator takes it from `RPMS_VERIFY`.
+The accounts are the openrpms build's published demo users (SEEDPERS) on synthetic data, so their pairs are published there. The operator's pair is the `-demo` image's development credential (`SYS123` / `RPMS.000`, openrpms README quick start); a base or deployed image sets its own, and CI's operator run refuses an image whose `org.openrpms.profile` label is not `demo`.
 `RPMS_ACCESS`, `RPMS_VERIFY` and `RPMS_ESIG` override a row's codes for a target whose codes differ.
 
 | Role | RPMS account | Access code | Broker options its RPCs run under | Keys | XUPROGMODE | Runs |

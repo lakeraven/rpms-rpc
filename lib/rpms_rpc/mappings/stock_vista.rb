@@ -15,12 +15,15 @@ module RpmsRpc
 
     # ORWPT SELECT — core patient demographics
     # Format: NAME^SEX^DOB^SSN^LOCIEN^LOCNM^RMBD^CWAD^SENSITIVE^ADMITTED^CONV^SC^SC%^ICN^AGE^TS
+    # SENSITIVE (piece 9) is 1 for a record DG SECURITY LOG (#38.1) marks
+    # sensitive, else 0 (rpms-rpc#946).
     DataMapper.define(:patient_select) do |m|
       m.rpc "ORWPT SELECT"
       m.field 0,  :name
       m.field 1,  :sex
       m.field 2,  :dob,       :fileman_date
       m.field 3,  :ssn
+      m.field 8,  :sensitive, :boolean
       m.field 14, :age,       :integer
     end
 

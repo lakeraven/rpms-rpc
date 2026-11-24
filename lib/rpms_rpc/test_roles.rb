@@ -14,8 +14,9 @@ module RpmsRpc
   #
   # The accounts are the openrpms build's published demo users (SEEDPERS) on
   # synthetic data, so their pairs are published here, as the build publishes
-  # them. The one exception is the operator's verify code, which is not
-  # published: a run as the operator takes it from RPMS_VERIFY.
+  # them. The operator's pair is the -demo image's development credential
+  # (openrpms README, quick start: SYS123 / RPMS.000); a base or deployed image
+  # sets its own, and a run against one names it in RPMS_ACCESS / RPMS_VERIFY.
   #
   # Least privilege means each row is minimal: the role holds what its
   # persona's work needs and no more. test/live/role_refusal_live_test.rb proves
@@ -90,7 +91,7 @@ module RpmsRpc
                xuprogmode: false),
       # The Admin: the build's operator, and the only role that holds XUPROGMODE.
       Role.new(name: :operator, persona: nil, account: "MANAGER,SYSTEM",
-               access: "SYS123", verify: nil, esig: "123456",
+               access: "SYS123", verify: "RPMS.000", esig: "123456",
                contexts: [].freeze, keys: %w[XUPROGMODE].freeze, xuprogmode: true)
     ].to_h { |role| [ role.name, role ] }.freeze
 

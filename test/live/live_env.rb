@@ -119,7 +119,7 @@ module LiveSpec
   end
 
   # The names of the required variables that are unset or blank.
-  # RPMS_VERIFY is one of them for a role whose verify code is not published.
+  # RPMS_VERIFY is one of them for a row with no published verify code.
   def missing_env(env = ENV)
     missing = REQUIRED_ENV.select { |k| env[k].to_s.strip.empty? }
     missing << "RPMS_VERIFY" if role(env) && sign_on_pair(env).last.nil?
@@ -149,8 +149,8 @@ module LiveSpec
     "live specs sign on to an RPMS broker, and these settings are missing: #{missing.join(', ')}.\n" \
       "Set BROKER_HOST and BROKER_PORT (a local container, or an SSM tunnel to a stack) and\n" \
       "ROLE, the test role the run signs on as (e.g. ROLE=provider; README, Test roles). A role\n" \
-      "signs on with its published pair unless RPMS_ACCESS/RPMS_VERIFY say otherwise; the\n" \
-      "operator's verify code is not published, so ROLE=operator needs RPMS_VERIFY. See test/live/live_helper.rb."
+      "signs on with its published pair unless RPMS_ACCESS/RPMS_VERIFY say otherwise (a target\n" \
+      "other than an openrpms -demo image sets its own). See test/live/live_helper.rb."
   end
 
   # nil when a writing spec may run against this env, else the reason it may not.

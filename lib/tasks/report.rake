@@ -19,8 +19,8 @@
 # and exits non-zero. An unknown build exits non-zero.
 # Sign-on: each live test role signs on with its row's published pair
 # (lib/rpms_rpc/test_roles.rb; README, Test roles), or with <ROLE>_ACCESS and
-# <ROLE>_VERIFY when set (PROVIDER_ACCESS, OPERATOR_VERIFY). The operator's
-# verify code is not published, so OPERATOR_VERIFY must be set. Each pair is
+# <ROLE>_VERIFY when set (PROVIDER_ACCESS, OPERATOR_VERIFY), for a target
+# other than an openrpms -demo image. Each pair is
 # handed only to that role's rake test:live child, with <ROLE>_ESIG (its
 # electronic signature code, when it differs from the row's) as RPMS_ESIG.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
