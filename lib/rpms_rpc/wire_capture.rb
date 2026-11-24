@@ -907,20 +907,6 @@ module RpmsRpc
               "build lands, so its brief_header flags are not proven."
       ),
       CatalogEntry.new(
-        rpc: "BGOVMSR LAST", mapping: :latest_measurements, kind: "fields", mode: :live,
-        inputs: [ "8^^" ],
-        cite: "LAST^BGOVMSR (BGOVMSR.m:3-35): row format line 35 " \
-              "TYPE^VALUE^DATE_DISPLAY^MEASUREMENT_IEN^VISIT_IEN^LOCKED",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "type" ]),
-          Piece.new(position: 1, attributes: [ "value" ]),
-          Piece.new(position: 2, attributes: [ "date_display" ]),
-          Piece.new(position: 3, attributes: [ "measurement_ien" ], fileman_type: "integer"),
-          Piece.new(position: 4, attributes: [ "visit_ien" ], fileman_type: "integer"),
-          Piece.new(position: 5, attributes: [ "locked" ], fileman_type: "boolean")
-        ]
-      ),
-      CatalogEntry.new(
         rpc: "BGOVMSR GET", mapping: :visit_measurements, kind: "fields", mode: :live,
         inputs: [ "1^0" ],
         cite: "GET^BGOVMSR (BGOVMSR.m:41-77): format-0 row TYPE^VALUE^DATE_DISPLAY^" \
@@ -1085,72 +1071,6 @@ module RpmsRpc
               "0 stand-alone, 1 appointment-linked, -1 no visit",
         pieces: [],
         note: "Scalar -1/0/1. Not a boolean: 0 is a visit."
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE NOTEVSTR", mapping: :pce_note_visit_string, kind: "scalar", mode: :live,
-        inputs: [ "3" ],
-        cite: "NOTEVSTR^ORWPCE (ORWPCE.m:112-116): LOC;FileMan datetime;service category " \
-              "from $$VSTRBLD^TIUSRVP(VISIT) when node 12 piece 7 is set, else " \
-              "$P(X12,U,11)_\";\"_$P(X0,U,7)_\";\"_$P(X0,U,13)",
-        pieces: [],
-        note: "One visit string, not caret fields. parse_visit_string splits on ';'."
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE GET IMMUNIZATION TYPE", mapping: :pce_immunization_types, kind: "fields",
-        mode: :live,
-        inputs: [],
-        cite: "IMMTYPE^ORWPCE2 (ORWPCE2.m:17-22): IEN^NAME of active ^AUTTIMM entries " \
-              "(0-node piece 7 = 0). Optional ORDT; this call sends none",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "name" ])
-        ]
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE GET SKIN TEST TYPE", mapping: :pce_skin_test_types, kind: "fields",
-        mode: :live,
-        inputs: [],
-        cite: "SKTYPE^ORWPCE2 (ORWPCE2.m:25-30): IEN^NAME of active ^AUTTSK entries " \
-              "(0-node piece 3 = 0)",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "name" ])
-        ]
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE GET EXAM TYPE", mapping: :pce_exam_types, kind: "fields", mode: :live,
-        inputs: [],
-        cite: "EXAMTYPE^ORWPCE2 (ORWPCE2.m:51-53): IEN^NAME of active ^AUTTEXAM entries " \
-              "(0-node piece 4 = 0)",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "name" ])
-        ]
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE GET EDUCATION TOPICS", mapping: :pce_education_topics, kind: "fields",
-        mode: :live,
-        inputs: [],
-        cite: "EDTTYPE^ORWPCE2 (ORWPCE2.m:33-35): IEN^NAME of active ^AUTTEDT entries " \
-              "(0-node piece 3 = 0)",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "name" ])
-        ]
-      ),
-      CatalogEntry.new(
-        rpc: "ORWPCE GET HEALTH FACTORS TY", mapping: :pce_health_factor_types, kind: "fields",
-        mode: :live,
-        inputs: [],
-        cite: "HFTYPE^ORWPCE2 (ORWPCE2.m:38-48): IEN^NAME, and when ADDCATS " \
-              "IEN^NAME^$P(0-node,U,10)^$P(0-node,U,3). This call sends no ADDCATS, " \
-              "so the category pieces are empty",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "name" ]),
-          Piece.new(position: 2, attributes: [ "category" ]),
-          Piece.new(position: 3, attributes: [ "category_ien" ], fileman_type: "integer")
-        ]
       ),
       CatalogEntry.new(
         rpc: "ORWPCE PCE4NOTE", mapping: :pce_for_note, kind: "text_blob", mode: :live,
