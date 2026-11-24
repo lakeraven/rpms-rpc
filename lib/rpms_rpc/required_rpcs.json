@@ -348,6 +348,7 @@
       "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::PatientSelection": [
+      "BEHOPTCX PTINFO",
       "BEHOPTPL DOBLKP",
       "BEHOPTPL HRNLKP",
       "BEHOPTPL LISTALL",
@@ -1409,7 +1410,8 @@
     },
     "BEHOPTCX PTINFO": {
       "methods": {
-        "RpmsRpc::Patient.brief_header": "non_idempotent_write"
+        "RpmsRpc::Patient.brief_header": "non_idempotent_write",
+        "RpmsRpc::PatientSelection.find": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/iris-chart-read-errors.yml",
