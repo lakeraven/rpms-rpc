@@ -210,4 +210,21 @@ class ClinicalDataApiTest < Minitest::Test
     assert_equal "ORWPT APPTLST could not read appointments for patient 1: Error encountered", error.message
     assert_equal [ { rpc: "ORWPT APPTLST", params: [ "1" ] } ], client.calls
   end
+
+  # APPTTIME is the appointment's FileMan date and time (APPTLST^ORWPT:
+  # ORWPT.m:151-162). The capture is DFN 3, booked on DEMO IHS CLINIC at 13:15
+  # (test/fixtures/captured_replies/orwpt-apptlst.yml); read as a date, the
+  # 13:15 was lost (rpms-rpc#221).
+  def test_encounter_for_patient_keeps_the_appointment_time
+    flow = CapturedReplies.flow("orwpt-apptlst", "for_patient_booked")
+    client = replay("ORWPT APPTLST" => flow.map { |c| c.fetch("raw_return").b })
+    booked_on = flow.first.fetch("raw_return")[/\d{7}/]
+
+    rows = RpmsRpc::Encounter.for_patient("3")
+
+    assert_equal [ { rpc: "ORWPT APPTLST", params: [ "3" ] } ], client.calls
+    day = RpmsRpc::FilemanDateParser.parse_date(booked_on)
+    assert_equal [ { datetime: Time.new(day.year, day.month, day.day, 13, 15), location_ien: 3,
+                     location: "DEMO IHS CLINIC", status: nil } ], rows
+  end
 end
