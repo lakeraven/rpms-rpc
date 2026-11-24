@@ -75,7 +75,7 @@ class RpcCoverageRoleEvidenceTest < Minitest::Test
     assert_equal [ "PMD123", "PMD123!!" ], RpcCoverage.sign_on_pair(provider, {})
     assert_equal [ "OTHER", "OTHER!!" ], RpcCoverage.sign_on_pair(provider, "RPMS_ACCESS" => "OTHER", "RPMS_VERIFY" => "OTHER!!")
     operator = ROLES.fetch(:operator)
-    assert_match(/ROLE=operator needs RPMS_VERIFY/, assert_raises(RpcCoverage::Error) { RpcCoverage.sign_on_pair(operator, {}) }.message)
+    assert_equal %w[SYS123 RPMS.000], RpcCoverage.sign_on_pair(operator, {}), "the -demo image's published operator pair"
     assert_equal [ "SYS123", "v" ], RpcCoverage.sign_on_pair(operator, "RPMS_VERIFY" => "v")
   end
 

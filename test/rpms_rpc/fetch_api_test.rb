@@ -53,7 +53,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
 
     result = RpmsRpc::DataMapper.patient_select.fetch_one("2", extras: { dfn: 2 })
 
-    assert_equal({ name: "USER,TEST", sex: "M", dob: Date.new(1985, 5, 5), ssn: nil, age: 41, dfn: 2 }, result)
+    assert_equal({ name: "USER,TEST", sex: "M", dob: Date.new(1985, 5, 5), ssn: nil, sensitive: false, age: 41, dfn: 2 }, result)
     assert_equal CapturedReplies.flow_calls(SLUG, "select"), sent(client)
   end
 

@@ -873,6 +873,7 @@ module RpmsRpc
           Piece.new(position: 1, attributes: [ "sex" ]),
           Piece.new(position: 2, attributes: [ "dob_raw" ]),
           Piece.new(position: 3, attributes: [ "ssn" ]),
+          Piece.new(position: 8, attributes: [ "sensitive_code" ]),
           Piece.new(position: 10, attributes: [ "mrn" ]),
           Piece.new(position: 16, attributes: [ "designated_team" ]),
           Piece.new(position: 17, attributes: [ "primary_provider" ])

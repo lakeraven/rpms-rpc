@@ -362,23 +362,21 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   end
 
   # The operator's verify code is the one the table does not publish.
-  def test_a_missing_operator_verify_does_not_run_its_live_suite_reports_error_and_exits_nonzero
+  # The operator's pair is published, the -demo image's development credential
+  # (SYS123 / RPMS.000), so a blank OPERATOR_* override falls back to it and
+  # the operator's live suite runs like every other role's.
+  def test_a_blank_operator_override_falls_back_to_the_published_pair
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new(passing_runs(ROLES.size))
+      runner = FakeRunner.new(passing_runs)
       env = role_sign_on_env("OPERATOR_ACCESS" => "  ", "OPERATOR_VERIFY" => "")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
 
-      assert_equal 1, orch.run
+      assert_equal 0, orch.run
 
-      assert_equal ROLES.size, runner.calls.size
-      assert_equal %w[rake test], runner.calls[0][:argv]
-      assert_equal ROLES - [ "operator" ], runner.calls.drop(1).map { |call| call[:env]["ROLE"] }
-
-      report = writer.writes.map(&:last).join("\n")
-      assert_match(/missing OPERATOR_ACCESS\/OPERATOR_VERIFY/i, report)
-      refute_secrets_in(report, runner.calls)
+      operator = runner.calls.find { |call| call[:env]["ROLE"] == "operator" }
+      assert_equal RpmsRpc::TestRoles.fetch(:operator).pair, [ operator[:env]["RPMS_ACCESS"], operator[:env]["RPMS_VERIFY"] ]
     end
   end
 
@@ -897,19 +895,19 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
 
   # With no pair in the env, every role but the operator signs on with its
   # row's published pair; the operator's suite is errored, not skipped.
-  def test_a_missing_operator_pair_still_yields_an_errored_live_suite_not_a_skip
+  # With no overrides at all, every role, the operator included, runs on its row's published pair.
+  def test_with_no_overrides_every_role_runs_on_its_published_pair
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       writer = FakeWriter.new
-      runner = FakeRunner.new(passing_runs(ROLES.size))
+      runner = FakeRunner.new(passing_runs)
       env = { "BROKER_HOST" => "127.0.0.1", "BROKER_PORT" => "19300" }
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
 
-      assert_equal 1, orch.run
+      assert_equal 0, orch.run
 
-      assert_equal ROLES.size, runner.calls.size, "rake test and every role but the operator run"
+      assert_equal 1 + ROLES.size, runner.calls.size, "rake test and every role run"
       report = writer.writes.map(&:last).join("\n")
-      assert_match(/missing OPERATOR_ACCESS\/OPERATOR_VERIFY/, report)
       ROLES.each do |role|
         assert_match(/\| rake test:live \(#{role}\) \|/, report, "#{role} has its row")
       end

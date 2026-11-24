@@ -26,13 +26,14 @@ class LiveSpecGuardTest < Minitest::Test
   end
 
   # A role signs on with its row's published pair unless the env names
-  # another; the operator's verify code is not published, so it must be set.
+  # another.
   def test_the_pair_is_the_rows_unless_the_env_names_one
     bare = FULL.merge("RPMS_ACCESS" => nil, "RPMS_VERIFY" => " ")
     assert_equal RpmsRpc::TestRoles.fetch(:provider).pair, LiveSpec.sign_on_pair(bare)
     assert_empty LiveSpec.missing_env(bare)
     assert_equal %w[a v], LiveSpec.sign_on_pair(FULL)
-    assert_equal %w[RPMS_VERIFY], LiveSpec.missing_env(bare.merge("ROLE" => "operator"))
+    assert_empty LiveSpec.missing_env(bare.merge("ROLE" => "operator"))
+    assert_equal %w[SYS123 RPMS.000], LiveSpec.sign_on_pair(bare.merge("ROLE" => "operator"))
     assert_equal [ "SYS123", "v" ], LiveSpec.sign_on_pair(bare.merge("ROLE" => "operator", "RPMS_VERIFY" => "v"))
   end
 
