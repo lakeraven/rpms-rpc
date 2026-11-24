@@ -459,10 +459,15 @@ class SchedulingTest < Minitest::Test
     checkin_visit: [ [ { dfn: DFN, clinic_ien: 3, checkin_time: START_T } ], { "BEHOENCX FETCH" => "checkin_visit" } ]
   }.freeze
 
+  # open_slots composes BSDX reads (BSDXRPC) and SchedulingSetup's DDR reads
+  # (CIAV VUECENTRIC); test/rpms_rpc/api/scheduling_open_slots_test.rb proves
+  # each of its binds against the replies it was captured with.
+  COMPOSED_CALLS = %i[open_slots].freeze
+
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys).sort,
+    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys + COMPOSED_CALLS).sort,
       "a new Scheduling method must be added to BSDX_CALLS or FETCH_CALLS so its context bind is proven"
   end
 

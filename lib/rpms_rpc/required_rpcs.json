@@ -480,7 +480,9 @@
       "BSDX RESOURCES",
       "BSDX RESOURCES BY USER",
       "BSDX SEARCH AVAILABILITY",
-      "BSDX UNCANCEL APPT"
+      "BSDX UNCANCEL APPT",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::SchedulingMaintenance": [
       "BSDX ADD RES GROUP ITEM",
@@ -2062,17 +2064,21 @@
     },
     "BSDX CREATE APPT SCHEDULE": {
       "methods": {
-        "RpmsRpc::Scheduling.appointments": "non_idempotent_write"
+        "RpmsRpc::Scheduling.appointments": "non_idempotent_write",
+        "RpmsRpc::Scheduling.open_slots": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/bsdx-open-slots.yml",
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
     "BSDX CREATE ASGND SLOT SCHED": {
       "methods": {
+        "RpmsRpc::Scheduling.open_slots": "non_idempotent_write",
         "RpmsRpc::Scheduling.slot_schedule": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/bsdx-open-slots.yml",
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
@@ -2131,10 +2137,12 @@
     },
     "BSDX RESOURCES": {
       "methods": {
+        "RpmsRpc::Scheduling.open_slots": "non_idempotent_write",
         "RpmsRpc::Scheduling.resources": "read",
         "RpmsRpc::SchedulingMaintenance.save_resource_user": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/bsdx-open-slots.yml",
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
@@ -2319,6 +2327,7 @@
         "RpmsRpc::RegistrationParameters.for_facility": "read",
         "RpmsRpc::RegistrationSetup.local_flag": "read",
         "RpmsRpc::RegistrationSetup.local_flag_history": "read",
+        "RpmsRpc::Scheduling.open_slots": "non_idempotent_write",
         "RpmsRpc::SchedulingSetup.cancelled_by": "read",
         "RpmsRpc::SchedulingSetup.clinic_rules": "read",
         "RpmsRpc::SchedulingSetup.clinic_settings": "read",
@@ -2340,6 +2349,7 @@
         "test/fixtures/captured_replies/amhg-save-visit.yml",
         "test/fixtures/captured_replies/amhg-wellness.yml",
         "test/fixtures/captured_replies/bmc-get-referral.yml",
+        "test/fixtures/captured_replies/bsdx-open-slots.yml",
         "test/fixtures/captured_replies/coverage-on-file.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/ddr-fileman.yml",
@@ -2435,6 +2445,7 @@
         "RpmsRpc::RegistrationSetup.local_flags": "read",
         "RpmsRpc::RegistrationSetup.rename_eligibility_modifier": "non_idempotent_write",
         "RpmsRpc::RegistrationSetup.update_local_flag": "non_idempotent_write",
+        "RpmsRpc::Scheduling.open_slots": "non_idempotent_write",
         "RpmsRpc::SchedulingMaintenance.save_resource_user": "non_idempotent_write",
         "RpmsRpc::SchedulingSetup.access_types": "read",
         "RpmsRpc::SchedulingSetup.add_clinic_provider": "non_idempotent_write",
@@ -2469,6 +2480,7 @@
         "test/fixtures/captured_replies/amhg-save-health-factors.yml",
         "test/fixtures/captured_replies/amhg-save-pov.yml",
         "test/fixtures/captured_replies/amhg-save-visit.yml",
+        "test/fixtures/captured_replies/bsdx-open-slots.yml",
         "test/fixtures/captured_replies/coverage.yml",
         "test/fixtures/captured_replies/ddr-fileman.yml",
         "test/fixtures/captured_replies/health-summary.yml",
