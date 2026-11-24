@@ -19,6 +19,21 @@ module RpmsRpc
     # Practitioner.
     FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
+    # One patient, from two stock reads, and never more than either answers
+    # (rpms-rpc#946):
+    #
+    #   name, sex, dob, ssn, age, sensitive   ORWPT SELECT (SELECT^ORWPT)
+    #   ssn, dob, sex, veteran, sc_percent,   ORWPT ID INFO (IDINFO^ORWPT),
+    #   ward_location, room_bed, name         merged over SELECT's
+    #
+    # For a sensitive record the user is not cleared for, ID INFO answers
+    # "*SENSITIVE*" for the SSN and the DOB, and those values win, so ssn
+    # reads "*SENSITIVE*" and dob nil. For other records ssn is the SSN as
+    # stored. sensitive is SELECT's SENSITIVE piece (DG SECURITY LOG, #38.1):
+    # a host that shows a sensitive record runs the stock flow first,
+    # DgSensitive.check_access (DG SENSITIVE RECORD ACCESS: the warning, and
+    # the DG SECURITY LOG entry) before display. Whether a search result may
+    # show a full SSN is the host's display rule (openrpms-ux S-CHT-01.1).
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -220,7 +235,10 @@ module RpmsRpc
         age:              age_from(dob),
         allergy_flag:     cwad.include?("A"),
         ad_flag:          cwad.include?("D"),
-        primary_provider: provider
+        primary_provider: provider,
+        # PTINFO piece 9, PTSEC^DGSEC4's code for this user (#946): any code but 0
+        # means the stock sensitive-record flow, DgSensitive.check_access, runs before display.
+        sensitive:        ptinfo && ptinfo[:sensitive_code].to_i.positive?
       }
     end
     # Active Patient Record Flags, the banner item BEHOCACV CWAD reports as "F"
@@ -584,6 +602,8 @@ module RpmsRpc
         dob: row[:dob],
         dod: row[:dod],
         sens_flag: row[:sens_flag],
+        # AGG LOOKUP's SENS_FLAG (Y for a sensitive record), as a boolean (#946).
+        sensitive: row[:sens_flag].to_s.strip.upcase == "Y",
         alias: row[:alias],
         inactive: row[:inactive_raw].to_s.strip.upcase == "Y",
         community: row[:community],

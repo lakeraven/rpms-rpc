@@ -20,12 +20,17 @@ module RpmsRpc
 
     # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
     # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
+    # Piece 9 is $$ISSENS^BEHOPTCX (BEHOPTCX.m:15, :82-85): PTSEC^DGSEC4's result
+    # code for the signed-on user, 0 when no sensitive-record action is needed,
+    # 1 to 4 when the warning (2: warning, OK and DG SECURITY LOG entry) or a
+    # refusal applies.
     DataMapper.define(:patient_ptinfo) do |m|
       m.rpc "BEHOPTCX PTINFO"
       m.field 0,  :name
       m.field 1,  :sex
       m.field 2,  :dob_raw
       m.field 3,  :ssn
+      m.field 8,  :sensitive_code, :integer
       m.field 10, :mrn
       m.field 16, :designated_team
       m.field 17, :primary_provider

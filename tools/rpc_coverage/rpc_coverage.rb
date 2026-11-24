@@ -195,7 +195,7 @@ module RpcCoverage
   end
 
   # [access, verify]: RPMS_ACCESS and RPMS_VERIFY when set (a target whose codes differ), else the
-  # role's published pair. The operator's verify code is not published, so its run needs RPMS_VERIFY.
+  # role's published pair (the openrpms -demo image's).
   def sign_on_pair(role, env = ENV)
     access = env["RPMS_ACCESS"].to_s.strip.empty? ? role.access : env["RPMS_ACCESS"]
     verify = env["RPMS_VERIFY"].to_s.strip.empty? ? role.verify : env["RPMS_VERIFY"]

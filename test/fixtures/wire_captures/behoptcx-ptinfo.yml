@@ -23,6 +23,9 @@ pieces:
 - position: 3
   attributes:
   - ssn
+- position: 8
+  attributes:
+  - sensitive_code
 - position: 10
   attributes:
   - mrn

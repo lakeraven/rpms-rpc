@@ -7,14 +7,13 @@ name: openrpms release
 #                 Writes tested-against.json (which release, how chosen, the result) as an artifact.
 #   Live          runs the live specs (`rake test:live`) against that release's image, once per test role
 #                 a live spec runs as (README, Test roles). Each role signs on with its row's published
-#                 pair (lib/rpms_rpc/test_roles.rb); the operator, the one role holding XUPROGMODE, takes
-#                 its verify code from a secret.
+#                 pair (lib/rpms_rpc/test_roles.rb), the -demo image's. The operator's pair is that image's
+#                 development credential, so its run refuses any image that is not the demo profile.
 #
 # Access. lakeraven/openrpms and its image are private, and GITHUB_TOKEN reaches only this repository:
 #   OPENRPMS_READ_TOKEN        a token that can read lakeraven/openrpms releases (Contents: read)
 #   GITHUB_TOKEN packages:read pulls the image once the openrpms package grants this repository
 #                              read access ("Manage Actions access" in the package settings)
-#   OPENRPMS_OPERATOR_VERIFY   the operator role's verify code (SYS123's, the one pair not published)
 # A missing one fails its job with an error naming it; nothing is skipped quietly.
 #
 # The Release gate runs on every push to main and every pull request, daily (a new release moves "latest"
@@ -143,18 +142,16 @@ jobs:
           docker logs rpms | tail -20
           echo "::error::RPMS did not become healthy"
           exit 1
-      # Every other role signs on with its row's published pair; only the operator's verify code is a secret.
-      - name: The operator's verify code
+      # The operator's published pair (SYS123 / RPMS.000) is the -demo image's development credential;
+      # a base or deployed image sets its own. Refuse anything but the demo profile.
+      - name: The operator runs on the demo image only
         if: matrix.role == 'operator'
-        env:
-          OPERATOR_VERIFY: ${{ secrets.OPENRPMS_OPERATOR_VERIFY }}
         run: |
-          if [ -z "$OPERATOR_VERIFY" ]; then
-            echo "::error title=No operator verify code::OPENRPMS_OPERATOR_VERIFY is not set, so the operator role's live run cannot sign on. An organization admin adds SYS123's verify code as that secret."
+          profile=$(docker inspect -f '{{ index .Config.Labels "org.openrpms.profile" }}' "$IMAGE")
+          if [ "$profile" != demo ]; then
+            echo "::error title=Not the demo image::$IMAGE has org.openrpms.profile=${profile:-none}; the operator's published pair is the demo image's only."
             exit 1
           fi
-          echo "::add-mask::$OPERATOR_VERIFY"
-          echo "RPMS_VERIFY=$OPERATOR_VERIFY" >> "$GITHUB_ENV"
       - name: Run the live specs
         run: |
           set -o pipefail

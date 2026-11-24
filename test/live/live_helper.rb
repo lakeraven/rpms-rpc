@@ -15,8 +15,8 @@
 # Optional:
 #   RPMS_ACCESS, RPMS_VERIFY   the sign-on pair, when the target's codes differ
 #                              from the role's published pair (never logged).
-#                              The operator's verify code is not published, so
-#                              ROLE=operator needs RPMS_VERIFY.
+#                              Every row's pair is the openrpms -demo image's;
+#                              a base or deployed image sets its own.
 #   RPMS_ESIG                  the electronic signature code, when it differs
 #                              from the role's
 #   BROKER_PROTOCOL            cia (default), xwb or bmx: the broker line spoken

@@ -29,8 +29,7 @@ module RpmsRpc
 
     # A role's sign-on key in the report's environment: PROVIDER_ACCESS,
     # OPERATOR_VERIFY, PROVIDER_ESIG. Each overrides its row's published value
-    # (RpmsRpc::TestRoles); the operator's verify code is not published, so
-    # OPERATOR_VERIFY must be set.
+    # (RpmsRpc::TestRoles), for a target other than an openrpms -demo image.
     def self.role_key(role, suffix) = "#{role.upcase}_#{suffix}"
 
     # Names whose values are sign-on codes, or electronic signature codes
