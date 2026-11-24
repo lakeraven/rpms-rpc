@@ -79,6 +79,20 @@ class RpcCoverageRoleEvidenceTest < Minitest::Test
     assert_equal [ "SYS123", "v" ], RpcCoverage.sign_on_pair(operator, "RPMS_VERIFY" => "v")
   end
 
+  # rpms-rpc#951: the live runner's read timeout is the client's VISTA_RPC_TIMEOUT, 30 when unset,
+  # and the case guard stays above it.
+  def test_the_read_timeout_is_vista_rpc_timeout_and_the_case_guard_stays_above_it
+    assert_equal 30, RpcCoverage.read_timeout({})
+    assert_equal 30, RpcCoverage.read_timeout("VISTA_RPC_TIMEOUT" => " ")
+    assert_equal 90, RpcCoverage.read_timeout("VISTA_RPC_TIMEOUT" => "90")
+    assert_raises(ArgumentError) { RpcCoverage.read_timeout("VISTA_RPC_TIMEOUT" => "soon") }
+
+    assert_equal 45, RpcCoverage.case_timeout({})
+    assert_equal 120, RpcCoverage.case_timeout({ "VISTA_RPC_TIMEOUT" => "90", "CASE_TIMEOUT" => "120" })
+    assert_equal 105, RpcCoverage.case_timeout({ "VISTA_RPC_TIMEOUT" => "90" }), "read + 15 when CASE_TIMEOUT would fire first"
+    assert_equal 45, RpcCoverage.case_timeout({ "VISTA_RPC_TIMEOUT" => "1" })
+  end
+
   def test_holds_progmode_reads_the_orwu_haskey_reply_lines
     assert RpcCoverage.holds_progmode?([ "1" ])
     refute RpcCoverage.holds_progmode?([ "0" ])

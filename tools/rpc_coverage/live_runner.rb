@@ -19,7 +19,8 @@
 #      ROLE (the test role the run signs on as, README, Test roles; the run is recorded under it),
 #      RPMS_ACCESS, RPMS_VERIFY (optional: the pair, when the target's differs from the role's published one;
 #      ROLE=operator needs RPMS_VERIFY),
-#      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
+#      RPMS_CONTEXT (optional option to bind), VISTA_RPC_TIMEOUT (the client's read timeout, default
+#      30 s), CASE_TIMEOUT (default 45 s, and at least the read timeout plus 15), DFN (optional),
 #      EVIDENCE_DIR (<rpms-diffs>/rpc-coverage/live: the run merges into <BACKEND>.<ROLE>.json)
 #      or EVIDENCE (an explicit file to merge into),
 #      CASES (optional: a file to write one JSON line per case to: the case, its verdict, its error, the role and
@@ -50,7 +51,8 @@ rescue RpcCoverage::Error => e
 end
 HOST = ENV.fetch("BROKER_HOST", "127.0.0.1")
 PORT = Integer(ENV.fetch("BROKER_PORT"))
-CASE_TIMEOUT = Integer(ENV.fetch("CASE_TIMEOUT", "45"))
+READ_TIMEOUT = RpcCoverage.read_timeout(ENV)
+CASE_TIMEOUT = RpcCoverage.case_timeout(ENV, read: READ_TIMEOUT)
 # Context option to bind after sign-on. Unset = stay on the option the client signed on under
 # (RpmsRpc::CiaClient::SIGNON_CONTEXT). A user holding XUPROGMODE bypasses the context check
 # either way (CIANBACT), so only a run as a role other than the operator measures context gating (#263).
@@ -65,7 +67,7 @@ def sign_on(tries: 5)
   attempt = 0
   begin
     attempt += 1
-    c = RpmsRpc::CiaClient.new(host: HOST, port: PORT, timeout: 30)
+    c = RpmsRpc::CiaClient.new(host: HOST, port: PORT, timeout: READ_TIMEOUT)
     c.connect
     c.authenticate(ACCESS, VERIFY)
     c.create_context(CONTEXT) if CONTEXT

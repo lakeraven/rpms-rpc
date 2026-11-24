@@ -194,6 +194,20 @@ module RpcCoverage
     raise Error, e.message
   end
 
+  # The live runner's client read timeout, in seconds: VISTA_RPC_TIMEOUT, the knob
+  # RpmsRpc::Client reads (lib/rpms_rpc/client.rb), else 30 (rpms-rpc#951).
+  def read_timeout(env = ENV)
+    value = env["VISTA_RPC_TIMEOUT"].to_s.strip
+    value.empty? ? 30 : Integer(value)
+  end
+
+  # The per-case guard, in seconds: CASE_TIMEOUT, else 45, and never at or below the read
+  # timeout plus 15, so a slow read times out as a read before the case guard fires.
+  def case_timeout(env = ENV, read: read_timeout(env))
+    value = env["CASE_TIMEOUT"].to_s.strip
+    [ value.empty? ? 45 : Integer(value), read + 15 ].max
+  end
+
   # [access, verify]: RPMS_ACCESS and RPMS_VERIFY when set (a target whose codes differ), else the
   # role's published pair (the openrpms -demo image's).
   def sign_on_pair(role, env = ENV)
