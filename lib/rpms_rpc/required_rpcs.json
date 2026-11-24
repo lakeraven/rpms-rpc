@@ -508,6 +508,11 @@
     "RpmsRpc::Taxonomy": [
       "DDR LISTER"
     ],
+    "RpmsRpc::Terminology": [
+      "BSTS GET CODESETS",
+      "BSTS GET CONCEPT DETAIL",
+      "BSTS SNOMED SEARCH"
+    ],
     "RpmsRpc::Tribal": [
       "DDR GETS ENTRY DATA",
       "DDR LISTER",
@@ -2146,6 +2151,30 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSTS GET CODESETS": {
+      "methods": {
+        "RpmsRpc::Terminology.code_sets": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-terminology.yml"
+      ]
+    },
+    "BSTS GET CONCEPT DETAIL": {
+      "methods": {
+        "RpmsRpc::Terminology.concept": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-terminology.yml"
+      ]
+    },
+    "BSTS SNOMED SEARCH": {
+      "methods": {
+        "RpmsRpc::Terminology.search": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-terminology.yml"
       ]
     },
     "BUSA LOG SECURITY AUDIT ENTRY": {
