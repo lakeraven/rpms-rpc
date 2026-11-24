@@ -111,3 +111,96 @@ class PilotCancelAppointmentLiveTest < LiveSpec::Test
   # A FileMan date/time with no trailing zeros, as #2.98's IEN is.
   def canonical(time) = RpmsRpc::FilemanDateParser.to_fileman(time).sub(/0+\z/, "").chomp(".")
 end
+
+# S-SCH-05.3: a day with appointments of every status shows each with its
+# status, and the overbook marked. On a past weekday, so check-out and no-show
+# can be filed: one stays scheduled, one is checked in, one checked in and
+# out, one cancelled by the patient, one by the clinic, one a no-show, and one
+# is marked an overbook (#44.003 field 9). Each is read back from the clinic's
+# schedule (BSDX CREATE APPT SCHEDULE) and #2.98's status.
+class PilotDayViewLiveTest < LiveSpec::Test
+  runs_as :scheduler
+  proves "S-SCH-05.3"
+  writes!
+  include PilotSchedulingLive
+
+  TRAVEL_DIFFICULTY = "4" # a patient-type CANCELLATION REASON (#409.2)
+  CLINIC_CANCELLED = "13" # a clinic-type one
+
+  def test_each_status_and_the_overbook_show_on_the_day
+    day = Date.today - 10 - rand(40)
+    day -= 1 while day.saturday? || day.sunday?
+    booked = %i[scheduled checked_in checked_out cancelled_by_patient cancelled_by_clinic no_show overbook]
+             .to_h { |status| [ status, book_on(day) ] }
+    s = RpmsRpc::Scheduling
+
+    assert s.checkin_appointment(booked[:checked_in][1], checkin_time: booked[:checked_in][0] + 300)[:success]
+    out_start, out_id = booked[:checked_out]
+    assert s.checkin_appointment(out_id, checkin_time: out_start + 300)[:success]
+    assert s.checkout_appointment(out_id, patient_dfn: PATIENT, appointment_time: out_start, checkout_time: out_start + 1800)[:success]
+    assert s.cancel_appointment(booked[:cancelled_by_patient][1], reason: TRAVEL_DIFFICULTY, type: "PC", note: "live spec")[:success]
+    assert s.cancel_appointment(booked[:cancelled_by_clinic][1], reason: CLINIC_CANCELLED, type: "C", note: "live spec")[:success]
+    assert s.mark_no_show(booked[:no_show][1])[:success]
+    over_start, = booked[:overbook]
+    where = { hospital_location_id: clinic_ien, start_time: over_start, patient_dfn: PATIENT }
+    assert RpmsRpc::SchedulingSetup.mark_overbook(**where)[:success]
+
+    row = ->(status) { on_schedule(day, booked[status][1]) }
+    assert_equal [ nil, nil, false, false ], row[:scheduled].values_at(:checkin_time, :checkout_time, :cancelled, :no_show)
+    refute_nil row[:checked_in][:checkin_time]
+    assert_nil row[:checked_in][:checkout_time]
+    refute_nil row[:checked_out][:checkout_time]
+    assert row[:cancelled_by_patient][:cancelled]
+    assert_equal :patient, RpmsRpc::SchedulingSetup.cancelled_by(start_time: booked[:cancelled_by_patient][0], patient_dfn: PATIENT)
+    assert row[:cancelled_by_clinic][:cancelled]
+    assert_equal :clinic, RpmsRpc::SchedulingSetup.cancelled_by(start_time: booked[:cancelled_by_clinic][0], patient_dfn: PATIENT)
+    assert row[:no_show][:no_show]
+    assert RpmsRpc::SchedulingSetup.overbook?(**where), "the overbook is marked"
+    refute RpmsRpc::SchedulingSetup.overbook?(**where, start_time: booked[:scheduled][0]), "a booking within the slots is not"
+  end
+
+  private
+
+  def clinic_ien = RpmsRpc::Scheduling.resources.find { |r| r[:name] == CLINIC }.fetch(:hospital_location_id)
+end
+
+# S-SCH-03.1: checking in a patient booked today shows the appointment
+# checked in with the time, and leaves a visit for the clinic and date. The
+# clinic is DEMO PRIMARY CARE, which creates a visit at check-in. On
+# bcer-9.0-20261124-60d39b6-ydb the visit is filed but the EHR's lookup
+# (BEHOENCX FETCH) cannot find it: the demo seed's two visit-type parameters
+# disagree (openrpms#1342), so the spec skips by that issue there.
+class PilotCheckinLiveTest < LiveSpec::Test
+  runs_as :front_desk_clerk
+  proves "S-SCH-03.1"
+  writes!
+  include PilotSchedulingLive
+
+  VISIT_CLINIC = "DEMO PRIMARY CARE"
+
+  def test_checking_in_today_shows_the_time_and_leaves_a_visit
+    day = Date.today
+    start = nil
+    id = nil
+    (8..16).to_a.product([ 0, 15, 30, 45 ]).shuffle.first(40).each do |hour, minute|
+      at = Time.new(day.year, day.month, day.day, hour, minute)
+      reply = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: VISIT_CLINIC, start_time: at,
+                                                  end_time: at + 900, length_minutes: 15)
+      break (start, id = at, reply[:appointment_id]) if reply && reply[:success]
+    end
+    flunk "no quarter hour today took a booking on #{VISIT_CLINIC}" unless id
+    clinic = RpmsRpc::Scheduling.resources.find { |r| r[:name] == VISIT_CLINIC }.fetch(:hospital_location_id)
+    assert RpmsRpc::SchedulingSetup.creates_visit_at_checkin(clinic), "#{VISIT_CLINIC} creates a visit at check-in"
+
+    checkin = Time.now - 60
+    assert RpmsRpc::Scheduling.checkin_appointment(id, checkin_time: checkin)[:success]
+
+    listed = RpmsRpc::Scheduling.appointments(resource: VISIT_CLINIC, start_date: day, end_date: day).find { |a| a[:id] == id }
+    assert_equal checkin.strftime("%Y-%m-%d %H:%M"), listed[:checkin_time]&.strftime("%Y-%m-%d %H:%M")
+    assert_equal "checked in", RpmsRpc::Scheduling.patient_appointments(PATIENT).find { |a| a[:start_time] == start }[:status]
+
+    visit = RpmsRpc::Scheduling.checkin_visit(dfn: PATIENT, clinic_ien: clinic, checkin_time: checkin)
+    skip_tracked("openrpms#1342", "the check-in's visit is filed but BEHOENCX FETCH finds none") if visit.nil?
+    assert_equal [ PATIENT, clinic ], visit.values_at(:patient_dfn, :location_ien)
+  end
+end
