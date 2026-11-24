@@ -14,6 +14,7 @@ class FeaturesReviewTest < Minitest::Test
 
   CONTEXTS_OOO_TAG = "features-review-contexts-ooo-ydb"
   OOO_OPTION_ONLY_TAG = "features-review-ooo-option-only-ydb"
+  OOO_FIELD_TAG = "features-review-ooo-field-ydb"
   BROKER_EXEMPT_TAG = "features-review-broker-exempt-ydb"
   XUS_SIGNON_EXEMPT_TAG = "features-review-xus-signon-exempt-ydb"
   CACHE_ALIAS_TAG = "features-review-cache-alias-ydb"
@@ -61,6 +62,17 @@ class FeaturesReviewTest < Minitest::Test
                       build: OOO_OPTION_ONLY_TAG,
                       inventories_dir: FIXTURE_INVENTORIES,
                       context: BROKEN_OPTION)
+  end
+
+  # rpcs.json records carry reach.out_of_order since openrpms#1279 (rpms-rpc#628). The fixture is
+  # bcer-9.0-20261124-60d39b6-ydb's three chart-banner records, client-callable, with ZZ BROKEN OPTION
+  # added to their contexts and named in their out_of_order: no out-of-order row names that option, so
+  # only the field can say it is out of order. CIAV VUECENTRIC, which the field does not name, still serves.
+  def test_628_the_out_of_order_field_marks_an_option_no_out_of_order_row_names
+    kw = { build: OOO_FIELD_TAG, inventories_dir: FIXTURE_INVENTORIES }
+    refute available?(:patient_chart_banner, **kw, context: BROKEN_OPTION),
+           "an option the record's out_of_order names must not serve the feature"
+    assert available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC")
   end
 
   # --- (2) Golden pin answers; broker-exempt and XUS SIGNON must not count as served --------------

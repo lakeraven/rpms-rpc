@@ -12,7 +12,7 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # Runs as the behavioral health provider, the role AMHGRPC lets run these reads (openrpms#1299).
 class BehavioralHealthReferenceLiveTest < LiveSpec::Test
   runs_as :bh_provider
-  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
   needs "AMHGRPC", tracked: "openrpms#1299"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4" # DEMO,PATIENT ONE on the pinned build (patient_live_test.rb)
@@ -30,8 +30,9 @@ class BehavioralHealthReferenceLiveTest < LiveSpec::Test
 
   def test_single_record_reads_answer_the_ien_asked_for
     assert_equal "1", BH::Reference.site_parameters(1)[:ien]
-    assert_equal NOT_ON_FILE, BH::Groups.group_information(NOT_ON_FILE)[:ien]
-    assert_equal NOT_ON_FILE, BH::CaseManagement.case_management(NOT_ON_FILE)[:ien]
+    # A group or case not on file is nil, not the echo of its IEN (#882).
+    assert_nil BH::Groups.group_information(NOT_ON_FILE)
+    assert_nil BH::CaseManagement.case_management(NOT_ON_FILE)
     assert_equal NOT_ON_FILE, BH::CaseManagement.community_activity(NOT_ON_FILE)[:ien]
   end
 

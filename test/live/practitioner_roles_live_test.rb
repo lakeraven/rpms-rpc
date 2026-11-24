@@ -13,7 +13,7 @@ require "rpms_rpc/api/ddr_fileman"
 # each one, so it holds on any build that has a user with a division.
 class PractitionerRolesLiveTest < LiveSpec::Test
   runs_as :provider
-  # PROFILE,MD is not given OR CPRS GUI CHART yet (PROVIDER,TEST was, openrpms#1192).
+  # PROFILE,MD holds OR CPRS GUI CHART since bcer-9.0-20261124-60d39b6-ydb (openrpms#1276).
   needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   CONTEXT = "CIAV VUECENTRIC"
   KEYS = %i[duz name provider_class service_section divisions user_classes].freeze

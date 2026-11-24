@@ -62,11 +62,13 @@ module RpmsRpc
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
 
       # One registered RPC, from its rpcs.json record. package is the #9.4 package ({prefix:, name:,
-      # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none.
+      # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none. out_of_order is
+      # reach.out_of_order, the options listing it that are out of order (rpc_reach.txt field 7,
+      # openrpms#1279), [] when none, and nil for an rpcs.json written before the field.
       Rpc = Struct.new(
         :name, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
-        :word_wrap, :version, :formals, :description, :params, :returns, :package,
+        :word_wrap, :version, :formals, :description, :params, :returns, :package, :out_of_order,
         keyword_init: true
       ) do
         # TAG^ROUTINE as #8994 stores it; nil when neither is set. An empty TAG ("^BGUPMR") is the
@@ -239,6 +241,7 @@ module RpmsRpc
             availability: r["availability"], inactive: inactive.to_s.empty? || inactive == "0" ? nil : inactive,
             reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
             contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
+            out_of_order: (Array(reach["out_of_order"]) if reach.key?("out_of_order")),
             formals: formals, description: text ? Array(r["description"]) : [], returns: text ? Array(r["returns"]) : [],
             word_wrap: (r["word_wrap"] if text), version: (r["version"] if text),
             params: from_8994.map do |p|

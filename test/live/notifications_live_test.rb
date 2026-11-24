@@ -19,14 +19,14 @@ require "rpms_rpc/api/notifications"
 #
 # XQAL GUI ALERTS is in no option but its own, so the spec binds that option
 # for the send and the delete: a user who holds it as a secondary menu may
-# call it (the provider, once openrpms#1277 gives it), and a holder of XUPROGMODE may
+# call it (the provider, since openrpms#1277), and a holder of XUPROGMODE may
 # call it under any option (CIANBACT.m:141). Another role is refused at
 # the send, and the spec says so. The second
 # user is another test role (its published pair), signed on on its own
 # connection, as in scoped_client_two_identities_live_test.rb.
 class NotificationsLiveTest < LiveSpec::Test
   runs_as :provider
-  # PROFILE,MD is not given XQAL GUI ALERTS yet (PROVIDER,TEST was, openrpms#1192).
+  # PROFILE,MD holds XQAL GUI ALERTS since bcer-9.0-20261124-60d39b6-ydb (openrpms#1277).
   needs "XQAL GUI ALERTS", tracked: "openrpms#1277"
   writes!
 

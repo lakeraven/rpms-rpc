@@ -17,7 +17,7 @@ require "rpms_rpc/api/clinical_event"
 # names what it expected; it never skips. These specs read only.
 class ClinicalEventNotePatientLiveTest < LiveSpec::Test
   runs_as :provider
-  # PROFILE,MD is not given OR CPRS GUI CHART yet (PROVIDER,TEST was, openrpms#1192).
+  # PROFILE,MD holds OR CPRS GUI CHART since bcer-9.0-20261124-60d39b6-ydb (openrpms#1276).
   needs "OR CPRS GUI CHART", tracked: "openrpms#1276"
   NOTE_IEN = "1"       # a seeded note of DFN 4
   OWNER_DFN = 4        # DEMO,PATIENT ONE

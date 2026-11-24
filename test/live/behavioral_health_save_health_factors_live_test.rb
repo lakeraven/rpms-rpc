@@ -10,7 +10,7 @@ require "rpms_rpc/api/behavioral_health/wellness"
 # WRITES on a disposable container only; synthetic patient DFN 990037.
 class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   runs_as :bh_provider
-  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
   needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
