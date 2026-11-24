@@ -37,6 +37,7 @@ RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::Coverage.insurers	GET /coverages/insurers
 RpmsRpc::Coverage.on_file	GET /patients/{dfn}/coverages/on-file
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
+RpmsRpc::DdrFileman.list_all	GET /files/{file}/all
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
@@ -46,6 +47,7 @@ RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
 RpmsRpc::Encounter.providers	GET /patients/{dfn}/encounters/{visit_ien}/providers
 RpmsRpc::Encounter.visits	GET /patients/{dfn}/encounters/visits
 RpmsRpc::ExamComponent.for_patient	GET /patients/{dfn}/exam-components
+RpmsRpc::ExamComponent.types	GET /exam-components/types
 RpmsRpc::HealthFactor.for_patient	GET /patients/{dfn}/health-factors
 RpmsRpc::HealthSummary.clinical_reminders	GET /patients/{dfn}/health-summaries/clinical-reminders
 RpmsRpc::HealthSummary.component_data	GET /patients/{dfn}/health-summaries/component-data
@@ -69,6 +71,7 @@ RpmsRpc::Measurement.find	GET /measurements/{measurement_ien}
 RpmsRpc::Measurement.for_visit	GET /visits/{visit_ien}/measurements
 RpmsRpc::Measurement.latest	GET /patients/{dfn}/measurements/latest
 RpmsRpc::Measurement.newest_by_type	GET /patients/{dfn}/measurements/newest-by-type
+RpmsRpc::Measurement.types	GET /measurements/types
 RpmsRpc::Medication.active_for_patient	GET /patients/{dfn}/medications/active
 RpmsRpc::Medication.find	GET /patients/{dfn}/medications/{medication_id}
 RpmsRpc::Medication.for_patient	GET /patients/{dfn}/medications
@@ -182,6 +185,8 @@ RpmsRpc::Site.current	GET /users/{user_duz}/sites/current
 RpmsRpc::Site.list	GET /users/{user_duz}/sites
 RpmsRpc::Symptom.defaults	GET /symptoms/defaults
 RpmsRpc::Symptom.search	GET /symptoms
+RpmsRpc::Taxonomy.list	GET /taxonomies
+RpmsRpc::Taxonomy.members	GET /taxonomies/members
 RpmsRpc::Tribal.communities	GET /tribes/communities
 RpmsRpc::Tribal.eligibility	GET /patients/{dfn}/tribes/eligibility
 RpmsRpc::Tribal.enrollment	GET /patients/{dfn}/tribes/enrollment

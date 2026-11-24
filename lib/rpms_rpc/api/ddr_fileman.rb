@@ -120,6 +120,31 @@ module RpmsRpc
       }.compact.transform_values(&:to_s)
     end
 
+    # Every entry of a file (or of a subfile, with iens: ",<parent>,"),
+    # internal values, packed: [{ ien:, pieces: [...] }, ...], in the order
+    # of +xref+ ("B", or "#" for IEN order), only those whose index value
+    # starts with +part+ when it is given. Reads page by page (LIST^DIC's
+    # MORE^ continuation) until the list ends. A read that cannot be had
+    # whole raises Client::RpcError: no reply, an error reply, or a reply
+    # with no data section. It never answers a partial list or [] for a
+    # failed read.
+    def list_all(file:, fields:, iens: nil, part: nil, xref: "B", page: 500)
+      entries = []
+      from = nil
+      loop do
+        listed = lister(file: file, iens: iens, fields: fields, flags: "IP", max: page, from: from, part: part, xref: xref)
+        raise Client::RpcError, "DDR LISTER gave no reply for ##{file}" if listed.nil?
+        raise Client::RpcError, "DDR LISTER could not list ##{file}" if listed[:error] || !listed[:data]
+
+        entries.concat(listed[:entries])
+        return entries unless listed[:more]
+        raise Client::RpcError, "DDR LISTER on ##{file} did not move past #{from.inspect}" if listed[:more][:value] == from
+
+        from = listed[:more][:value]
+      end
+    end
+    shape :list_all, resource: "files", verb: "GET", path: "/files/{file}/all"
+
     # -- DDR LOCK/UNLOCK NODE ------------------------------------------------
 
     # Incremental M LOCK on a global node ('L +node:timeout',
