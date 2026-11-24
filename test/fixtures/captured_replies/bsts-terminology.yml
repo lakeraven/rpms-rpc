@@ -1,0 +1,419 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bsts-terminology.rb.
+---
+rpc: BSTS SNOMED SEARCH
+entry_point: SEARCH^BSTSRPC
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-24T03:54:28Z'
+note: Run on a throwaway container; every call reads the local BSTS cache.
+captures:
+- name: search/1
+  rpc: BSTS SNOMED SEARCH
+  inputs:
+  - diabetes|S|36|||25|||||1
+  context: Terminology.search of 'diabetes', 25 at most
+  raw_return: "5\0T00050PRB_DSC^T00250PRB_TRM^T00050PREF_DSC^T00250PREF_TRM^T00050CONCID^T00030DTSID^T00050FSN_DSC^T00250FSN_TRM^T04096ISA^T04096ICD9^T04096SUBSETS^T0409610D^T04096SYNONYMS^T00001ISA_SYN_HDR^T04096MAPPED_ICD^T00001PROMPT_LATERALITY^T00020DEFAULT_STATUS^T00001REQUIRE_EPISODICITY\x1ET1999001496^Diabetes
+    type 2 with kidney disease^3013487011^Chronic kidney disease due to type 2 diabetes
+    mellitus^771000119108^1119000077^3035134010^Chronic kidney disease due to type
+    2 diabetes mellitus (disorder)^236425\x1D236425005\x1DChronic renal impairment
+    (disorder)\x1C420279\x1D420279001\x1DRenal disorder due to type 2 diabetes mellitus
+    (disorder)\x1C1124069970\x1D709044004\x1DChronic kidney disease (disorder)\x1C422014\x1D422014003\x1DDisorder
+    due to type 2 diabetes mellitus (disorder)^E11.22\x1CN18.9^IHS PROBLEM ALL SNOMED\x1CIHS
+    Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CIHS
+    eCQM Galaxy Plus^^3013487011\x1DChronic kidney disease due to type 2 diabetes
+    mellitus\x1DPreferred\x1D1\x1CT1999001496\x1DDiabetes type 2 with kidney disease\x1DSynonym\x1D2\x1C3013087016\x1DDiabetic
+    chronic renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C3013064012\x1DChronic
+    renal impairment due to type II diabetes mellitus\x1DSynonym\x1D2\x1C3013552014\x1DChronic
+    renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C6121000119116\x1DDiabetes
+    type 2 with kidney disease\x1DSynonym\x1D2\x1C6111000119111\x1DDM 2 w diabetic
+    CKD\x1DSynonym\x1D2\x1C2967678018\x1DChronic renal impairment associated with
+    type II diabetes mellitus (disorder)\x1DSynonym\x1D2\x1C2967637015\x1DDiabetic
+    chronic renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2\x1C2967511013\x1DChronic
+    renal impairment associated with type II diabetes mellitus\x1DSynonym\x1D2\x1C2967757012\x1DChronic
+    renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2^S^E11.22\x1CN18.9^0^Chronic^0\x1E6121000119116^Diabetes
+    type 2 with kidney disease^3013487011^Chronic kidney disease due to type 2 diabetes
+    mellitus^771000119108^1119000077^3035134010^Chronic kidney disease due to type
+    2 diabetes mellitus (disorder)^236425\x1D236425005\x1DChronic renal impairment
+    (disorder)\x1C420279\x1D420279001\x1DRenal disorder due to type 2 diabetes mellitus
+    (disorder)\x1C1124069970\x1D709044004\x1DChronic kidney disease (disorder)\x1C422014\x1D422014003\x1DDisorder
+    due to type 2 diabetes mellitus (disorder)^E11.22\x1CN18.9^IHS PROBLEM ALL SNOMED\x1CIHS
+    Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CIHS
+    eCQM Galaxy Plus^^3013487011\x1DChronic kidney disease due to type 2 diabetes
+    mellitus\x1DPreferred\x1D1\x1CT1999001496\x1DDiabetes type 2 with kidney disease\x1DSynonym\x1D2\x1C3013087016\x1DDiabetic
+    chronic renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C3013064012\x1DChronic
+    renal impairment due to type II diabetes mellitus\x1DSynonym\x1D2\x1C3013552014\x1DChronic
+    renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C6121000119116\x1DDiabetes
+    type 2 with kidney disease\x1DSynonym\x1D2\x1C6111000119111\x1DDM 2 w diabetic
+    CKD\x1DSynonym\x1D2\x1C2967678018\x1DChronic renal impairment associated with
+    type II diabetes mellitus (disorder)\x1DSynonym\x1D2\x1C2967637015\x1DDiabetic
+    chronic renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2\x1C2967511013\x1DChronic
+    renal impairment associated with type II diabetes mellitus\x1DSynonym\x1D2\x1C2967757012\x1DChronic
+    renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2^S^E11.22\x1CN18.9^0^Chronic^0\x1E6041000119111^Diabetes
+    type 2 with dyslipidemia^2967622019^Diabetic dyslipidemia associated with type
+    2 diabetes mellitus^761000119102^1119000076^6011000119112^Dyslipidemia associated
+    with type II diabetes mellitus (disorder)^237620\x1D237620003\x1DAbnormal metabolic
+    state in diabetes mellitus (disorder)\x1C422014\x1D422014003\x1DDisorder due to
+    type 2 diabetes mellitus (disorder)\x1C370992\x1D370992007\x1DDyslipidemia (disorder)^E11.69\x1CE78.5^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CPXRM
+    DYSLIPIDEMIA\x1CPXRM NDW DYSLIPIDEMIA TOPICS\x1CIHS eCQM Galaxy Plus^^2967622019\x1DDiabetic
+    dyslipidemia associated with type 2 diabetes mellitus\x1DPreferred\x1D1\x1C6041000119111\x1DDiabetes
+    type 2 with dyslipidemia\x1DSynonym\x1D2\x1C6031000119119\x1DDM 2 W diabetic dyslipidemia\x1DSynonym\x1D2\x1C2967669012\x1DDyslipidemia
+    associated with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.69\x1CE78.5^0^^0\x1ET1999003870^Diabetes
+    type 2 with mild kidney disease^3013056018^Chronic kidney disease stage 1 due
+    to type 2 diabetes mellitus^751000119104^1119000075^3013083017^Chronic kidney
+    disease stage 1 due to type 2 diabetes mellitus (disorder)^431855\x1D431855005\x1DChronic
+    kidney disease stage 1 (disorder)\x1C422014\x1D422014003\x1DDisorder due to type
+    2 diabetes mellitus (disorder)\x1C1119000077\x1D771000119108\x1DChronic kidney
+    disease due to type 2 diabetes mellitus (disorder)^E11.22\x1CN18.1^IHS PROBLEM
+    ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Family
+    Practice\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CIHS eCQM Galaxy Plus^^3013056018\x1DChronic
+    kidney disease stage 1 due to type 2 diabetes mellitus\x1DPreferred\x1D1\x1C3013102011\x1DDiabetic
+    stage 1 chronic renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C3035118012\x1DChronic
+    kidney disease stage 1 due to type II diabetes mellitus\x1DSynonym\x1D2\x1CT1999003870\x1DDiabetes
+    type 2 with mild kidney disease\x1DSynonym\x1D2\x1CT1999003944\x1DDM 2 w diabetic
+    CKD stage 1 (gfr >= 90)\x1DSynonym\x1D2\x1C5931000119114\x1DChronic kidney disease
+    stage 1 associated with type 2 diabetes mellitus (disorder)\x1DSynonym\x1D2\x1C2967737013\x1DDiabetic
+    stage 1 chronic renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2\x1C2967729017\x1DChronic
+    kidney disease stage 1 associated with type 2 diabetes mellitus\x1DSynonym\x1D2^S^E11.22\x1CN18.1^0^Chronic^0\x1ET1999003871^Diabetes
+    type 2 with moderate kidney disease^3013103018^Chronic kidney disease stage 3
+    due to type 2 diabetes mellitus^731000119105^1119000073^3013068010^Chronic kidney
+    disease stage 3 due to type 2 diabetes mellitus (disorder)^433144\x1D433144002\x1DChronic
+    kidney disease stage 3 (disorder)\x1C422014\x1D422014003\x1DDisorder due to type
+    2 diabetes mellitus (disorder)\x1C422014\x1D\x1DDisorder associated with type
+    2 diabetes mellitus (disorder)\x1C1119000077\x1D771000119108\x1DChronic kidney
+    disease due to type 2 diabetes mellitus (disorder)^E11.22^IHS PROBLEM ALL SNOMED\x1CIHS
+    Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Family Practice\x1CEHR
+    IPL DEFAULT STATUS CHRONIC\x1CPXRM CKD STAGE 3 AND GREATER\x1CIHS eCQM Galaxy
+    Plus^^3013103018\x1DChronic kidney disease stage 3 due to type 2 diabetes mellitus\x1DPreferred\x1D1\x1C3013036019\x1DDiabetic
+    stage 3 chronic renal impairment due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C3035131019\x1DChronic
+    kidney disease stage 3 due to type II diabetes mellitus\x1DSynonym\x1D2\x1CT1999003871\x1DDiabetes
+    type 2 with moderate kidney disease\x1DSynonym\x1D2\x1CT1999003946\x1DDM 2 w diabetic
+    CKD stage 3 (gfr 30-59)\x1DSynonym\x1D2\x1C5771000119110\x1DChronic kidney disease
+    stage 3 associated with type 2 diabetes mellitus (disorder)\x1DSynonym\x1D2\x1C2967721019\x1DDiabetic
+    stage 3 chronic renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2\x1C2967710011\x1DChronic
+    kidney disease stage 3 associated with type 2 diabetes mellitus\x1DSynonym\x1D2^S^E11.22^0^Chronic^0\x1ET1999003875^Diabetes
+    type 2 with severe kidney disease^3013100015^Chronic kidney disease stage 4 due
+    to type 2 diabetes mellitus^721000119107^1119000072^3013071019^Chronic kidney
+    disease stage 4 due to type 2 diabetes mellitus (disorder)^431857\x1D431857002\x1DChronic
+    kidney disease stage 4 (disorder)\x1C422014\x1D422014003\x1DDisorder due to type
+    2 diabetes mellitus (disorder)\x1C1119000077\x1D771000119108\x1DChronic kidney
+    disease due to type 2 diabetes mellitus (disorder)^E11.22\x1CN18.4^IHS PROBLEM
+    ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Family
+    Practice\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPXRM CKD STAGE 3 AND GREATER\x1CIHS
+    eCQM Galaxy Plus^^3013100015\x1DChronic kidney disease stage 4 due to type 2 diabetes
+    mellitus\x1DPreferred\x1D1\x1C3013038018\x1DDiabetic stage 4 chronic renal impairment
+    due to type 2 diabetes mellitus\x1DSynonym\x1D2\x1C3035100014\x1DChronic kidney
+    disease stage 4 due to type II diabetes mellitus\x1DSynonym\x1D2\x1CT1999003875\x1DDiabetes
+    type 2 with severe kidney disease\x1DSynonym\x1D2\x1CT1999003947\x1DDM 2 w diabetic
+    CKD stage 4 (gfr 15-29)\x1DSynonym\x1D2\x1C5691000119117\x1DChronic kidney disease
+    stage 4 associated with type 2 diabetes mellitus (disorder)\x1DSynonym\x1D2\x1C2967717014\x1DDiabetic
+    stage 4 chronic renal impairment associated with type 2 diabetes mellitus\x1DSynonym\x1D2\x1C2967718016\x1DChronic
+    kidney disease stage 4 associated with type 2 diabetes mellitus\x1DSynonym\x1D2^S^E11.22\x1CN18.4^0^Chronic^0\x1ET1999001490^Diabetes
+    type 1 with peripheral neuropathy^3289695015^Peripheral neuropathy due to type
+    1 diabetes mellitus^71791000119104^1124071852^3304607019^Peripheral neuropathy
+    co-occurrent and due to type 1 diabetes mellitus (disorder)^237620\x1D237620003\x1DAbnormal
+    metabolic state in diabetes mellitus (disorder)\x1C46635\x1D46635009\x1DDiabetes
+    mellitus type 1 (disorder)\x1C424736\x1D424736006\x1DDiabetic peripheral neuropathy
+    (disorder)\x1C420868\x1D420868002\x1DDisorder due to type 1 diabetes mellitus
+    (disorder)\x1C421468\x1D421468001\x1DNeurological disorder associated with type
+    I diabetes mellitus (disorder)^E10.40^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH
+    Common Terms\x1CSRCH Diabetes\x1CSRCH Podiatry\x1CPXRM BGP IPC DIABETES\x1CPXRM
+    DIABETES TYPE I\x1CIHS eCQM Galaxy Plus^^3289695015\x1DPeripheral neuropathy due
+    to type 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999106022\x1DDM 1 w diabetic
+    peripheral neuropathy\x1DSynonym\x1D2\x1CT1999001490\x1DDiabetes type 1 with peripheral
+    neuropathy\x1DSynonym\x1D2\x1C3304608012\x1DPeripheral neuropathy co-occurrent
+    and due to type 1 diabetes mellitus\x1DSynonym\x1D2\x1C3289769013\x1DPeripheral
+    neuropathy due to type 1 diabetes mellitus (disorder)\x1DSynonym\x1D2^S^E10.40^0^^0\x1ET1999003857^Diabetes
+    type 1^197984010^Type 1 diabetes mellitus^46635009^46635^784006012^Diabetes mellitus
+    type 1 (disorder)^73211\x1D73211009\x1DDiabetes mellitus (disorder)^E10.9^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case Management\x1CSRCH Common
+    Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH Pediatrics\x1CSRCH Problem List
+    - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPICK Diabetes\x1CPICK
+    Family Practice\x1CPICK Family Practice Long\x1CPICK Medicine - Inpatient\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CPXRM DIABETES
+    TYPE I\x1CIHS eCQM Galaxy Plus^^197984010\x1DType 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003857\x1DDiabetes
+    type 1\x1DSynonym\x1D2\x1CT1999000373\x1DDM 1\x1DSynonym\x1D2\x1C494565013\x1DJuvenile
+    onset diabetes mellitus\x1DSynonym\x1D2\x1C494564012\x1DType I diabetes mellitus\x1DSynonym\x1D2\x1C494563018\x1DInsulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C494562011\x1DIDDM - Insulin-dependent diabetes
+    mellitus\x1DSynonym\x1D2\x1C197985011\x1DDiabetes mellitus type 1\x1DSynonym\x1D2\x1C77729015\x1DIDDM\x1DSynonym\x1D2\x1C77728011\x1DDiabetes
+    mellitus type I\x1DSynonym\x1D2\x1C77727018\x1DInsulin dependent diabetes mellitus\x1DSynonym\x1D2^S^E10.9^0^Chronic^0\x1E77728011^Diabetes
+    mellitus type I^197984010^Type 1 diabetes mellitus^46635009^46635^784006012^Diabetes
+    mellitus type 1 (disorder)^73211\x1D73211009\x1DDiabetes mellitus (disorder)^E10.9^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case Management\x1CSRCH Common
+    Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH Pediatrics\x1CSRCH Problem List
+    - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPICK Diabetes\x1CPICK
+    Family Practice\x1CPICK Family Practice Long\x1CPICK Medicine - Inpatient\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CPXRM DIABETES
+    TYPE I\x1CIHS eCQM Galaxy Plus^^197984010\x1DType 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003857\x1DDiabetes
+    type 1\x1DSynonym\x1D2\x1CT1999000373\x1DDM 1\x1DSynonym\x1D2\x1C494565013\x1DJuvenile
+    onset diabetes mellitus\x1DSynonym\x1D2\x1C494564012\x1DType I diabetes mellitus\x1DSynonym\x1D2\x1C494563018\x1DInsulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C494562011\x1DIDDM - Insulin-dependent diabetes
+    mellitus\x1DSynonym\x1D2\x1C197985011\x1DDiabetes mellitus type 1\x1DSynonym\x1D2\x1C77729015\x1DIDDM\x1DSynonym\x1D2\x1C77728011\x1DDiabetes
+    mellitus type I\x1DSynonym\x1D2\x1C77727018\x1DInsulin dependent diabetes mellitus\x1DSynonym\x1D2^S^E10.9^0^Chronic^0\x1E197985011^Diabetes
+    mellitus type 1^197984010^Type 1 diabetes mellitus^46635009^46635^784006012^Diabetes
+    mellitus type 1 (disorder)^73211\x1D73211009\x1DDiabetes mellitus (disorder)^E10.9^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case Management\x1CSRCH Common
+    Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH Pediatrics\x1CSRCH Problem List
+    - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPICK Diabetes\x1CPICK
+    Family Practice\x1CPICK Family Practice Long\x1CPICK Medicine - Inpatient\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CPXRM DIABETES
+    TYPE I\x1CIHS eCQM Galaxy Plus^^197984010\x1DType 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003857\x1DDiabetes
+    type 1\x1DSynonym\x1D2\x1CT1999000373\x1DDM 1\x1DSynonym\x1D2\x1C494565013\x1DJuvenile
+    onset diabetes mellitus\x1DSynonym\x1D2\x1C494564012\x1DType I diabetes mellitus\x1DSynonym\x1D2\x1C494563018\x1DInsulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C494562011\x1DIDDM - Insulin-dependent diabetes
+    mellitus\x1DSynonym\x1D2\x1C197985011\x1DDiabetes mellitus type 1\x1DSynonym\x1D2\x1C77729015\x1DIDDM\x1DSynonym\x1D2\x1C77728011\x1DDiabetes
+    mellitus type I\x1DSynonym\x1D2\x1C77727018\x1DInsulin dependent diabetes mellitus\x1DSynonym\x1D2^S^E10.9^0^Chronic^0\x1ET1999003862^Diabetes
+    type 2^197761014^Type 2 diabetes mellitus^44054006^44054^781138016^Diabetes mellitus
+    type 2 (disorder)^73211\x1D73211009\x1DDiabetes mellitus (disorder)^E11.9^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case Management\x1CSRCH Common
+    Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH Pediatrics\x1CSRCH Problem List
+    - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPICK Diabetes\x1CPICK
+    Emergency Department\x1CPICK Family Practice\x1CPICK Family Practice Long\x1CPICK
+    Medicine - Inpatient\x1CPICK Medicine - Urgent Care\x1CPICK Urology/Nephrology
+    Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CIHS eCQM Galaxy Plus^^197761014\x1DType
+    2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003862\x1DDiabetes type 2\x1DSynonym\x1D2\x1CT1999001130\x1DDM
+    2\x1DSynonym\x1D2\x1C493775015\x1DDiabetes mellitus - adult onset\x1DSynonym\x1D2\x1C493774016\x1DType
+    II diabetes mellitus\x1DSynonym\x1D2\x1C493773010\x1DNIDDM - Non-insulin dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C493772017\x1DMaturity onset diabetes mellitus\x1DSynonym\x1D2\x1C493771012\x1DNon-insulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C197763012\x1DDiabetes mellitus type 2\x1DSynonym\x1D2\x1C197762019\x1DNIDDM\x1DSynonym\x1D2\x1C73467019\x1DNCDMM\x1DSynonym\x1D2\x1C73466011\x1DNon-insulin
+    dependent diabetes mellitus\x1DSynonym\x1D2\x1C73465010\x1DDiabetes mellitus type
+    II\x1DSynonym\x1D2^S^E11.9^0^Chronic^0\x1E73465010^Diabetes mellitus type II^197761014^Type
+    2 diabetes mellitus^44054006^44054^781138016^Diabetes mellitus type 2 (disorder)^73211\x1D73211009\x1DDiabetes
+    mellitus (disorder)^E11.9^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case
+    Management\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH
+    Emergency Department\x1CSRCH Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH
+    Medicine - Urgent Care\x1CSRCH Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH
+    Pediatrics\x1CSRCH Problem List - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT
+    STATUS CHRONIC\x1CPICK Diabetes\x1CPICK Emergency Department\x1CPICK Family Practice\x1CPICK
+    Family Practice Long\x1CPICK Medicine - Inpatient\x1CPICK Medicine - Urgent Care\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CIHS eCQM
+    Galaxy Plus^^197761014\x1DType 2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003862\x1DDiabetes
+    type 2\x1DSynonym\x1D2\x1CT1999001130\x1DDM 2\x1DSynonym\x1D2\x1C493775015\x1DDiabetes
+    mellitus - adult onset\x1DSynonym\x1D2\x1C493774016\x1DType II diabetes mellitus\x1DSynonym\x1D2\x1C493773010\x1DNIDDM
+    - Non-insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C493772017\x1DMaturity
+    onset diabetes mellitus\x1DSynonym\x1D2\x1C493771012\x1DNon-insulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C197763012\x1DDiabetes mellitus type 2\x1DSynonym\x1D2\x1C197762019\x1DNIDDM\x1DSynonym\x1D2\x1C73467019\x1DNCDMM\x1DSynonym\x1D2\x1C73466011\x1DNon-insulin
+    dependent diabetes mellitus\x1DSynonym\x1D2\x1C73465010\x1DDiabetes mellitus type
+    II\x1DSynonym\x1D2^S^E11.9^0^Chronic^0\x1E493775015^Diabetes mellitus - adult
+    onset^197761014^Type 2 diabetes mellitus^44054006^44054^781138016^Diabetes mellitus
+    type 2 (disorder)^73211\x1D73211009\x1DDiabetes mellitus (disorder)^E11.9^IHS
+    PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case Management\x1CSRCH Common
+    Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH Pediatrics\x1CSRCH Problem List
+    - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT STATUS CHRONIC\x1CPICK Diabetes\x1CPICK
+    Emergency Department\x1CPICK Family Practice\x1CPICK Family Practice Long\x1CPICK
+    Medicine - Inpatient\x1CPICK Medicine - Urgent Care\x1CPICK Urology/Nephrology
+    Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CIHS eCQM Galaxy Plus^^197761014\x1DType
+    2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003862\x1DDiabetes type 2\x1DSynonym\x1D2\x1CT1999001130\x1DDM
+    2\x1DSynonym\x1D2\x1C493775015\x1DDiabetes mellitus - adult onset\x1DSynonym\x1D2\x1C493774016\x1DType
+    II diabetes mellitus\x1DSynonym\x1D2\x1C493773010\x1DNIDDM - Non-insulin dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C493772017\x1DMaturity onset diabetes mellitus\x1DSynonym\x1D2\x1C493771012\x1DNon-insulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C197763012\x1DDiabetes mellitus type 2\x1DSynonym\x1D2\x1C197762019\x1DNIDDM\x1DSynonym\x1D2\x1C73467019\x1DNCDMM\x1DSynonym\x1D2\x1C73466011\x1DNon-insulin
+    dependent diabetes mellitus\x1DSynonym\x1D2\x1C73465010\x1DDiabetes mellitus type
+    II\x1DSynonym\x1D2^S^E11.9^0^Chronic^0\x1E197763012^Diabetes mellitus type 2^197761014^Type
+    2 diabetes mellitus^44054006^44054^781138016^Diabetes mellitus type 2 (disorder)^73211\x1D73211009\x1DDiabetes
+    mellitus (disorder)^E11.9^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Case
+    Management\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Diabetes Education\x1CSRCH
+    Emergency Department\x1CSRCH Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH
+    Medicine - Urgent Care\x1CSRCH Nursing - Public Health\x1CSRCH Nutrition\x1CSRCH
+    Pediatrics\x1CSRCH Problem List - Medical\x1CSRCH WH - General\x1CEHR IPL DEFAULT
+    STATUS CHRONIC\x1CPICK Diabetes\x1CPICK Emergency Department\x1CPICK Family Practice\x1CPICK
+    Family Practice Long\x1CPICK Medicine - Inpatient\x1CPICK Medicine - Urgent Care\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP IPC DIABETES\x1CPXRM DIABETES\x1CIHS eCQM
+    Galaxy Plus^^197761014\x1DType 2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003862\x1DDiabetes
+    type 2\x1DSynonym\x1D2\x1CT1999001130\x1DDM 2\x1DSynonym\x1D2\x1C493775015\x1DDiabetes
+    mellitus - adult onset\x1DSynonym\x1D2\x1C493774016\x1DType II diabetes mellitus\x1DSynonym\x1D2\x1C493773010\x1DNIDDM
+    - Non-insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C493772017\x1DMaturity
+    onset diabetes mellitus\x1DSynonym\x1D2\x1C493771012\x1DNon-insulin-dependent
+    diabetes mellitus\x1DSynonym\x1D2\x1C197763012\x1DDiabetes mellitus type 2\x1DSynonym\x1D2\x1C197762019\x1DNIDDM\x1DSynonym\x1D2\x1C73467019\x1DNCDMM\x1DSynonym\x1D2\x1C73466011\x1DNon-insulin
+    dependent diabetes mellitus\x1DSynonym\x1D2\x1C73465010\x1DDiabetes mellitus type
+    II\x1DSynonym\x1D2^S^E11.9^0^Chronic^0\x1E320601000119114^Diabetes, type 1 with
+    amyotrophy^2675115014^Amyotrophy due to type 1 diabetes mellitus^427571000^427571^2663094011^Amyotrophy
+    due to type 1 diabetes mellitus (disorder)^39058\x1D39058009\x1DDiabetic amyotrophy
+    (disorder)\x1C421468\x1D421468001\x1DNeurological disorder associated with type
+    I diabetes mellitus (disorder)\x1C420868\x1D420868002\x1DDisorder due to type
+    1 diabetes mellitus (disorder)^E10.44^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH
+    Common Terms\x1CSRCH Neurology\x1CPICK Neurology Long\x1CPICK Urology/Nephrology
+    Long\x1CPXRM BGP MYOPATHY MYALGIA\x1CPXRM DIABETES TYPE I\x1CIHS eCQM Galaxy Plus^^2675115014\x1DAmyotrophy
+    due to type 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999125212\x1DDM 1 w amyotrophy\x1DSynonym\x1D2\x1C320601000119114\x1DDiabetes,
+    type 1 with amyotrophy\x1DSynonym\x1D2\x1C320591000119119\x1DDM 1 w diabetic amyotrophy\x1DSynonym\x1D2^S^E10.44^0^^0\x1E488761000119119^Diabetes,
+    type 2 with amyotrophy^2675116010^Amyotrophy due to type 2 diabetes mellitus^427027005^427027^2663095012^Amyotrophy
+    due to type 2 diabetes mellitus (disorder)^39058\x1D39058009\x1DDiabetic amyotrophy
+    (disorder)\x1C421326\x1D421326000\x1DNeurologic disorder associated with type
+    II diabetes mellitus (disorder)\x1C1124070688\x1D368581000119106\x1DNeuropathy
+    due to type 2 diabetes mellitus (disorder)^E11.44^IHS PROBLEM ALL SNOMED\x1CIHS
+    Problem List\x1CSRCH Common Terms\x1CSRCH Neurology\x1CPICK Neurology Long\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP MYOPATHY MYALGIA\x1CIHS eCQM Galaxy Plus^^2675116010\x1DAmyotrophy
+    due to type 2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999125215\x1DDM 2 w amyotrophy\x1DSynonym\x1D2\x1C3035608018\x1DDiabetes
+    type 2 with amyotrophy\x1DSynonym\x1D2\x1C488761000119119\x1DDiabetes, type 2
+    with amyotrophy\x1DSynonym\x1D2\x1C488751000119116\x1DDM 2 w diabetic amyotrophy\x1DSynonym\x1D2^S^E11.44^0^^0\x1E3035608018^Diabetes
+    type 2 with amyotrophy^2675116010^Amyotrophy due to type 2 diabetes mellitus^427027005^427027^2663095012^Amyotrophy
+    due to type 2 diabetes mellitus (disorder)^39058\x1D39058009\x1DDiabetic amyotrophy
+    (disorder)\x1C421326\x1D421326000\x1DNeurologic disorder associated with type
+    II diabetes mellitus (disorder)\x1C1124070688\x1D368581000119106\x1DNeuropathy
+    due to type 2 diabetes mellitus (disorder)^E11.44^IHS PROBLEM ALL SNOMED\x1CIHS
+    Problem List\x1CSRCH Common Terms\x1CSRCH Neurology\x1CPICK Neurology Long\x1CPICK
+    Urology/Nephrology Long\x1CPXRM BGP MYOPATHY MYALGIA\x1CIHS eCQM Galaxy Plus^^2675116010\x1DAmyotrophy
+    due to type 2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999125215\x1DDM 2 w amyotrophy\x1DSynonym\x1D2\x1C3035608018\x1DDiabetes
+    type 2 with amyotrophy\x1DSynonym\x1D2\x1C488761000119119\x1DDiabetes, type 2
+    with amyotrophy\x1DSynonym\x1D2\x1C488751000119116\x1DDM 2 w diabetic amyotrophy\x1DSynonym\x1D2^S^E11.44^0^^0\x1E1257001000119113^Diabetes
+    type 2 with retinopathy^2967760017^Diabetic retinopathy associated with type 2
+    diabetes mellitus^422034002^422034^2615565013^Diabetic retinopathy associated
+    with type II diabetes mellitus (disorder)^422099\x1D422099009\x1DDiabetic oculopathy
+    associated with type II diabetes mellitus (disorder)\x1C4855\x1D4855003\x1DDiabetic
+    retinopathy (disorder)^E11.319^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH
+    Common Terms\x1CSRCH Diabetes\x1CSRCH Eye General\x1CSRCH Family Practice\x1CEHR
+    IPL DEFAULT STATUS CHRONIC\x1CEHR IPL EYE FILTER\x1CPICK Diabetes\x1CPICK Family
+    Practice\x1CPICK Urology/Nephrology Long\x1CPXRM BGP DM RETINOPATHY\x1CPXRM DIABETES\x1CIHS
+    eCQM Galaxy Plus^^2967760017\x1DDiabetic retinopathy associated with type 2 diabetes
+    mellitus\x1DPreferred\x1D1\x1C1257001000119113\x1DDiabetes type 2 with retinopathy\x1DSynonym\x1D2\x1C1256991000119118\x1DDM
+    2 w diabetic retinopathy\x1DSynonym\x1D2\x1C2623073012\x1DRetinopathy associated
+    with adult-onset type diabetes mellitus\x1DSynonym\x1D2\x1C2623072019\x1DRetinopathy
+    associated with non-insulin-dependent diabetes mellitus\x1DSynonym\x1D2\x1C2618241010\x1DDiabetic
+    retinopathy associated with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.319^0^Chronic^0\x1E2042281000119118^Diabetes,
+    type 2 with nephropathy^2967751013^Persistent proteinuria associated with type
+    2 diabetes mellitus^421986006^421986^2615537011^Persistent proteinuria associated
+    with type II diabetes mellitus (disorder)^236500\x1D236500003\x1DProteinuric diabetic
+    nephropathy (disorder)\x1C420279\x1D420279001\x1DRenal disorder due to type 2
+    diabetes mellitus (disorder)^E11.29\x1CR80.1^IHS PROBLEM ALL SNOMED\x1CIHS Problem
+    List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Emergency Department\x1CSRCH
+    Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH
+    Problem List - Medical\x1CSRCH Urology/Nephrology\x1CSRCH WH - Pelvic Pain\x1CPXRM
+    DIABETIC NEPHROPATHY\x1CIHS eCQM Galaxy Plus^^2967751013\x1DPersistent proteinuria
+    associated with type 2 diabetes mellitus\x1DPreferred\x1D1\x1C2042281000119118\x1DDiabetes,
+    type 2 with nephropathy\x1DSynonym\x1D2\x1C2042271000119116\x1DDM 2 w diabetic
+    nephropathy\x1DSynonym\x1D2\x1C2618210014\x1DPersistent proteinuria associated
+    with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.29\x1CR80.1^0^^0\x1ET1999125180^Diabetes
+    type 1 with kidney complications^2623054013^Renal disorder associated with type
+    1 diabetes mellitus^421893009^421893^2615538018^Renal disorder associated with
+    type I diabetes mellitus (disorder)^127013\x1D127013003\x1DDiabetic renal disease
+    (disorder)\x1C420868\x1D420868002\x1DDisorder due to type 1 diabetes mellitus
+    (disorder)^E10.21^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH
+    Diabetes\x1CSRCH Emergency Department\x1CSRCH Family Practice\x1CSRCH Medicine
+    - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH Problem List - Medical\x1CSRCH
+    Urology/Nephrology\x1CSRCH WH - Pelvic Pain\x1CPICK Urology/Nephrology Long\x1CPXRM
+    DIABETIC NEPHROPATHY\x1CIHS eCQM Galaxy Plus^^2623054013\x1DRenal disorder associated
+    with type 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999125214\x1DDM 1 w diabetic
+    renal manifestation\x1DSynonym\x1D2\x1CT1999125180\x1DDiabetes type 1 with kidney
+    complications\x1DSynonym\x1D2\x1C1257161000119113\x1DDiabetes type 1 with diabetic
+    nephropathy\x1DSynonym\x1D2\x1C1257151000119111\x1DDM 1 w diabetic nephropathy\x1DSynonym\x1D2\x1C2623057018\x1DKidney
+    disorder associated with type 1 diabetes mellitus\x1DSynonym\x1D2\x1C2623056010\x1DRenal
+    disorder associated with insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C2623055014\x1DKidney
+    disorder associated with juvenile-onset type diabetes mellitus\x1DSynonym\x1D2\x1C2618211013\x1DRenal
+    disorder associated with type I diabetes mellitus\x1DSynonym\x1D2^S^E10.21^0^^0\x1E1257161000119113^Diabetes
+    type 1 with diabetic nephropathy^2623054013^Renal disorder associated with type
+    1 diabetes mellitus^421893009^421893^2615538018^Renal disorder associated with
+    type I diabetes mellitus (disorder)^127013\x1D127013003\x1DDiabetic renal disease
+    (disorder)\x1C420868\x1D420868002\x1DDisorder due to type 1 diabetes mellitus
+    (disorder)^E10.21^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH
+    Diabetes\x1CSRCH Emergency Department\x1CSRCH Family Practice\x1CSRCH Medicine
+    - Inpatient\x1CSRCH Medicine - Urgent Care\x1CSRCH Problem List - Medical\x1CSRCH
+    Urology/Nephrology\x1CSRCH WH - Pelvic Pain\x1CPICK Urology/Nephrology Long\x1CPXRM
+    DIABETIC NEPHROPATHY\x1CIHS eCQM Galaxy Plus^^2623054013\x1DRenal disorder associated
+    with type 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999125214\x1DDM 1 w diabetic
+    renal manifestation\x1DSynonym\x1D2\x1CT1999125180\x1DDiabetes type 1 with kidney
+    complications\x1DSynonym\x1D2\x1C1257161000119113\x1DDiabetes type 1 with diabetic
+    nephropathy\x1DSynonym\x1D2\x1C1257151000119111\x1DDM 1 w diabetic nephropathy\x1DSynonym\x1D2\x1C2623057018\x1DKidney
+    disorder associated with type 1 diabetes mellitus\x1DSynonym\x1D2\x1C2623056010\x1DRenal
+    disorder associated with insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C2623055014\x1DKidney
+    disorder associated with juvenile-onset type diabetes mellitus\x1DSynonym\x1D2\x1C2618211013\x1DRenal
+    disorder associated with type I diabetes mellitus\x1DSynonym\x1D2^S^E10.21^0^^0\x1E3035355017^Diabetes
+    type 2 with gangrene^2967779019^Gangrene associated with type 2 diabetes mellitus^421631007^421631^2615533010^Gangrene
+    associated with type II diabetes mellitus (disorder)^25907\x1D25907005\x1DDiabetic
+    gangrene (disorder)\x1C422014\x1D422014003\x1DDisorder due to type 2 diabetes
+    mellitus (disorder)^E11.52^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH
+    Common Terms\x1CSRCH Diabetes\x1CPICK Urology/Nephrology Long\x1CIHS eCQM Galaxy
+    Plus^^2967779019\x1DGangrene associated with type 2 diabetes mellitus\x1DPreferred\x1D1\x1C3035355017\x1DDiabetes
+    type 2 with gangrene\x1DSynonym\x1D2\x1C2041961000119113\x1DDiabetes, type 2 with
+    gangrene\x1DSynonym\x1D2\x1C2041951000119111\x1DDM 2 w diabetic gangrene\x1DSynonym\x1D2\x1C2623045010\x1DGangrene
+    associated with adult-onside type diabetes mellitus\x1DSynonym\x1D2\x1C2623044014\x1DGangrene
+    associated with non-insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C2618206011\x1DGangrene
+    associated with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.52^0^^0\x1E2041961000119113^Diabetes,
+    type 2 with gangrene^2967779019^Gangrene associated with type 2 diabetes mellitus^421631007^421631^2615533010^Gangrene
+    associated with type II diabetes mellitus (disorder)^25907\x1D25907005\x1DDiabetic
+    gangrene (disorder)\x1C422014\x1D422014003\x1DDisorder due to type 2 diabetes
+    mellitus (disorder)^E11.52^IHS PROBLEM ALL SNOMED\x1CIHS Problem List\x1CSRCH
+    Common Terms\x1CSRCH Diabetes\x1CPICK Urology/Nephrology Long\x1CIHS eCQM Galaxy
+    Plus^^2967779019\x1DGangrene associated with type 2 diabetes mellitus\x1DPreferred\x1D1\x1C3035355017\x1DDiabetes
+    type 2 with gangrene\x1DSynonym\x1D2\x1C2041961000119113\x1DDiabetes, type 2 with
+    gangrene\x1DSynonym\x1D2\x1C2041951000119111\x1DDM 2 w diabetic gangrene\x1DSynonym\x1D2\x1C2623045010\x1DGangrene
+    associated with adult-onside type diabetes mellitus\x1DSynonym\x1D2\x1C2623044014\x1DGangrene
+    associated with non-insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C2618206011\x1DGangrene
+    associated with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.52^0^^0\x1ET1999003877^Diabetes,
+    type 1 with neuropathy^2623031016^Mononeuropathy associated with type 1 diabetes
+    mellitus^420918009^420918^2615526010^Mononeuropathy associated with type I diabetes
+    mellitus (disorder)^230577\x1D230577008\x1DDiabetic mononeuropathy (disorder)\x1C1119000156\x1D1561000119105\x1DDiabetic
+    peripheral neuropathy associated with type I diabetes mellitus (disorder)\x1C421468\x1D421468001\x1DNeurological
+    disorder associated with type I diabetes mellitus (disorder)^E10.41^IHS PROBLEM
+    ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Emergency
+    Department\x1CSRCH Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine
+    - Urgent Care\x1CSRCH Neurology\x1CSRCH Podiatry\x1CSRCH Problem List - Medical\x1CPICK
+    Urology/Nephrology Long\x1CPXRM DIABETES TYPE I\x1CIHS eCQM Galaxy Plus^^2623031016\x1DMononeuropathy
+    associated with type 1 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003877\x1DDiabetes,
+    type 1 with neuropathy\x1DSynonym\x1D2\x1CT1999003940\x1DDM 1 w diabetic mononeuropathy\x1DSynonym\x1D2\x1C2623032011\x1DMononeuropathy
+    associated with juvenile type diabetes mellitus\x1DSynonym\x1D2\x1C2618199015\x1DMononeuropathy
+    associated with type I diabetes mellitus\x1DSynonym\x1D2^S^E10.41^0^^0\x1ET1999003879^Diabetes,
+    type 2 with neuropathy^2967756015^Mononeuropathy associated with type 2 diabetes
+    mellitus^420436000^420436^2615528011^Mononeuropathy associated with type II diabetes
+    mellitus (disorder)^230577\x1D230577008\x1DDiabetic mononeuropathy (disorder)\x1C421326\x1D421326000\x1DNeurologic
+    disorder associated with type II diabetes mellitus (disorder)^E11.41^IHS PROBLEM
+    ALL SNOMED\x1CIHS Problem List\x1CSRCH Common Terms\x1CSRCH Diabetes\x1CSRCH Emergency
+    Department\x1CSRCH Family Practice\x1CSRCH Medicine - Inpatient\x1CSRCH Medicine
+    - Urgent Care\x1CSRCH Neurology\x1CSRCH Podiatry\x1CSRCH Problem List - Medical\x1CPICK
+    Urology/Nephrology Long\x1CIHS eCQM Galaxy Plus^^2967756015\x1DMononeuropathy
+    associated with type 2 diabetes mellitus\x1DPreferred\x1D1\x1CT1999003879\x1DDiabetes,
+    type 2 with neuropathy\x1DSynonym\x1D2\x1CT1999003954\x1DDM 2 w diabetic mononeuropathy\x1DSynonym\x1D2\x1C2623034012\x1DMononeuropathy
+    associated with non-insulin dependent diabetes mellitus\x1DSynonym\x1D2\x1C2618201018\x1DMononeuropathy
+    associated with type II diabetes mellitus\x1DSynonym\x1D2^S^E11.41^0^^0\x1E\x1F"
+  sha256: b95b13c0fbacd2015043c4ceacf80cae7d0fa2bdb93329501b22c4ac7552f70a
+- name: search_none/1
+  rpc: BSTS SNOMED SEARCH
+  inputs:
+  - zzzqqq|S|36|||25|||||1
+  context: Terminology.search of a string no term holds
+  raw_return: "5\0T00050PRB_DSC^T00250PRB_TRM^T00050PREF_DSC^T00250PREF_TRM^T00050CONCID^T00030DTSID^T00050FSN_DSC^T00250FSN_TRM^T04096ISA^T04096ICD9^T04096SUBSETS^T0409610D^T04096SYNONYMS^T00001ISA_SYN_HDR^T04096MAPPED_ICD^T00001PROMPT_LATERALITY^T00020DEFAULT_STATUS^T00001REQUIRE_EPISODICITY\x1E\x1F"
+  sha256: 56ac2945058a00f58396e54bf542879da5c4b4169a2d4c90ade983028d64accd
+- name: concept/1
+  rpc: BSTS GET CONCEPT DETAIL
+  inputs:
+  - '1119000077'
+  context: Terminology.concept of 1119000077, Diabetes type 2 with kidney disease
+  raw_return: "5\0T00050PRB_DSC^T00250PRB_TRM^T00050PREF_DSC^T00250PREF_TRM^T00050CONCID^T00030DTSID^T00050FSN_DSC^T00250FSN_TRM^T04096ICD^T00001PROMPT_LATERALITY^T00020DEFAULT_STATUS^T00001REQUIRE_EPISODICITY^T00001PROMPT_AF^T00001SELECTABLE\x1E3013487011^Chronic
+    kidney disease due to type 2 diabetes mellitus^3013487011^Chronic kidney disease
+    due to type 2 diabetes mellitus^771000119108^1119000077^3035134010^Chronic kidney
+    disease due to type 2 diabetes mellitus (disorder)^E11.22\x1CN18.9^0^Chronic^0^0^Y\x1E\x1F"
+  sha256: 5e73cc63a9d59013dbebb1a746bf6c5d6fc84d05a609dd11ee1a3c9eaf0bfa2e
+- name: concept_unknown/1
+  rpc: BSTS GET CONCEPT DETAIL
+  inputs:
+  - '999999999'
+  context: Terminology.concept of an IEN no concept has
+  raw_return: "5\0T00050PRB_DSC^T00250PRB_TRM^T00050PREF_DSC^T00250PREF_TRM^T00050CONCID^T00030DTSID^T00050FSN_DSC^T00250FSN_TRM^T04096ICD^T00001PROMPT_LATERALITY^T00020DEFAULT_STATUS^T00001REQUIRE_EPISODICITY^T00001PROMPT_AF^T00001SELECTABLE\x1E\x1F"
+  sha256: 4116112c6cc2be1b1efed5ced3fc3308f5412f891d3bb164d717e44874353856
+- name: code_sets/1
+  rpc: BSTS GET CODESETS
+  inputs:
+  - '1'
+  context: Terminology.code_sets, the local listing
+  raw_return: "5\0T00010CODE^T04096CODESET_NAME\x1E32768^IHS\x1E32771^IHS VANDF\x1E32772^GMRA
+    Signs Symptoms\x1E32773^GMRA Allergies with Maps\x1E32774^IHS Med Route\x1E32775^CPT
+    Meds with Maps\x1E32777^SNOMED CT to ICD-10-CM Auto-Codeables\x1E32778^SNOMED
+    CT to ICD-9-CM Auto-Codeables\x1E32779^SNOMED CT to ICD-10-CM Auto-Codeables Conditional
+    Sequences\x1E32780^IHS Problem List Equivalence Rules\x1E10^ICD-9-CM\x1E5140^ICD-10-CM\x1E5102^LOINC\x1E32769^IHS
+    RxNorm Attribution\x1E1552^RxNorm R\x1E35290^SNOMED CT US Ext to ICD-10-CM\x1E35291^SNOMED
+    CT US Ext to ICD-9 CM\x1E17161^SNOMED CT US Edition to ICD-9-CM\x1E36^SNOMED CT
+    US Edition\x1E5180^FDA UNII\x1E\x1F"
+  sha256: 676f80fe65af4d30c042dd0e46cde4f93bb53bf1ecc7efa9a65e4f3d68d1495e

@@ -810,6 +810,59 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # IHS STANDARD TERMINOLOGY (BSTS*), option BSTSRPC (rpms-rpc#916)
+    # ========================================================================
+
+    # BSTS SNOMED SEARCH — SEARCH^BSTSRPC(DATA,SEARCH,PC): a BMX typed
+    # header (HDR^BSTSRPC, BSTSRPC.m:312-318), then one row per concept
+    # (:128-129): PRB_DSC ^ PRB_TRM ^ PREF_DSC ^ PREF_TRM ^ CONCID ^ DTSID ^
+    # FSN_DSC ^ FSN_TRM ^ ISA ^ ICD ^ SUBSETS ^ 10D ^ SYNONYMS ^ ISA_SYN_HDR ^
+    # MAPPED_ICD ^ PROMPT_LATERALITY ^ DEFAULT_STATUS ^ REQUIRE_EPISODICITY.
+    # ICD, SUBSETS and SYNONYMS are $C(28)-joined lists; only ICD is mapped.
+    DataMapper.define(:bsts_search) do |m|
+      m.rpc "BSTS SNOMED SEARCH"
+      m.context "BSTSRPC"
+      m.field 0, :description_id
+      m.field 1, :term
+      m.field 3, :preferred_term
+      m.field 4, :concept_id
+      m.field 5, :dts_id
+      m.field 7, :fsn
+      m.field 9, :icd
+    end
+
+    # BSTS GET CONCEPT DETAIL — DETAIL^BSTSRPC1(DATA,DTSID): a BMX typed
+    # header (HDR^BSTSRPC1, BSTSRPC1.m:252-257), then one row (:97-126):
+    # PRB_DSC ^ PRB_TRM ^ PREF_DSC ^ PREF_TRM ^ CONCID ^ DTSID ^ FSN_DSC ^
+    # FSN_TRM ^ ICD ($C(28)-joined) ^ PROMPT_LATERALITY ^ DEFAULT_STATUS ^
+    # REQUIRE_EPISODICITY ^ PROMPT_AF ^ SELECTABLE ("Y" or empty). An IEN no
+    # concept has answers the header alone.
+    DataMapper.define(:bsts_concept_detail) do |m|
+      m.rpc "BSTS GET CONCEPT DETAIL"
+      m.context "BSTSRPC"
+      m.field 1, :term
+      m.field 3, :preferred_term
+      m.field 4, :concept_id
+      m.field 5, :dts_id
+      m.field 7, :fsn
+      m.field 8, :icd
+      m.field 9, :prompt_laterality, :boolean
+      m.field 10, :default_status
+      m.field 11, :requires_episodicity, :boolean
+      m.field 12, :prompt_abnormal_finding, :boolean
+      m.field 13, :selectable
+    end
+
+    # BSTS GET CODESETS — CDSET^BSTSRPC(DATA,INPUT) (BSTSRPC.m:372-437): a
+    # BMX typed header (T00010CODE^T04096CODESET_NAME), then CODE ^ NAME per
+    # code set. INPUT "1" asks for the local listing.
+    DataMapper.define(:bsts_code_sets) do |m|
+      m.rpc "BSTS GET CODESETS"
+      m.context "BSTSRPC"
+      m.field 0, :id
+      m.field 1, :name
+    end
+    # ========================================================================
     # PHR / CCD (BEHOCCD*, BEHOCIR*)
     # ========================================================================
 

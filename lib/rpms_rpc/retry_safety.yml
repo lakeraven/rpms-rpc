@@ -449,6 +449,9 @@
 "RpmsRpc::Symptom.search": read
 "RpmsRpc::Taxonomy.list": read
 "RpmsRpc::Taxonomy.members": read
+"RpmsRpc::Terminology.code_sets": read
+"RpmsRpc::Terminology.concept": read
+"RpmsRpc::Terminology.search": read
 "RpmsRpc::Tribal.communities": read
 "RpmsRpc::Tribal.eligibility": read
 "RpmsRpc::Tribal.enrollment": read
