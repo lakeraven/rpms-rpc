@@ -11,7 +11,7 @@ class OrwpceReadWireTest < Minitest::Test
   include OrwpceReadHelpers
 
   def test_promoted_captures_have_catalog_entries_for_each_in_scope_rpc
-    missing = IN_SCOPE_RPCS.reject do |rpc|
+    missing = CAPTURED_RPCS.reject do |rpc|
       RpmsRpc::WireCapture::CATALOG.any? { |entry| entry.rpc == rpc }
     end
     assert_empty missing,
@@ -19,7 +19,7 @@ class OrwpceReadWireTest < Minitest::Test
   end
 
   def test_promoted_captures_live_beside_other_wire_contract_fixtures
-    missing = IN_SCOPE_RPCS.reject do |rpc|
+    missing = CAPTURED_RPCS.reject do |rpc|
       File.file?(File.join(PROMOTED_DIR, CAPTURE_BASENAME.call(rpc)))
     end
     assert_empty missing,
@@ -27,7 +27,7 @@ class OrwpceReadWireTest < Minitest::Test
                  "#{missing.map { |rpc| CAPTURE_BASENAME.call(rpc) }.join("\n")}"
   end
 
-  OrwpceReadHelpers::RPC_TO_MAPPING.each do |rpc, mapping_name|
+  OrwpceReadHelpers::RPC_TO_MAPPING.slice(*OrwpceReadHelpers::CAPTURED_RPCS).each do |rpc, mapping_name|
     define_method("test_catalog_entry_for_#{mapping_name}_binds_#{rpc.tr(' ', '_')}") do
       entry = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == rpc }
       refute_nil entry, "missing CATALOG entry for #{rpc}"

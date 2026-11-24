@@ -64,6 +64,10 @@ module OrwpceReadHelpers
   NOTE_PATIENT_CONTEXT = "OR CPRS GUI CHART"
   NOTE_KEYED_RPCS = [ "ORWPCE GET VISIT", "ORWPCE HASVISIT", "ORWPCE PCE4NOTE" ].freeze
   REQUIRED_RPCS = (IN_SCOPE_RPCS + [ NOTE_PATIENT_RPC ]).freeze
+  # The reads whose wire captures stay committed. The pick lists and NOTEVSTR
+  # are proven by live specs instead (test/live/encounter_pick_lists_live_test.rb,
+  # test/live/note_and_vitals_reads_live_test.rb; rpms-rpc#347).
+  CAPTURED_RPCS = NOTE_KEYED_RPCS
 
   CAPTURE_BASENAME = ->(rpc) { "#{rpc.downcase.tr(" /", "--")}.yml" }
 
