@@ -16,7 +16,8 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
 
   # Mutating RPC name shapes the gem must never classify as :read (by static RPC resolution).
-  # EDIT CHECK / EDIT LOAD stay in: they are edit-family RPCs even when used as read helpers.
+  # EDIT CHECK stays in. Two RPCs whose names match but whose routines only read are
+  # listed in READ_DESPITE_NAME, each with the routine that proves it (rpms-rpc#389).
   WRITE_RPC_PATTERN = /
     \bFILER\b |
     \bDELETE\b |
@@ -44,6 +45,12 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     TIU\ SET\ DOCUMENT\ TEXT
   /ix
 
+  # RPCs the name pattern catches whose routines read only, on bcer-9.0-20261124-60d39b6-ydb.
+  READ_DESPITE_NAME = {
+    "ORWOR UNSIGN" => "UNSIGN^ORWOR (ORWOR.m:116-156) lists unsigned order actions into a local array; it sets no global and takes no lock",
+    "ORQQPL EDIT LOAD" => "EDLOAD^ORQQPL1 (ORQQPL1.m:70-78) loads the problem into local arrays through GETFLDS^GMPLEDT3 and EN^DIQ1"
+  }.freeze
+
   # Representative write RPCs shipped in required_rpcs.json — the pattern must not be vacuous.
   EXPLICIT_WRITE_RPC_SAMPLES = [
     "DDR FILER",
@@ -57,7 +64,6 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     "BSDX CANCEL APPOINTMENT",
     "BSDX CHECKIN APPOINTMENT",
     "BSDX NOSHOW",
-    "ORQQPL EDIT LOAD",
     "XUS AV CODE",
     "XUS CVC"
   ].freeze
@@ -90,7 +96,7 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
 
   def method_label(mod, name) = "#{mod.name}.#{name}"
 
-  def write_rpc?(name) = name.match?(WRITE_RPC_PATTERN)
+  def write_rpc?(name) = name.match?(WRITE_RPC_PATTERN) && !READ_DESPITE_NAME.key?(name)
 
   # --- table path / gemspec --------------------------------------------------
 

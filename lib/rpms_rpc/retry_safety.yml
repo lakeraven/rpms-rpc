@@ -3,19 +3,19 @@
 #
 #   read                    every RPC the method may send is a pure read: no
 #                           FileMan file or edit, lock, sign, audit or print
-#                           log, sign-on or verify-code change, status update,
-#                           or session context change. A method that sends no
-#                           RPC is read only when the body itself has no side
-#                           effect.
+#                           log, sign-on or verify-code change, or status
+#                           update. Binding a broker context option for the
+#                           call and restoring the caller's afterwards
+#                           (ContextScope) is allowed: that is how stock
+#                           clients use contexts, and it changes session
+#                           state, not data (Ryan, 2026-11-24, rpms-rpc#389).
+#                           A method that sends no RPC is read only when the
+#                           body itself has no side effect.
 #   idempotent_write        a write the server dedupes. None are listed: no
 #                           method proves a dedupe.
 #   non_idempotent_write    a write, lock, sign, log, session change, sign-on,
 #                           electronic-signature check, or a call whose effect
-#                           the code does not establish. Binding a broker
-#                           context option (ContextScope) is a session context
-#                           change: restore is best-effort, so those methods
-#                           are not auto-retry-safe even when the RPC they
-#                           wrap only returns data.
+#                           the code does not establish.
 #
 # Only read is auto-retry-safe. A method with no entry is not.
 "RpmsRpc::Adt.admissions": read
@@ -23,7 +23,7 @@
 "RpmsRpc::Adt.discharge_datetime": read
 "RpmsRpc::Adt.movements": read
 "RpmsRpc::Agg.add_patient": non_idempotent_write
-"RpmsRpc::Agg.available?": non_idempotent_write
+"RpmsRpc::Agg.available?": read
 "RpmsRpc::Agg.canonical_dfn": read
 "RpmsRpc::Agg.check_sensitive_patient": non_idempotent_write
 "RpmsRpc::Agg.edit_check": non_idempotent_write
@@ -33,7 +33,7 @@
 "RpmsRpc::Agg.parse_reply": read
 "RpmsRpc::Agg.patient_languages": read
 "RpmsRpc::Agg.quantum_check": non_idempotent_write
-"RpmsRpc::Agg.registration_candidates": non_idempotent_write
+"RpmsRpc::Agg.registration_candidates": read
 "RpmsRpc::Agg.send_sensitive_notify": non_idempotent_write
 "RpmsRpc::Agg.table_lookup": read
 "RpmsRpc::Agg.temporary_hrn": non_idempotent_write
@@ -68,46 +68,46 @@
 "RpmsRpc::BehavioralHealth.save_pov": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_progress_note": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_visit": non_idempotent_write
-"RpmsRpc::BehavioralHealth.suicide_form": non_idempotent_write
-"RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": non_idempotent_write
-"RpmsRpc::BehavioralHealth.suicide_form_methods": non_idempotent_write
-"RpmsRpc::BehavioralHealth.suicide_form_substances": non_idempotent_write
-"RpmsRpc::BehavioralHealth.suicide_forms": non_idempotent_write
-"RpmsRpc::BehavioralHealth.treatment_plan": non_idempotent_write
-"RpmsRpc::BehavioralHealth.treatment_plan_narrative": non_idempotent_write
-"RpmsRpc::BehavioralHealth.treatment_plan_participants": non_idempotent_write
-"RpmsRpc::BehavioralHealth.treatment_plan_reviews": non_idempotent_write
-"RpmsRpc::BehavioralHealth.treatment_plans": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_activity": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_assessment": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_axis_ii": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_axis_iii": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_axis_iv": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_axis_v": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_chief_complaint": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_comment_appointment": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_information": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_screenings": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visit_soap": non_idempotent_write
-"RpmsRpc::BehavioralHealth.visits": non_idempotent_write
-"RpmsRpc::BehavioralHealth::CaseManagement.case_dates": non_idempotent_write
-"RpmsRpc::BehavioralHealth::CaseManagement.case_management": non_idempotent_write
-"RpmsRpc::BehavioralHealth::CaseManagement.community_activities": non_idempotent_write
-"RpmsRpc::BehavioralHealth::CaseManagement.community_activity": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_cpt": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_edu": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_information": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_patients": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_pov": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.group_soap": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Groups.groups": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Intake.intake_documents": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Intake.intakes": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Reference.admin_records": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Reference.clinics": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Reference.patients": non_idempotent_write
-"RpmsRpc::BehavioralHealth::Reference.site_parameters": non_idempotent_write
+"RpmsRpc::BehavioralHealth.suicide_form": read
+"RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": read
+"RpmsRpc::BehavioralHealth.suicide_form_methods": read
+"RpmsRpc::BehavioralHealth.suicide_form_substances": read
+"RpmsRpc::BehavioralHealth.suicide_forms": read
+"RpmsRpc::BehavioralHealth.treatment_plan": read
+"RpmsRpc::BehavioralHealth.treatment_plan_narrative": read
+"RpmsRpc::BehavioralHealth.treatment_plan_participants": read
+"RpmsRpc::BehavioralHealth.treatment_plan_reviews": read
+"RpmsRpc::BehavioralHealth.treatment_plans": read
+"RpmsRpc::BehavioralHealth.visit_activity": read
+"RpmsRpc::BehavioralHealth.visit_assessment": read
+"RpmsRpc::BehavioralHealth.visit_axis_ii": read
+"RpmsRpc::BehavioralHealth.visit_axis_iii": read
+"RpmsRpc::BehavioralHealth.visit_axis_iv": read
+"RpmsRpc::BehavioralHealth.visit_axis_v": read
+"RpmsRpc::BehavioralHealth.visit_chief_complaint": read
+"RpmsRpc::BehavioralHealth.visit_comment_appointment": read
+"RpmsRpc::BehavioralHealth.visit_information": read
+"RpmsRpc::BehavioralHealth.visit_screenings": read
+"RpmsRpc::BehavioralHealth.visit_soap": read
+"RpmsRpc::BehavioralHealth.visits": read
+"RpmsRpc::BehavioralHealth::CaseManagement.case_dates": read
+"RpmsRpc::BehavioralHealth::CaseManagement.case_management": read
+"RpmsRpc::BehavioralHealth::CaseManagement.community_activities": read
+"RpmsRpc::BehavioralHealth::CaseManagement.community_activity": read
+"RpmsRpc::BehavioralHealth::Groups.group_cpt": read
+"RpmsRpc::BehavioralHealth::Groups.group_edu": read
+"RpmsRpc::BehavioralHealth::Groups.group_information": read
+"RpmsRpc::BehavioralHealth::Groups.group_patients": read
+"RpmsRpc::BehavioralHealth::Groups.group_pov": read
+"RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": read
+"RpmsRpc::BehavioralHealth::Groups.group_soap": read
+"RpmsRpc::BehavioralHealth::Groups.groups": read
+"RpmsRpc::BehavioralHealth::Intake.intake_documents": read
+"RpmsRpc::BehavioralHealth::Intake.intakes": read
+"RpmsRpc::BehavioralHealth::Reference.admin_records": read
+"RpmsRpc::BehavioralHealth::Reference.clinics": read
+"RpmsRpc::BehavioralHealth::Reference.patients": read
+"RpmsRpc::BehavioralHealth::Reference.site_parameters": read
 "RpmsRpc::BehavioralHealth::Wellness.save_measurements": non_idempotent_write
 "RpmsRpc::BehavioralHealth::Wellness.save_screening": non_idempotent_write
 "RpmsRpc::Bgu.send_mailman_message": non_idempotent_write
@@ -239,7 +239,7 @@
 "RpmsRpc::Order.sheets_for_patient": read
 "RpmsRpc::Order.sign_and_release": non_idempotent_write
 "RpmsRpc::Order.summaries": read
-"RpmsRpc::Order.unsigned_for_patient": non_idempotent_write
+"RpmsRpc::Order.unsigned_for_patient": read
 "RpmsRpc::Organization.find": read
 "RpmsRpc::Orwu.fileman_datetime": read
 "RpmsRpc::Patient.address": non_idempotent_write
@@ -290,7 +290,7 @@
 "RpmsRpc::Pov.for_visit": read
 "RpmsRpc::Practitioner.detail": non_idempotent_write
 "RpmsRpc::Practitioner.find": read
-"RpmsRpc::Practitioner.roles": non_idempotent_write
+"RpmsRpc::Practitioner.roles": read
 "RpmsRpc::Practitioner.search": read
 "RpmsRpc::Problem.add": non_idempotent_write
 "RpmsRpc::Problem.audit_history": read
@@ -299,7 +299,7 @@
 "RpmsRpc::Problem.comments": read
 "RpmsRpc::Problem.delete": non_idempotent_write
 "RpmsRpc::Problem.details": read
-"RpmsRpc::Problem.edit_load": non_idempotent_write
+"RpmsRpc::Problem.edit_load": read
 "RpmsRpc::Problem.for_patient": read
 "RpmsRpc::Problem.init_patient": read
 "RpmsRpc::Problem.integrated": read
@@ -319,29 +319,29 @@
 "RpmsRpc::Referral.add": non_idempotent_write
 "RpmsRpc::Referral.add_c32_print_log": non_idempotent_write
 "RpmsRpc::Referral.cancel": non_idempotent_write
-"RpmsRpc::Referral.check_year_site_param": non_idempotent_write
+"RpmsRpc::Referral.check_year_site_param": read
 "RpmsRpc::Referral.create": non_idempotent_write
 "RpmsRpc::Referral.find": non_idempotent_write
 "RpmsRpc::Referral.follow_up_state": read
-"RpmsRpc::Referral.for_patient": non_idempotent_write
-"RpmsRpc::Referral.health_summary_types": non_idempotent_write
-"RpmsRpc::Referral.patient_eligibility_status": non_idempotent_write
+"RpmsRpc::Referral.for_patient": read
+"RpmsRpc::Referral.health_summary_types": read
+"RpmsRpc::Referral.patient_eligibility_status": read
 "RpmsRpc::Referral.patient_face_sheet": non_idempotent_write
 "RpmsRpc::Referral.patient_health_summary": non_idempotent_write
 "RpmsRpc::Referral.pending": read
 "RpmsRpc::Referral.print": non_idempotent_write
-"RpmsRpc::Referral.providers": non_idempotent_write
-"RpmsRpc::Referral.purposes": non_idempotent_write
-"RpmsRpc::Referral.rcis_template_detail": non_idempotent_write
-"RpmsRpc::Referral.rcis_templates": non_idempotent_write
+"RpmsRpc::Referral.providers": read
+"RpmsRpc::Referral.purposes": read
+"RpmsRpc::Referral.rcis_template_detail": read
+"RpmsRpc::Referral.rcis_templates": read
 "RpmsRpc::Referral.record_follow_up": non_idempotent_write
 "RpmsRpc::Referral.record_status": non_idempotent_write
-"RpmsRpc::Referral.reference_data": non_idempotent_write
-"RpmsRpc::Referral.search_referred_to": non_idempotent_write
+"RpmsRpc::Referral.reference_data": read
+"RpmsRpc::Referral.search_referred_to": read
 "RpmsRpc::Referral.update": non_idempotent_write
 "RpmsRpc::Referral.update_consultation_status": non_idempotent_write
 "RpmsRpc::Referral.update_status": non_idempotent_write
-"RpmsRpc::Referral.users_providers": non_idempotent_write
+"RpmsRpc::Referral.users_providers": read
 "RpmsRpc::Registration.add_eligibility_modifier": non_idempotent_write
 "RpmsRpc::Registration.add_mbi": non_idempotent_write
 "RpmsRpc::Registration.address_history": read
@@ -394,9 +394,9 @@
 "RpmsRpc::Reminders.web_references": read
 "RpmsRpc::Scheduling.add_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.add_availability": non_idempotent_write
-"RpmsRpc::Scheduling.all_appointments": non_idempotent_write
+"RpmsRpc::Scheduling.all_appointments": read
 "RpmsRpc::Scheduling.appointments": non_idempotent_write
-"RpmsRpc::Scheduling.availability": non_idempotent_write
+"RpmsRpc::Scheduling.availability": read
 "RpmsRpc::Scheduling.cancel_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.cancel_availability_by_date": non_idempotent_write
 "RpmsRpc::Scheduling.cancel_checkin": non_idempotent_write
@@ -404,9 +404,9 @@
 "RpmsRpc::Scheduling.checkin_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.checkin_visit": read
 "RpmsRpc::Scheduling.checkout_appointment": non_idempotent_write
-"RpmsRpc::Scheduling.clinic_setup": non_idempotent_write
+"RpmsRpc::Scheduling.clinic_setup": read
 "RpmsRpc::Scheduling.edit_appointment": non_idempotent_write
-"RpmsRpc::Scheduling.hospital_locations": non_idempotent_write
+"RpmsRpc::Scheduling.hospital_locations": read
 "RpmsRpc::Scheduling.mark_no_show": non_idempotent_write
 "RpmsRpc::Scheduling.overbook_allowed": non_idempotent_write
 "RpmsRpc::Scheduling.patient_appointments": read

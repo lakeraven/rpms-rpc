@@ -2,12 +2,14 @@
 
 require_relative "../../mappings/amhg_reference"
 require_relative "wire"
+require_relative "../../shape"
 
 module RpmsRpc
   module BehavioralHealth
     module Reference
       extend self
       extend Wire
+      extend Shape::Declarable
 
       # Clinic table. Always [].
       #
@@ -24,6 +26,7 @@ module RpmsRpc
         mapping = DataMapper[:amhg_clinics]
         mapping.parse_many(frame_rows(call_amhg(mapping)))
       end
+      shape :clinics, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/clinics"
 
       # Patient lookup. `query` is SSN (9N), chart (1-7N), DOB (n/n/yyyy),
       # or a name prefix (AMHGP.m:24-31).
@@ -61,6 +64,7 @@ module RpmsRpc
           }
         end
       end
+      shape :patients, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/patients"
 
       # Site parameters for one 9002013 IEN, or nil when the IEN yields
       # no row. Live SITE^AMHGU always emits exactly one row
@@ -99,6 +103,7 @@ module RpmsRpc
           delete_override:            flag?(row[:delete_override])
         }
       end
+      shape :site_parameters, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/sites/{site_ien}/parameters"
 
       # Administrative records visible to `provider` over a FileMan date
       # range. Only type ADMINISTRATIVE (AMHGDA.m:22, :27).
@@ -133,6 +138,7 @@ module RpmsRpc
           }
         end
       end
+      shape :admin_records, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/admin-records"
     end
   end
 end

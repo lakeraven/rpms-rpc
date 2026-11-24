@@ -2,12 +2,14 @@
 
 require_relative "../../mappings/amhg_intake"
 require_relative "wire"
+require_relative "../../shape"
 
 module RpmsRpc
   module BehavioralHealth
     module Intake
       extend self
       extend Wire
+      extend Shape::Declarable
 
       # Intakes for a patient over a FileMan date range, newest first.
       #
@@ -39,6 +41,7 @@ module RpmsRpc
           }
         end
       end
+      shape :intakes, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/intakes"
 
       # Intake documents (initial + nested updates) visible to this DUZ
       # for a patient, program, and FileMan date range.
@@ -82,6 +85,7 @@ module RpmsRpc
           }
         end
       end
+      shape :intake_documents, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/intakes/documents"
 
       private
 

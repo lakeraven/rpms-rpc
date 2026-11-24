@@ -676,7 +676,7 @@
     },
     "AGG LOOKUP PATIENTS": {
       "methods": {
-        "RpmsRpc::Agg.registration_candidates": "non_idempotent_write",
+        "RpmsRpc::Agg.registration_candidates": "read",
         "RpmsRpc::Patient.lookup": "read",
         "RpmsRpc::Patient.register": "non_idempotent_write",
         "RpmsRpc::Registration.register": "non_idempotent_write",
@@ -889,7 +889,7 @@
     },
     "AMHG GET ADMIN RECORDS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Reference.admin_records": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Reference.admin_records": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -898,7 +898,7 @@
     },
     "AMHG GET CASE DATES": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::CaseManagement.case_dates": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::CaseManagement.case_dates": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -907,7 +907,7 @@
     },
     "AMHG GET CASE MANAGEMENT": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::CaseManagement.case_management": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::CaseManagement.case_management": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -916,7 +916,7 @@
     },
     "AMHG GET CLINICS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Reference.clinics": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Reference.clinics": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -924,7 +924,7 @@
     },
     "AMHG GET COMMUNITY ACTIVITIES": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::CaseManagement.community_activities": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::CaseManagement.community_activities": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -933,7 +933,7 @@
     },
     "AMHG GET COMMUNITY ACTIVITY": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::CaseManagement.community_activity": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::CaseManagement.community_activity": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -942,7 +942,7 @@
     },
     "AMHG GET GROUP CPT": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_cpt": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_cpt": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -951,7 +951,7 @@
     },
     "AMHG GET GROUP EDU": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_edu": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_edu": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -960,7 +960,7 @@
     },
     "AMHG GET GROUP INFORMATION": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_information": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_information": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -969,7 +969,7 @@
     },
     "AMHG GET GROUP PATIENTS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_patients": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_patients": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -978,7 +978,7 @@
     },
     "AMHG GET GROUP POV": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_pov": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_pov": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -987,7 +987,7 @@
     },
     "AMHG GET GROUP SEC PROVIDERS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_secondary_providers": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -996,7 +996,7 @@
     },
     "AMHG GET GROUP SOAP": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.group_soap": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.group_soap": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -1005,7 +1005,7 @@
     },
     "AMHG GET GROUPS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Groups.groups": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Groups.groups": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
@@ -1014,7 +1014,7 @@
     },
     "AMHG GET INTAKE": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Intake.intakes": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Intake.intakes": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1023,7 +1023,7 @@
     },
     "AMHG GET INTAKE DOCUMENTS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Intake.intake_documents": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Intake.intake_documents": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1032,7 +1032,7 @@
     },
     "AMHG GET PATIENT": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Reference.patients": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Reference.patients": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1041,7 +1041,7 @@
     },
     "AMHG GET SITE PARAMETERS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth::Reference.site_parameters": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth::Reference.site_parameters": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1050,7 +1050,7 @@
     },
     "AMHG GET SUICIDE FORM": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.suicide_form": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.suicide_form": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1058,7 +1058,7 @@
     },
     "AMHG GET SUICIDE FORM CF": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1066,7 +1066,7 @@
     },
     "AMHG GET SUICIDE FORM METHOD": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.suicide_form_methods": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.suicide_form_methods": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1074,7 +1074,7 @@
     },
     "AMHG GET SUICIDE FORM SUB": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.suicide_form_substances": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.suicide_form_substances": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1082,7 +1082,7 @@
     },
     "AMHG GET SUICIDE FORMS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.suicide_forms": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.suicide_forms": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1090,7 +1090,7 @@
     },
     "AMHG GET TP NARRATIVE": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.treatment_plan_narrative": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.treatment_plan_narrative": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1098,7 +1098,7 @@
     },
     "AMHG GET TP PLAN PARTICIPANTS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.treatment_plan_participants": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.treatment_plan_participants": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1106,7 +1106,7 @@
     },
     "AMHG GET TP REVIEW": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.treatment_plan_reviews": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.treatment_plan_reviews": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1114,7 +1114,7 @@
     },
     "AMHG GET TREATMENT PLAN": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.treatment_plan": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.treatment_plan": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1122,7 +1122,7 @@
     },
     "AMHG GET TREATMENT PLANS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.treatment_plans": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.treatment_plans": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1130,7 +1130,7 @@
     },
     "AMHG GET VISIT ACTIVITY": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_activity": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_activity": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1138,7 +1138,7 @@
     },
     "AMHG GET VISIT ASSESSMENT": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_assessment": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_assessment": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1146,7 +1146,7 @@
     },
     "AMHG GET VISIT AXIS II": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_axis_ii": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_axis_ii": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1154,7 +1154,7 @@
     },
     "AMHG GET VISIT AXIS III": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_axis_iii": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_axis_iii": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1162,7 +1162,7 @@
     },
     "AMHG GET VISIT AXIS IV": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_axis_iv": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_axis_iv": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1170,7 +1170,7 @@
     },
     "AMHG GET VISIT AXIS V": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_axis_v": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_axis_v": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1178,7 +1178,7 @@
     },
     "AMHG GET VISIT CC": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_chief_complaint": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_chief_complaint": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1187,7 +1187,7 @@
     "AMHG GET VISIT COMM APP": {
       "methods": {
         "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write",
-        "RpmsRpc::BehavioralHealth.visit_comment_appointment": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_comment_appointment": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1196,7 +1196,7 @@
     },
     "AMHG GET VISIT INFORMATION": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_information": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_information": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1212,7 +1212,7 @@
     },
     "AMHG GET VISIT SCREENING": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visit_screenings": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_screenings": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1221,7 +1221,7 @@
     "AMHG GET VISIT SOAP": {
       "methods": {
         "RpmsRpc::BehavioralHealth.save_progress_note": "non_idempotent_write",
-        "RpmsRpc::BehavioralHealth.visit_soap": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visit_soap": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
@@ -1230,7 +1230,7 @@
     },
     "AMHG GET VISITS": {
       "methods": {
-        "RpmsRpc::BehavioralHealth.visits": "non_idempotent_write"
+        "RpmsRpc::BehavioralHealth.visits": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
@@ -1786,7 +1786,7 @@
     },
     "BMC CHK YEAR SITE PARAM": {
       "methods": {
-        "RpmsRpc::Referral.check_year_site_param": "non_idempotent_write"
+        "RpmsRpc::Referral.check_year_site_param": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1802,7 +1802,7 @@
     },
     "BMC GET PURPOSE OF REF API": {
       "methods": {
-        "RpmsRpc::Referral.purposes": "non_idempotent_write"
+        "RpmsRpc::Referral.purposes": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1810,7 +1810,7 @@
     },
     "BMC GET RCIS TEMPLATE DETAIL": {
       "methods": {
-        "RpmsRpc::Referral.rcis_template_detail": "non_idempotent_write"
+        "RpmsRpc::Referral.rcis_template_detail": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1818,7 +1818,7 @@
     },
     "BMC GET RCIS TEMPLATE LIST": {
       "methods": {
-        "RpmsRpc::Referral.rcis_templates": "non_idempotent_write"
+        "RpmsRpc::Referral.rcis_templates": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1826,7 +1826,7 @@
     },
     "BMC GET REFERENCE DATA": {
       "methods": {
-        "RpmsRpc::Referral.reference_data": "non_idempotent_write"
+        "RpmsRpc::Referral.reference_data": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1845,7 +1845,7 @@
     },
     "BMC GET USERS/PROVIDERS": {
       "methods": {
-        "RpmsRpc::Referral.users_providers": "non_idempotent_write"
+        "RpmsRpc::Referral.users_providers": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1853,7 +1853,7 @@
     },
     "BMC HEALTH SUMMARY TYPE": {
       "methods": {
-        "RpmsRpc::Referral.health_summary_types": "non_idempotent_write"
+        "RpmsRpc::Referral.health_summary_types": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1861,7 +1861,7 @@
     },
     "BMC PATIENT ELIGIBILITY STATUS": {
       "methods": {
-        "RpmsRpc::Referral.patient_eligibility_status": "non_idempotent_write"
+        "RpmsRpc::Referral.patient_eligibility_status": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1894,7 +1894,7 @@
     },
     "BMC PROVIDERS": {
       "methods": {
-        "RpmsRpc::Referral.providers": "non_idempotent_write"
+        "RpmsRpc::Referral.providers": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1913,7 +1913,7 @@
     },
     "BMC SEARCH REFERRAL": {
       "methods": {
-        "RpmsRpc::Referral.for_patient": "non_idempotent_write",
+        "RpmsRpc::Referral.for_patient": "read",
         "RpmsRpc::Referral.pending": "read"
       },
       "replies": [
@@ -1924,7 +1924,7 @@
     },
     "BMC SEARCH REFERRED TO": {
       "methods": {
-        "RpmsRpc::Referral.search_referred_to": "non_idempotent_write"
+        "RpmsRpc::Referral.search_referred_to": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/referral-calls.yml"
@@ -1992,7 +1992,7 @@
     },
     "BSDX ALL APPOINTMENTS": {
       "methods": {
-        "RpmsRpc::Scheduling.all_appointments": "non_idempotent_write"
+        "RpmsRpc::Scheduling.all_appointments": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
@@ -2045,7 +2045,7 @@
     },
     "BSDX CLINIC SETUP": {
       "methods": {
-        "RpmsRpc::Scheduling.clinic_setup": "non_idempotent_write"
+        "RpmsRpc::Scheduling.clinic_setup": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
@@ -2097,7 +2097,7 @@
     },
     "BSDX HOSPITAL LOCATION": {
       "methods": {
-        "RpmsRpc::Scheduling.hospital_locations": "non_idempotent_write"
+        "RpmsRpc::Scheduling.hospital_locations": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
@@ -2147,7 +2147,7 @@
     },
     "BSDX SEARCH AVAILABILITY": {
       "methods": {
-        "RpmsRpc::Scheduling.availability": "non_idempotent_write"
+        "RpmsRpc::Scheduling.availability": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
@@ -2195,7 +2195,7 @@
     },
     "CIANBRPC CANRUN": {
       "methods": {
-        "RpmsRpc::Agg.available?": "non_idempotent_write"
+        "RpmsRpc::Agg.available?": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/agg-registration.yml"
@@ -2290,7 +2290,7 @@
         "RpmsRpc::PatientApplication.add": "non_idempotent_write",
         "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
         "RpmsRpc::Practitioner.detail": "non_idempotent_write",
-        "RpmsRpc::Practitioner.roles": "non_idempotent_write",
+        "RpmsRpc::Practitioner.roles": "read",
         "RpmsRpc::Problem.add": "non_idempotent_write",
         "RpmsRpc::Problem.delete": "non_idempotent_write",
         "RpmsRpc::Problem.update": "non_idempotent_write",
@@ -2625,7 +2625,7 @@
     },
     "ORQQPL EDIT LOAD": {
       "methods": {
-        "RpmsRpc::Problem.edit_load": "non_idempotent_write"
+        "RpmsRpc::Problem.edit_load": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/read-call-formals.yml"
@@ -2881,7 +2881,7 @@
     },
     "ORWOR UNSIGN": {
       "methods": {
-        "RpmsRpc::Order.unsigned_for_patient": "non_idempotent_write"
+        "RpmsRpc::Order.unsigned_for_patient": "read"
       },
       "replies": []
     },
@@ -3204,7 +3204,7 @@
     },
     "TIU DIV AND CLASS INFO": {
       "methods": {
-        "RpmsRpc::Practitioner.roles": "non_idempotent_write"
+        "RpmsRpc::Practitioner.roles": "read"
       },
       "replies": []
     },

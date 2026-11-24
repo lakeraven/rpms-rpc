@@ -108,6 +108,7 @@ module RpmsRpc
         user_classes: names["C"]
       }
     end
+    shape :roles, resource: "practitioners", verb: "GET", path: "/users/{duz}/practitioners/roles"
 
     # One NEW PERSON (#200) entry, by DUZ, from DDR GETS ENTRY DATA in
     # CIAV VUECENTRIC (DETAIL_FIELDS):
