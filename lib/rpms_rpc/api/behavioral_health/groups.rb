@@ -2,12 +2,14 @@
 
 require_relative "../../mappings/amhg_groups"
 require_relative "wire"
+require_relative "../../shape"
 
 module RpmsRpc
   module BehavioralHealth
     module Groups
       extend self
       extend Wire
+      extend Shape::Declarable
 
       # Group encounters visible to `provider` over a FileMan date range,
       # newest first.
@@ -44,6 +46,7 @@ module RpmsRpc
           }
         end
       end
+      shape :groups, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups"
 
       # Detail for one group encounter, or nil when the IEN yields no row.
       # Live ENC^AMHGDGP always emits exactly one row (AMHGDGP.m:54-55).
@@ -72,6 +75,7 @@ module RpmsRpc
           chief_complaint:      presence(row[:chief_complaint])
         }
       end
+      shape :group_information, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/information"
 
       # Patients on a group. BMXIEN is the group IEN repeated; :patient_ien
       # is the DFN; :visit_ien is the linked AMHREC. The 51-multiple IEN is
@@ -91,6 +95,7 @@ module RpmsRpc
           }
         end
       end
+      shape :group_patients, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/patients"
 
       # CPT codes on a group. :code_pointer is a file-81 IEN, not a record
       # address — AMHDA is never emitted (AMHGDGP.m:117). When `dupe` is
@@ -109,6 +114,7 @@ module RpmsRpc
           }
         end
       end
+      shape :group_cpt, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/cpt"
 
       # Education topics on a group. :ien is the 71-multiple IEN (AMHDA) —
       # the one group-tab list whose first column is addressable.
@@ -131,6 +137,7 @@ module RpmsRpc
           }
         end
       end
+      shape :group_edu, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/edu"
 
       # POVs on a group. :code_pointer is a 9002012.2 pointer, not a record
       # address — AMHDA is never emitted (AMHGDGP.m:72). When `dupe` is set,
@@ -144,12 +151,14 @@ module RpmsRpc
           }
         end
       end
+      shape :group_pov, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/pov"
 
       # SOAP text. Raw nodes, no caret sanitisation (AMHGDGP.m:97). No TIU
       # early-return (unlike SOAP^AMHGDVF). Read as whole lines.
       def group_soap(group_ien)
         text_lines(:amhg_group_soap, group_ien)
       end
+      shape :group_soap, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/soap"
 
       # Secondary providers. Primaries are filtered out (AMHGDGP.m:147).
       # :provider_ien is a file-200 pointer; the 11-multiple IEN is never
@@ -162,6 +171,7 @@ module RpmsRpc
           }
         end
       end
+      shape :group_secondary_providers, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/groups/{group_ien}/secondary-providers"
 
       private
 

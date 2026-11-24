@@ -66,6 +66,7 @@ module RpmsRpc
     def for_patient(dfn)
       in_context { DataMapper.referral_search.fetch_many(dfn.to_s, *SEARCH_NO_FILTERS) }
     end
+    shape :for_patient, resource: "referrals", verb: "GET", path: "/patients/{dfn}/referrals"
 
     # The status screen SRCHREF^BMCRPC1 builds for "Active/Approved": STATUS
     # OF REFERRAL (.15) A (ACTIVE) or A1 (APPROVED), the two codes of a
@@ -567,6 +568,7 @@ module RpmsRpc
     def purposes
       rcis_rows(bmc_text(:bmc_purpose_of_referral_list), PURPOSE_FIELDS)
     end
+    shape :purposes, resource: "referrals", verb: "GET", path: "/referrals/purposes"
 
     # The RCIS pick lists GTREFDT^BMCRPC5 sends in five nodes, in this order
     # (BMCRPC5.m:211-259), each opening "~`" (#877):
@@ -593,6 +595,7 @@ module RpmsRpc
         [ name, rcis_rows(sections[i], fields) ]
       end
     end
+    shape :reference_data, resource: "referrals", verb: "GET", path: "/referrals/reference-data"
 
     # PROV^BMCRPC4 answers one node, "-1^All~IEN^NAME~...": the "All"
     # entry is a picker option, not a user, so it is dropped (#210).
@@ -602,6 +605,7 @@ module RpmsRpc
         { ien: ien, name: name } if ien.to_i.positive?
       end
     end
+    shape :users_providers, resource: "referrals", verb: "GET", path: "/referrals/users-providers"
 
     # Active holders of the PROVIDER key, { duz:, name: } each (PROV^ORQPTQ2,
     # ORQPTQ2.m:95-101). PROV(Y) takes no parameter: one sent anyway is "more
@@ -609,6 +613,7 @@ module RpmsRpc
     def providers
       bmc_many(:bmc_providers)
     end
+    shape :providers, resource: "referrals", verb: "GET", path: "/referrals/providers"
 
     # The pieces SRRFRDTO^BMCRPC1 sends for each referral type
     # (BMCRPC1.m:154-221). It searches a different file per type:
@@ -634,22 +639,26 @@ module RpmsRpc
       end
       rcis_rows(bmc_text(:bmc_search_referred_to, search.to_s, type.to_s), fields)
     end
+    shape :search_referred_to, resource: "referrals", verb: "GET", path: "/referrals/referred-to"
 
     # The RCIS ROUTINE REFERRAL DEF (#90001.32) templates, { ien:, name: }
     # each (GTTMPLST^BMCRPC3, BMCRPC3.m:10-19); rcis_template_detail reads one.
     def rcis_templates
       rcis_rows(bmc_text(:bmc_rcis_template_list), %i[ien name])
     end
+    shape :rcis_templates, resource: "referrals", verb: "GET", path: "/referrals/rcis-templates"
 
     def rcis_template_detail(template_ien, *params)
       bmc_text(:bmc_rcis_template_detail, template_ien.to_s, *params)
     end
+    shape :rcis_template_detail, resource: "referrals", verb: "GET", path: "/referrals/rcis-templates/{template_ien}"
 
     def patient_eligibility_status(dfn, *params)
       in_context do
         DataMapper.bmc_patient_eligibility_status.fetch_one(dfn.to_s, *params)
       end
     end
+    shape :patient_eligibility_status, resource: "referrals", verb: "GET", path: "/patients/{dfn}/referrals/eligibility-status"
 
     def patient_face_sheet(dfn, *params)
       bmc_text(:bmc_patient_face_sheet, dfn.to_s, *params)
@@ -667,10 +676,12 @@ module RpmsRpc
     def health_summary_types(*params)
       bmc_many(:bmc_health_summary_type, *params)
     end
+    shape :health_summary_types, resource: "referrals", verb: "GET", path: "/referrals/health-summary-types"
 
     def check_year_site_param(*params)
       bmc_scalar_result(:bmc_check_year_site_param, *params)
     end
+    shape :check_year_site_param, resource: "referrals", verb: "GET", path: "/referrals/check-year-site-param"
 
     # Log a C32 print of a referral in its C32 PRINTED (#90001.6) multiple
     # through BMC ADD C32 PRINT LOG: ADDC32LG^BMCRPC3(RSLT,REFIEN,USERIEN,

@@ -338,6 +338,7 @@ module RpmsRpc
         )
       end
     end
+    shape :availability, resource: "appointments", verb: "GET", path: "/appointments/availability"
 
     # All appointments across resources in a date range — BSDX ALL APPOINTMENTS
     # (APBLKALL^BSDX05). Returns an Array of
@@ -348,11 +349,13 @@ module RpmsRpc
     def all_appointments(start_date:, end_date:)
       in_context { DataMapper.scheduling_all_appointments.fetch_many_or_raise(fm(start_date), fm(end_date)) }
     end
+    shape :all_appointments, resource: "appointments", verb: "GET", path: "/appointments/all"
 
     # Active clinics from ^SC — BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32).
     def hospital_locations
       in_context { DataMapper.scheduling_hospital_location.fetch_many_or_raise }
     end
+    shape :hospital_locations, resource: "appointments", verb: "GET", path: "/appointments/hospital-locations"
 
     # A resource's appointments between two dates — BSDX CREATE APPT SCHEDULE
     # (CRSCH^BSDX02), the appointment list the scheduling client draws. Unlike
@@ -587,6 +590,7 @@ module RpmsRpc
     def clinic_setup
       in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
     end
+    shape :clinic_setup, resource: "appointments", verb: "GET", path: "/appointments/clinic-setup"
 
     private
 

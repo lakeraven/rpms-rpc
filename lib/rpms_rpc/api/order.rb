@@ -265,6 +265,7 @@ module RpmsRpc
         { order_id: row[:order_id], ien: ien.to_i, action_ien: action.to_i }
       end
     end
+    shape :unsigned_for_patient, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/unsigned"
 
     # A patient's orders under one ORCHANG2 view (FILTER_IDS) and display
     # group (a file 100.98 IEN). Each row:

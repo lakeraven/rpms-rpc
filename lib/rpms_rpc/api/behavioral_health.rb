@@ -353,6 +353,7 @@ module RpmsRpc
 
       mapping.parse_many(raise_m_error_row!(save_visit_rows(response))).map { |row| decorate_visit(row) }
     end
+    shape :visits, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/visits"
 
     EMPTY_ENCOUNTER_DATE = "1700,,,12,0"
 
@@ -383,6 +384,7 @@ module RpmsRpc
         ehr:                  flag?(row[:ehr_flag])
       }
     end
+    shape :visit_information, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/information"
 
     # Add or edit one BH VISIT (#9002011) through AMHG SAVE VISIT
     # (VISIT^AMHGSVF, AMHGSVF.m:11-45). One pipe-delimited AMHSTR. The
@@ -1082,23 +1084,27 @@ module RpmsRpc
         interpreter_utilized: flag?(row[:interpreter_utilized])
       }
     end
+    shape :visit_activity, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/activity"
 
     # POV / diagnosis list. :code_pointer is a pointer into the POV code file,
     # NOT a record address — the subfile IEN is never emitted (AMHGDVF.m:64).
     def visit_axis_ii(visit_ien)
       code_rows(:amhg_visit_axis_ii, visit_ien)
     end
+    shape :visit_axis_ii, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/axis-ii"
 
     # Psychosocial stressors. Same pointer caveat as {visit_axis_ii}.
     def visit_axis_iv(visit_ien)
       code_rows(:amhg_visit_axis_iv, visit_ien)
     end
+    shape :visit_axis_iv, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/axis-iv"
 
     # Free-text Axis III lines. Carets were translated to spaces upstream
     # (AMHGDVF.m:88), so nothing here can contain one.
     def visit_axis_iii(visit_ien)
       text_lines(:amhg_visit_axis_iii, visit_ien)
     end
+    shape :visit_axis_iii, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/axis-iii"
 
     # Axis V and GAF. Always one row on the wire, even when both are empty
     # (AMHGDVF.m:123) — we return the pair with nils rather than nil, because
@@ -1109,6 +1115,7 @@ module RpmsRpc
 
       { axis_v: presence(row[:axis_v]), gaf: presence(row[:gaf]) }
     end
+    shape :visit_axis_v, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/axis-v"
 
     # Chief complaint. The wire sends the raw node with no caret sanitisation
     # (AMHGDVF.m:140), so this is read as a whole line — caret-splitting it
@@ -1116,16 +1123,19 @@ module RpmsRpc
     def visit_chief_complaint(visit_ien)
       text_lines(:amhg_visit_chief_complaint, visit_ien).first
     end
+    shape :visit_chief_complaint, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/chief-complaint"
 
     # SOAP text. Two sources, one shape: a TIU-backed note is served by
     # TIU^AMHGDVF2 (AMHGDVF.m:153) with the same header and row layout.
     def visit_soap(visit_ien)
       text_lines(:amhg_visit_soap, visit_ien)
     end
+    shape :visit_soap, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/soap"
 
     def visit_comment_appointment(visit_ien)
       text_lines(:amhg_visit_comment_appointment, visit_ien)
     end
+    shape :visit_comment_appointment, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/comment-appointment"
 
     # Assessment text. Keyed by INTAKE IEN, not visit IEN, despite the RPC
     # name — AMHGDINT.m:114 walks ^AMHRINTK. The keyword argument exists so a
@@ -1133,6 +1143,7 @@ module RpmsRpc
     def visit_assessment(intake_ien:)
       text_lines(:amhg_visit_assessment, intake_ien)
     end
+    shape :visit_assessment, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/intakes/{intake_ien}/visit-assessment"
 
     # Screenings recorded on a visit.
     #
@@ -1157,6 +1168,7 @@ module RpmsRpc
         }
       end
     end
+    shape :visit_screenings, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/visits/{visit_ien}/screenings"
 
     # -- treatment plans -----------------------------------------------------
 
@@ -1196,6 +1208,7 @@ module RpmsRpc
         }
       end
     end
+    shape :treatment_plans, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/treatment-plans"
 
     # One treatment plan, or nil. Dates are INTERNAL FileMan here — see the
     # note on {treatment_plans}.
@@ -1218,6 +1231,7 @@ module RpmsRpc
         dsm4:                flag?(row[:dsm4])
       }
     end
+    shape :treatment_plan, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/treatment-plans/{plan_ien}"
 
     # Reviews recorded against a plan.
     #
@@ -1241,6 +1255,7 @@ module RpmsRpc
         }
       end
     end
+    shape :treatment_plan_reviews, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/treatment-plans/{plan_ien}/reviews"
 
     # Plan participants. No per-row identifier: AMHGDTP.m:215 emits the plan
     # IEN and never the subfile IEN, so these cannot be addressed for edit.
@@ -1252,11 +1267,13 @@ module RpmsRpc
           relationship: presence(row[:relationship]) }
       end
     end
+    shape :treatment_plan_participants, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/treatment-plans/{plan_ien}/participants"
 
     # Plan narrative. Raw nodes, no caret sanitisation (AMHGDTP.m:168).
     def treatment_plan_narrative(plan_ien)
       text_lines(:amhg_treatment_plan_narrative, plan_ien)
     end
+    shape :treatment_plan_narrative, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/treatment-plans/{plan_ien}/narrative"
 
     # -- suicide risk --------------------------------------------------------
 
@@ -1285,6 +1302,7 @@ module RpmsRpc
         }
       end
     end
+    shape :suicide_forms, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/suicide-forms"
 
     # One suicide risk form, or nil. All sixteen columns — the header is built
     # across two SETs (AMHGDSF.m:19-20) and a reader that stops at the first
@@ -1313,6 +1331,7 @@ module RpmsRpc
         disposition_text:         presence(row[:disposition_text])
       }
     end
+    shape :suicide_form, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/suicide-forms/{form_ien}"
 
     # Methods recorded on a form.
     #
@@ -1331,6 +1350,7 @@ module RpmsRpc
           drug_if_other: presence(row[:drug_if_other]) }
       end
     end
+    shape :suicide_form_methods, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/suicide-forms/{form_ien}/methods"
 
     # Substance use recorded on a form. Always at least one row — a "not 2"
     # answer still emits the substance value with blank drug columns
@@ -1345,6 +1365,7 @@ module RpmsRpc
           drug_if_other: presence(row[:drug_if_other]) }
       end
     end
+    shape :suicide_form_substances, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/suicide-forms/{form_ien}/substances"
 
     # Contributing factors recorded on a form.
     def suicide_form_contributing_factors(form_ien)
@@ -1355,6 +1376,7 @@ module RpmsRpc
           if_other: presence(row[:if_other]) }
       end
     end
+    shape :suicide_form_contributing_factors, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/suicide-forms/{form_ien}/contributing-factors"
 
     # File health factors on one BH visit through AMHG SAVE HEALTH FACTORS
     # (HF^AMHGSVF, AMHGSVF.m:277-305; MODHF/DELHF^AMHGEVF).

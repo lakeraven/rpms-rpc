@@ -345,6 +345,7 @@ module RpmsRpc
 
       DataMapper.problem_edit_load.fetch_one(ien.to_s, provider_duz.to_s, institution_ien.to_s)
     end
+    shape :edit_load, resource: "problems", verb: "GET", path: "/problems/{ien}/institutions/{institution_ien}/edit-load"
 
     private
 

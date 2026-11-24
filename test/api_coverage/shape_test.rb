@@ -17,9 +17,9 @@ class ShapeTest < Minitest::Test
   WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
   # Slice 3 (#389) lowered it to the 67 frozen write-class-GET exceptions of #471.
-  UNDECLARED_BASELINE_MAX_LINES = 67
+  UNDECLARED_BASELINE_MAX_LINES = 7
   # Frozen exception (#471): write-class methods that stay GET until reclassified read; may only shrink.
-  WRITE_CLASS_GET_BASELINE_LINE_COUNT = 67
+  WRITE_CLASS_GET_BASELINE_LINE_COUNT = 7
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
     report = ApiCoverage.build(ROOT, surface: openapi_surface)

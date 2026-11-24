@@ -2,12 +2,14 @@
 
 require_relative "../../mappings/amhg_case_management"
 require_relative "wire"
+require_relative "../../shape"
 
 module RpmsRpc
   module BehavioralHealth
     module CaseManagement
       extend self
       extend Wire
+      extend Shape::Declarable
 
       # Case-status records for a patient over a FileMan date range,
       # newest first.
@@ -40,6 +42,7 @@ module RpmsRpc
           }
         end
       end
+      shape :case_dates, resource: "behavioral-health", verb: "GET", path: "/patients/{dfn}/behavioral-health/cases/dates"
 
       # Detail for one case-status record, or nil when the IEN yields no
       # row. Live CM^AMHGDCM always emits exactly one row (AMHGDCM.m:38-40).
@@ -68,6 +71,7 @@ module RpmsRpc
           comment:      presence(row[:comment])
         }
       end
+      shape :case_management, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/cases/{case_ien}/management"
 
       # Community (no-patient) visits visible to `provider`'s DUZ over a
       # FileMan date range, newest first.
@@ -102,6 +106,7 @@ module RpmsRpc
           }
         end
       end
+      shape :community_activities, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/cases/community-activities"
 
       # Detail for one community activity, or nil when the IEN yields no
       # row. Live COM^AMHGDCOM always emits exactly one row
@@ -134,6 +139,7 @@ module RpmsRpc
           clinic:                split_ien_name(row[:clinic_raw])
         }
       end
+      shape :community_activity, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/cases/community-activities/{activity_ien}"
     end
   end
 end

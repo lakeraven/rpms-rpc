@@ -236,6 +236,7 @@ module RpmsRpc
            "#{CONTEXT} gate (#{e.class})"
       false
     end
+    shape :available?, resource: "agg", verb: "GET", path: "/agg/available"
 
     # FND^AGGPTLKP's $C(28) branch searches by name OR DOB (LST2), using
     # the same XLFNAME1 formatter as ADD. Include every division and inactive
@@ -251,6 +252,7 @@ module RpmsRpc
         Patient.lookup(text, all_divisions: true, include_inactive: true, require_response: true)
       end
     end
+    shape :registration_candidates, resource: "agg", verb: "GET", path: "/agg/registration-candidates"
 
     # ADD^AGGPTADD — create a patient from a demographics PARMS hash.
     # Returns { success: true, dfn:, message: } on "1^^DFN",

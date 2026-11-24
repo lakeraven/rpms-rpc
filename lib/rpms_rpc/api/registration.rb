@@ -228,6 +228,14 @@ module RpmsRpc
     #                       :duplicate_identity with the fresh candidates, so a
     #                       match that appeared after review is never filed
     #                       past (#494). Given, allow_duplicate is ignored.
+    #                       KNOWN GAP (#494, Ryan 2026-11-24): nothing holds a
+    #                       lock between this call's lookup and AGG ADD NEW
+    #                       PATIENT. ADD^AGGPTADD takes none, and AGG LOCK
+    #                       PATIENT locks an existing DFN, not an identity
+    #                       (AGGLOCK.m:40-41), so two clerks registering the
+    #                       same new person at the same moment can still file
+    #                       two charts. The duplicate check finds the second on
+    #                       its next lookup.
     #   hrn_source:         where the HRN comes from, for this registration:
     #                       :derive (HRN := DFN), :temporary (AG's next
     #                       T-number, as IHS scheduling's mini-registration
