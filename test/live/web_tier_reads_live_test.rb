@@ -60,6 +60,15 @@ class WebTierReadsLiveTest < LiveSpec::Test
     end
     assert_empty %w[TMP PU RS BP HT WT] - rows.map { |r| r[:abbreviation] }
     assert_equal "F", rows.find { |r| r[:abbreviation] == "TMP" }[:units]
+    # Piece 2 is the measurement type, not a display order (rpms-rpc#221):
+    # O2 SATURATION's control and type IENs differ. Each row says how many
+    # decimal places it keeps and whether it has qualifiers.
+    o2 = rows.find { |r| r[:abbreviation] == "O2" }
+    refute_equal o2[:ien], o2[:measurement_type_ien], "O2 SATURATION: #{o2.inspect}"
+    rows.each do |row|
+      assert_kind_of Integer, row[:decimal_places], row.inspect
+      assert_includes [ true, false ], row[:has_qualifiers], row.inspect
+    end
 
     metric = RpmsRpc::Vital.template(DFN, vstr, metric: 1)
     assert_equal "C", metric.find { |r| r[:abbreviation] == "TMP" }[:units]

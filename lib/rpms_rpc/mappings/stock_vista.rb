@@ -75,10 +75,13 @@ module RpmsRpc
     end
 
     # ORWPT APPTLST — patient appointments (multi-line)
-    # Format: APPTTIME^LOCIEN^LOCNAME^EXTSTATUS
+    # Format: APPTTIME^LOCIEN^LOCNAME^EXTSTATUS (APPTLST^ORWPT: ORWPT.m:151-162).
+    # APPTTIME is the appointment's FileMan date and time (piece 1 of
+    # ^UTILITY("VASD",$J,n,"I")), so it maps to a Time; read as a date it
+    # lost the hour (#221).
     DataMapper.define(:patient_appointments) do |m|
       m.rpc "ORWPT APPTLST"
-      m.field 0, :datetime,     :fileman_date
+      m.field 0, :datetime,     :fileman_datetime
       m.field 1, :location_ien, :integer
       m.field 2, :location
       m.field 3, :status

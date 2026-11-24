@@ -424,6 +424,18 @@ def test_every_bmc_call_runs_under_bmcrpc_and_restores_the_callers_context
   end
 end
 
+# HSLIST^BQIRHSR answers IEN^NAME per HEALTH SUMMARY TYPE after its typed
+# header (BQIRHSR.m:32-37); there is no abbreviation column (rpms-rpc#221).
+def test_health_summary_types_are_ien_and_name
+  replay("health_summary_types")
+
+  types = RpmsRpc::Referral.health_summary_types
+
+  assert_equal({ ien: "1", name: "VPR MINI" }, types.first)
+  assert_equal 19, types.size
+  assert(types.all? { |t| t.keys == %i[ien name] })
+end
+
 def test_create_binds_no_context
   RpmsRpc::Referral.create(DFN, { specialty: "CARDIOLOGY" })
 

@@ -1,0 +1,23 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwpt-apptlst.rb.
+---
+rpc: ORWPT APPTLST
+entry_point: APPTLST^ORWPT
+release_tag: bcer-9.0-20261119-f67498c-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:8b68b6bc89065ecc17d60d1fdc508aceaf7ae4723cf42312fddb8a30248b8f3a
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,SCHED (PSCH123, the scheduler test role's published demo pair)
+  for setup
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-24T03:02:57Z'
+note: Run on a fresh throwaway container. Setup books DFN 3 on DEMO IHS CLINIC at
+  13:15 the day after the capture; the read files nothing.
+captures:
+- name: for_patient_booked/1
+  rpc: ORWPT APPTLST
+  signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+  inputs:
+  - '3'
+  context: Encounter.for_patient of DFN 3, booked tomorrow at 13:15
+  raw_return: "5\03261124.1315^3^DEMO IHS CLINIC^\r"
+  sha256: 1168b51906a72b599cde7992258db79e3df8d1b15399818f6429f22f3a32185d

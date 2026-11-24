@@ -60,21 +60,32 @@ module RpmsRpc
       m.field 4, :date_raw
     end
 
-    # BEHOVM TEMPLATE — vital field definitions for a location (multi-line)
-    # Format per line: IEN^DISPLAY_ORDER^NAME^ABBREV^UNITS^LOW^HIGH^PERCENTILE_RPC^REQUIRED^DISPLAY_ROW
+    # BEHOVM TEMPLATE — one row per vital on the location's template, as
+    # QUERY^BEHOVM builds it (BEHOVM.m:110):
+    #   VCTL ^ VTYP ^ NAME ^ ABBREV ^ UNITS ^ LOW ^ HIGH ^ PCTILE_RPC ^ QUALIFIERS ^ SD
+    # VCTL is the BEHOVM vital control (#90460.01) IEN; VTYP is the
+    # measurement type found for its name (#9999999.07, or #120.51 on the
+    # Vitals package), not a display order. UNITS ^ LOW ^ HIGH are the units
+    # and normal range in the units asked for (UNITS^BEHOVM: BEHOVM.m:267-276);
+    # a bound may carry decimals or be empty, so it stays a string.
+    # PCTILE_RPC is "BEHOVM PCTILE" when the vital has percentile tables.
+    # QUALIFIERS is 1 when the vital has qualifier categories (GETCATS^BEHOVM2).
+    # SD is the number of decimal places the vital keeps (TYPEINFO^BEHOVM:
+    # BEHOVM.m:215-216, 2 when the control entry leaves it empty).
+    # Vital.template reads only the rows after the count header (#221).
     DataMapper.define(:vital_template) do |m|
       m.rpc "BEHOVM TEMPLATE"
       m.context VUECENTRIC
-      m.field 0, :ien,            :integer
-      m.field 1, :display_order,  :integer
+      m.field 0, :ien,                  :integer
+      m.field 1, :measurement_type_ien, :integer
       m.field 2, :name
       m.field 3, :abbreviation
       m.field 4, :units
-      m.field 5, :low,            :integer
-      m.field 6, :high,           :integer
+      m.field 5, :low
+      m.field 6, :high
       m.field 7, :percentile_rpc
-      m.field 8, :required,       :integer
-      m.field 9, :display_row,    :integer
+      m.field 8, :has_qualifiers,       :boolean
+      m.field 9, :decimal_places,       :integer
     end
 
     # BEHOVM VALIDATE — server-side vital value validation (scalar)
@@ -316,13 +327,14 @@ module RpmsRpc
       m.text_blob :providers
     end
 
-    # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
-    # Common shape: IEN^NAME^ABBREVIATION.
+    # BMC HEALTH SUMMARY TYPE — HSLIST^BQIRHSR(DATA,FAKE) (#8994 names that
+    # tag): a BMX typed header, I00010HEALTH_SUMMARY_TYPE^T00030HEALTH_SUMMARY_TYPE_NM,
+    # then IEN^NAME per HEALTH SUMMARY TYPE (#9001015) entry (BQIRHSR.m:32-37).
+    # There is no third column (#221).
     DataMapper.define(:bmc_health_summary_type) do |m|
       m.rpc "BMC HEALTH SUMMARY TYPE"
       m.field 0, :ien
       m.field 1, :name
-      m.field 2, :abbreviation
     end
 
     # BMC PATIENT ELIGIBILITY STATUS — GTPTELST^BMCRPC4 (BMCRPC4.m:129):
@@ -817,17 +829,29 @@ module RpmsRpc
       m.field 4, :type
     end
 
-    # BEHOCCD GETREF — referrals with CCD status
-    # Format per line: REFERRAL_IEN^VISIT_IEN^HAS_CCD^CCD_SENT_DATE^PROVIDER^FACILITY
+    # BEHOCCD GETREF — GETREF^BEHOCCD(RSLT,VISITS) takes the visit IENs as a
+    # list parameter (VISITS(1), VISITS(2), ...) and hands them to
+    # GETREFFV^BMCAPIS (BEHOCCD.m:82-92), which answers one row per V REFERRAL
+    # (#9000010.59) entry on each visit (BMCAPIS.m:45):
+    #   VISIT ^ RCIS_REFERRAL_IEN ^ PATIENT_IEN ^ PURPOSE ^ STATUS ^
+    #   REFERRAL_NUMBER ^ VENDOR_FAX ^ VENDOR_DIRECT_PARTICIPANT ^
+    #   VENDOR_DIRECT_EMAIL ^ VENDOR_NAME
+    # PURPOSE, STATUS, the number and the vendor's fields are external values
+    # of the RCIS REFERRAL (#90001) entry and its vendor; they are empty when
+    # the V REFERRAL names no RCIS referral (#221).
     DataMapper.define(:ccd_referral) do |m|
       m.rpc "BEHOCCD GETREF"
       m.context VUECENTRIC
-      m.field 0, :referral_ien, :integer
-      m.field 1, :visit_ien, :integer
-      m.field 2, :has_ccd, :boolean
-      m.field 3, :ccd_sent_date, :fileman_date
-      m.field 4, :provider_name
-      m.field 5, :facility
+      m.field 0, :visit_ien, :integer
+      m.field 1, :referral_ien, :integer
+      m.field 2, :patient_ien, :integer
+      m.field 3, :purpose
+      m.field 4, :status
+      m.field 5, :referral_number
+      m.field 6, :vendor_fax
+      m.field 7, :vendor_direct_participant
+      m.field 8, :vendor_direct_email
+      m.field 9, :vendor_name
     end
 
     # BGOVIMM GET — the patient's immunization history (multi-line). INP is
@@ -881,12 +905,17 @@ module RpmsRpc
       m.field 1, :reconciled, :integer
     end
 
-    # BEHOCCD PHR — PHR enrollment/access check
+    # BEHOCCD PHR — PHR^BEHOCCD(RET,DFN) (BEHOCCD.m:4-10) answers one line:
+    # "0" when the patient has no PHR ACCESS DATE (#9000001.8801) entry,
+    # otherwise ACCESS ^ DATE for the latest entry. ACCESS is its field .02,
+    # 1 YES or 0 NO, read from the "ACT" index ^AUPNPAT(DFN,88,"ACT",DATE,
+    # ACCESS); DATE is the entry's date (its IEN, DINUM) as MM/DD/YYYY
+    # (FMTDATE^BGOUTL). There is no message line (#221).
     DataMapper.define(:phr_access) do |m|
       m.rpc "BEHOCCD PHR"
       m.context VUECENTRIC
       m.field 0, :has_access, :boolean
-      m.field 1, :message
+      m.field 1, :answered_on
     end
 
     # ========================================================================

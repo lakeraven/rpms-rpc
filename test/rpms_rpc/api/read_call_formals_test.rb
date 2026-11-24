@@ -167,6 +167,24 @@ class ReadCallFormalsTest < Minitest::Test
     assert_equal [ DFN, VSTR, "1" ], params_sent_to("BEHOVM TEMPLATE")
   end
 
+  # Each template row is VCTL^VTYP^NAME^ABBREV^UNITS^LOW^HIGH^PCTILE^QUALIFIERS^SD
+  # (QUERY^BEHOVM: BEHOVM.m:110). The build's own rows say so: O2 SATURATION
+  # is control 344 and measurement type 22, so piece 2 is no display order;
+  # WEIGHT keeps 3 decimal places and the others 2; PAIN has no qualifiers
+  # (rpms-rpc#221).
+  def test_vital_template_rows_are_control_type_units_range_and_decimal_places
+    rows = RpmsRpc::Vital.template(DFN, VSTR)
+
+    o2 = rows.find { |r| r[:abbreviation] == "O2" }
+    assert_equal({ ien: 344, measurement_type_ien: 22, name: "O2 SATURATION", abbreviation: "O2", units: "%",
+                   low: nil, high: nil, percentile_rpc: nil, has_qualifiers: true, decimal_places: 2 }, o2)
+    bp = rows.find { |r| r[:abbreviation] == "BP" }
+    assert_equal [ "mmHg", "90", "150" ], bp.values_at(:units, :low, :high)
+    weight = rows.find { |r| r[:abbreviation] == "WT" }
+    assert_equal [ "BEHOVM PCTILE", 3 ], weight.values_at(:percentile_rpc, :decimal_places)
+    refute rows.find { |r| r[:abbreviation] == "PA" }[:has_qualifiers]
+  end
+
   # PTINFO(DATA,DFN,SLCT)^BEHOPTCX (BEHOPTCX.m:7), GETBDP(RET,DFN)^BEHOPTPC
   # (BEHOPTPC.m:73), CWAD(Y,DFN)^ORWPT (ORWPT.m). The fetch frames already
   # carried the DFN; the frames that died were the capability probe's, which
