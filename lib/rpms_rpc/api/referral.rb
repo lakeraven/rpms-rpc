@@ -193,6 +193,8 @@ module RpmsRpc
       problem_ien: 28,                  # PROB, to the V REFERRAL
       snomed_code: 29,                  # SNMDST, the 2200 multiple
       case_notes: 30,                   # CN
+      diagnosis_code: 31,               # RDCODE, an ICD DIAGNOSIS (#80) code
+      diagnosis_narrative: 32,          # RDN, its provider narrative
       provider_ien: 34                  # RQPR, .06
     }.freeze
 
@@ -217,10 +219,24 @@ module RpmsRpc
     # - ADDITIONAL INFO (.34), set from the flags, and DATE LAST UPDATED (.27).
     #
     # A CLOSED referral (C1 or X) takes only its notes (medical_history,
-    # business_office_notes, case_notes). The routine's RCIS diagnosis
-    # parameters (31-33, EDITRD^BMCRPC5) are always sent empty, since no
-    # capture proves them yet, and so is DUPREF (35), which UPDREFRL does
-    # not read.
+    # business_office_notes, case_notes).
+    #
+    # diagnosis_code and diagnosis_narrative go together: given both,
+    # UPDREFRL calls EDITRD^BMCRPC5 (BMCRPC2.m:260; BMCRPC5.m:111-128), which
+    # deletes the referral's RCIS DIAGNOSIS (#90001.01) entries and files
+    # this one, as provisional and primary, its narrative added to PROVIDER
+    # NARRATIVE (#9999999.27) when new. The code must be an ICD DIAGNOSIS
+    # (#80) code ("E11.9"). For one not on file EDITRD deletes the
+    # referral's diagnoses, files nothing, and UPDREFRL still answers "~`1",
+    # so the code is looked up first (DDR LISTER on #80's B index, in the
+    # caller's option) and one not on file is refused with nothing sent:
+    # { success: false, message: }. The list of other diagnoses to keep
+    # (33, DXS) is sent empty,
+    # so the given one is the referral's only diagnosis afterwards. One
+    # without the other raises ArgumentError: the routine would skip both.
+    # Reading it back needs openrpms#1271's fix, first released in
+    # bcer-9.0-20261124-60d39b6-ydb (rpms-rpc#915). DUPREF (35) is sent
+    # empty: UPDREFRL does not read it.
     #
     # Returns { success:, message:, raw: }: "~`1" when filed, "~`0^message"
     # when refused. An unknown field, or a flag that is not true or false,
@@ -228,6 +244,12 @@ module RpmsRpc
     def update(ien, expected_begin: nil, schedule_within_days: nil, **fields)
       unknown = fields.keys - UPDATE_FIELDS.keys
       raise ArgumentError, "Referral.update: unknown field(s) #{unknown.join(', ')}" unless unknown.empty?
+      if fields.key?(:diagnosis_code) ^ fields.key?(:diagnosis_narrative)
+        raise ArgumentError, "Referral.update: diagnosis_code and diagnosis_narrative go together"
+      end
+      if fields.key?(:diagnosis_code) && !icd_code_on_file?(fields[:diagnosis_code])
+        return { success: false, message: "ICD DIAGNOSIS #{fields[:diagnosis_code]} is not on file; nothing was sent", raw: nil }
+      end
 
       params = [ ien.to_s ] + ([ "" ] * (UPDATE_PARAMETERS - 1))
       fields.each { |name, value| params[UPDATE_FIELDS.fetch(name) - 1] = update_value(name, value) }
@@ -533,6 +555,20 @@ module RpmsRpc
       text.to_s.split(/\r\n|\r|\n/).flat_map { |line| RcisWire.records(line) }.map do |record|
         fields.zip(record.split("^", -1)).to_h
       end
+    end
+
+    # Whether +code+ is an ICD DIAGNOSIS (#80) .01, exactly. It reads the BA
+    # index (the code and a blank), which answers at once; the B index that
+    # SAVERD^BMCRPC5 walks (BMCRPC5.m:102) took 7 to 26 seconds a lookup on
+    # the demo image. A read that fails raises.
+    def icd_code_on_file?(code)
+      code = code.to_s.strip
+      return false if code.empty? || code.match?(/[\^|~`]/)
+
+      listed = DdrFileman.lister(file: "80", fields: "@;.01", flags: "IP", xref: "BA", part: "#{code} ", max: "5")
+      raise Client::RpcError, "DDR LISTER could not read ICD DIAGNOSIS (#80) for #{code}" if listed.nil? || listed[:error]
+
+      listed[:entries].any? { |e| e[:pieces].first.to_s.strip == code }
     end
 
     def bmc_many(mapping_name, *params)

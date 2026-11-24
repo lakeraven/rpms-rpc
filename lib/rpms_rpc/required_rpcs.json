@@ -422,7 +422,8 @@
       "BMC SEARCH REFERRAL",
       "BMC SEARCH REFERRED TO",
       "BMC UPDATE REFERRAL",
-      "DDR GETS ENTRY DATA"
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
@@ -1837,6 +1838,7 @@
       "replies": [
         "test/fixtures/captured_replies/bmc-get-referral.yml",
         "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-diagnosis.yml",
         "test/fixtures/captured_replies/referral-wire.yml"
       ]
     },
@@ -1930,7 +1932,8 @@
         "RpmsRpc::Referral.update": "non_idempotent_write"
       },
       "replies": [
-        "test/fixtures/captured_replies/referral-calls.yml"
+        "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-diagnosis.yml"
       ]
     },
     "BQI PATIENT INSURANCE": {
@@ -2344,6 +2347,7 @@
         "test/fixtures/captured_replies/problem-write.yml",
         "test/fixtures/captured_replies/procedure-add.yml",
         "test/fixtures/captured_replies/referral-calls.yml",
+        "test/fixtures/captured_replies/referral-diagnosis.yml",
         "test/fixtures/captured_replies/referral-wire.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
@@ -2387,6 +2391,7 @@
         "RpmsRpc::PatientApplication.for_patient": "read",
         "RpmsRpc::PatientApplication.types": "read",
         "RpmsRpc::PatientApplication.update_status": "non_idempotent_write",
+        "RpmsRpc::Referral.update": "non_idempotent_write",
         "RpmsRpc::Registration.add_eligibility_modifier": "non_idempotent_write",
         "RpmsRpc::Registration.add_mbi": "non_idempotent_write",
         "RpmsRpc::Registration.address_history": "read",
@@ -2458,6 +2463,7 @@
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/reference-code-lists.yml",
+        "test/fixtures/captured_replies/referral-diagnosis.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-edits.yml",

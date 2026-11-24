@@ -13,7 +13,7 @@ require "rpms_rpc/api/behavioral_health/case_management"
 # The visit tabs of a filed visit are read in behavioral_health_save_pov_live_test.rb.
 class BehavioralHealthRecordsLiveTest < LiveSpec::Test
   runs_as :bh_provider
-  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
   needs "AMHGRPC", tracked: "openrpms#1299"
   BH = RpmsRpc::BehavioralHealth
   DEMO_DFN = "4"

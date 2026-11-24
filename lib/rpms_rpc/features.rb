@@ -56,14 +56,15 @@ module RpmsRpc
   # ArgumentError too. `Conformance::BuildSurface::Error` from that reader is
   # re-raised as ArgumentError with the reader's reason kept.
   #
-  # LIMIT: the out-of-order set is a sound but incomplete derivation. An
-  # out-of-order option whose RPCs are all also listed by usable options is
-  # not detected — those RPCs are published as client-callable, so no
-  # out-of-order row names the option. openrpms publishes the complete set
-  # since lakeraven/openrpms#1048 (OUT_OF_ORDER, field 7 of <tag>-rpc_reach.txt),
-  # but <tag>-rpcs.json, the one surface document pinned here, does not carry
-  # it yet: lakeraven/openrpms#1266. On bcer-9.0-20261119-f67498c-ydb the two
-  # agree (one option, SCMC PCMM GUI WORKSTATION).
+  # The out-of-order set is openrpms' OUT_OF_ORDER field (rpc_reach.txt field
+  # 7), which every <tag>-rpcs.json record carries as reach.out_of_order since
+  # lakeraven/openrpms#1279 (first released in bcer-9.0-20261124-60d39b6-ydb).
+  # For an rpcs.json written before it, the set is derived from the
+  # out-of-order rows, which is sound but incomplete: an out-of-order option
+  # whose RPCs are all also listed by usable options is not detected, since
+  # no out-of-order row names it (rpms-rpc#628). On
+  # bcer-9.0-20261124-60d39b6-ydb the two agree (one option, SCMC PCMM GUI
+  # WORKSTATION).
   #
   # The parsed build surface, and the out-of-order options derived from it,
   # are cached per [realpath, tag]. The tag is the inventory directory's own
@@ -323,9 +324,8 @@ module RpmsRpc
     # that reach class means every option listing the RPC is out of order, so
     # a usable option is not in the set.
     #
-    # LIMIT: sound but incomplete (see the module comment): the complete set is
-    # openrpms' OUT_OF_ORDER field, read once rpcs.json carries it
-    # (lakeraven/openrpms#1266).
+    # The set is openrpms' OUT_OF_ORDER field when rpcs.json carries it, and
+    # otherwise the derivation (see the module comment).
     def client_callable_under?(cached, rpc_name, context)
       return false if cached.out_of_order_options.include?(context)
 
@@ -335,10 +335,14 @@ module RpmsRpc
       rpc.contexts.include?(context)
     end
 
-    # Option names from every out-of-order row. Computed once per surface and
-    # stored on the cached entry; callers must not recompute it.
+    # The out-of-order options: every record's reach.out_of_order when the
+    # surface carries the field on every record, else the option names on
+    # every out-of-order row. Computed once per surface and stored on the
+    # cached entry; callers must not recompute it.
     def out_of_order_options(surface)
+      published = surface.rpcs.all? { |rpc| !rpc.out_of_order.nil? }
       names = surface.rpcs.flat_map do |rpc|
+        next rpc.out_of_order if published
         next [] unless rpc.reach == OUT_OF_ORDER
 
         Array(rpc.contexts).flat_map { |name| name.to_s.split(";") }

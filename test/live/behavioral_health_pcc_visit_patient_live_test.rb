@@ -9,12 +9,15 @@ require "rpms_rpc/fileman_date_parser"
 # RpmsRpc::BehavioralHealth.save_pcc_visit never links a BH visit to another
 # patient's PCC visit (openrpms#1284).
 #
-# Stock AMHG CREATE/EDIT VISIT does not refuse it. With the division's BH PCC
-# link on, PCC^AMHGPCC hands the caller's visit to EN^AMHBHRU, and ADD1 of
-# AMHPCCL stores it as #9002011 .16 and files the BH visit's V POV and V
+# The FOIA AMHG CREATE/EDIT VISIT does not refuse it. With the division's BH
+# PCC link on, PCC^AMHGPCC hands the caller's visit to EN^AMHBHRU, and ADD1
+# of AMHPCCL stores it as #9002011 .16 and files the BH visit's V POV and V
 # PROVIDER on it, with no check of the visit's patient (AMHPCCL.m:21,33). So
-# the refusal is the gem's: it reads #9002011 .08 and #9000010 .05 before the
-# write and refuses when they differ.
+# the gem refuses first: it reads #9002011 .08 and #9000010 .05 before the
+# write and refuses when they differ. Since bcer-9.0-20261124-60d39b6-ydb the
+# build refuses too (openrpms#1284): the raw RPC answers "0~PCC VISIT IS FOR
+# A DIFFERENT PATIENT!", so the second test reads that refusal where it used
+# to link the record as setup.
 #
 # The target is a demo image whose BH PCC link is on and that carries the BH
 # records of the panel patient QUEBEC,SAGE (openrpms SEEDBH, openrpms#1267,
@@ -36,7 +39,7 @@ require "rpms_rpc/fileman_date_parser"
 # re-save deletes his V POVs.
 class BehavioralHealthPccVisitPatientLiveTest < LiveSpec::Test
   runs_as :bh_provider
-  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
   needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 
@@ -85,9 +88,18 @@ class BehavioralHealthPccVisitPatientLiveTest < LiveSpec::Test
     his = pcc_visits_of(OTHER_PATIENT).reverse.find { |visit| v_povs_of(OTHER_PATIENT, on: visit).any? }
     flunk "ROMEO,FINLEY has no PCC visit with a V POV of his own on this target" unless his
     record = complete_bh_visit!(seeded_visit_reference!, problem_ien!)
-    amhg!("AMHG CREATE/EDIT VISIT", "#{record}|#{his}")
-    assert_equal his, pcc_link(record), "setup: stock AMHG CREATE/EDIT VISIT links BH visit #{record} to his visit #{his}"
     his_povs = v_povs_of(OTHER_PATIENT, on: his)
+    reply = client.with_context(RpmsRpc::BehavioralHealth::CONTEXT) do
+      client.call_rpc_global_array("AMHG CREATE/EDIT VISIT", "#{record}|#{his}")
+    end.to_s
+    if reply.include?("PCC VISIT IS FOR A DIFFERENT PATIENT!")
+      # openrpms#1284: the build refuses the raw link, so nothing links and his V files stay.
+      assert_empty pcc_link(record).to_s, "the build refused, and BH visit #{record} is not linked"
+      assert_equal his_povs, v_povs_of(OTHER_PATIENT, on: his), "ROMEO,FINLEY's own V POVs on PCC visit #{his} must stay"
+      return puts("\n#{role}: the build refuses linking BH visit #{record} to another patient's PCC visit #{his}")
+    end
+    refute_match(/0~|M ERROR/, reply, "AMHG CREATE/EDIT VISIT refused the setup: #{reply.inspect}")
+    assert_equal his, pcc_link(record), "setup: the FOIA AMHG CREATE/EDIT VISIT links BH visit #{record} to his visit #{his}"
 
     err = assert_raises(RpmsRpc::BehavioralHealth::SaveError) do
       RpmsRpc::BehavioralHealth.save_pcc_visit(record_ien: record)

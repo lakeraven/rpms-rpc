@@ -206,9 +206,9 @@ def test_find_after_update_reads_the_filed_fields_back
 end
 
 def test_update_refuses_an_unknown_field_before_sending
-  err = assert_raises(ArgumentError) { RpmsRpc::Referral.update("1", diagnosis_code: "R69.") }
+  err = assert_raises(ArgumentError) { RpmsRpc::Referral.update("1", diagnosis_kind: "R69.") }
 
-  assert_match(/unknown field\(s\) diagnosis_code/, err.message)
+  assert_match(/unknown field\(s\) diagnosis_kind/, err.message)
   assert_empty @client.calls
 end
 

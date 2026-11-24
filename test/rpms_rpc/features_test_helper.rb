@@ -96,7 +96,9 @@ module FeaturesTestHelper
   # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
   BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
     "DDR GETS ENTRY DATA" =>
-      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767)"
+      "Referral.find checks the entry and its REFERRAL # under the caller's context before BMC GET REFERRAL (#767)",
+    "DDR LISTER" =>
+      "Referral.update looks a diagnosis code up in ICD DIAGNOSIS (#80) under the caller's context before BMC UPDATE REFERRAL (#915)"
   }.freeze
 
   ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {

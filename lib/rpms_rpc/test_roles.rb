@@ -24,7 +24,7 @@ module RpmsRpc
   # signed-on account's XUPROGMODE disagrees with its row, so an operator
   # sign-on cannot pass for another role and hide a permission gap.
   #
-  # The rows are what bcer-9.0-20261119-f67498c-ydb seeds (its personas.json),
+  # The rows are what bcer-9.0-20261124-60d39b6-ydb seeds (its personas.json),
   # with the options each role is answered in as observed by the refusal spec
   # on that release. A pending row is instead what its openrpms issue seeds,
   # until a release carries it. When the release adds a `role` field to
@@ -56,8 +56,8 @@ module RpmsRpc
     ROLES = [
       Role.new(name: :provider, persona: "provider", account: "PROFILE,MD",
                access: "PMD123", verify: "PMD123!!", esig: "123456",
-               contexts: (CLINICAL_CONTEXTS + [ "BMCRPC" ]).freeze,
-               keys: %w[PROVIDER ORES BMCZMENU AMHZMENU].freeze, xuprogmode: false),
+               contexts: (CLINICAL_CONTEXTS + [ "BMCRPC", "OR CPRS GUI CHART", "XQAL GUI ALERTS" ]).freeze,
+               keys: %w[PROVIDER ORES BMCZMENU].freeze, xuprogmode: false),
       Role.new(name: :nurse, persona: "nurse", account: "PROFILE,RN",
                access: "PRN123", verify: "PRN123!!", esig: "123456",
                contexts: CLINICAL_CONTEXTS, keys: %w[PROVIDER ORELSE].freeze, xuprogmode: false),
@@ -77,15 +77,12 @@ module RpmsRpc
       # The behavioral health provider, a licensed clinical social worker, the
       # BH clinic's provider: the Behavioral Health System's primary menu
       # AMHMENU, its keys AMHZMENU and AMHZ DATA ENTRY, and the BH GUI's context
-      # AMHGRPC; openrpms#1299 moves behavioral health off the provider. No release
-      # carries the account yet, so the row is pending; when one does, drop
-      # pending, add the role to role_refusal_live_test.rb, and take AMHZMENU
-      # off the provider's row.
+      # AMHGRPC; openrpms#1299 moved behavioral health off the provider, and
+      # bcer-9.0-20261124-60d39b6-ydb is the first release that carries it.
       Role.new(name: :bh_provider, persona: "bh_provider", account: "PROFILE,BH",
                access: "PBH123", verify: "PBH123!!", esig: "123456",
                contexts: [ "CIAV VUECENTRIC", "BMXRPC", "AMHGRPC" ].freeze,
-               keys: [ "PROVIDER", "AMHZMENU", "AMHZ DATA ENTRY" ].freeze, xuprogmode: false,
-               pending: "openrpms#1299"),
+               keys: [ "PROVIDER", "AMHZMENU", "AMHZ DATA ENTRY" ].freeze, xuprogmode: false),
       # Roll-and-scroll only: no CIAV VUECENTRIC, so no broker signs it on.
       Role.new(name: :billing_technician, persona: "billing_technician", account: "PROFILE,BILL",
                access: "PBIL123", verify: "PBIL123!!", esig: nil,

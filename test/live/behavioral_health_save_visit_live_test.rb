@@ -11,7 +11,7 @@ require "rpms_rpc/fileman_date_parser"
 # against a disposable local container only.
 class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
   runs_as :bh_provider
-  # Behavioral health work is the BH provider's (PROFILE,BH), which no release carries yet.
+  # Behavioral health work is the BH provider's (PROFILE,BH); releases before bcer-9.0-20261124-60d39b6-ydb lack it.
   needs "AMHGRPC", tracked: "openrpms#1299"
   writes!
 

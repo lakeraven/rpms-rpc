@@ -827,13 +827,13 @@ The accounts are the openrpms build's published demo users (SEEDPERS) on synthet
 
 | Role | RPMS account | Access code | Broker options its RPCs run under | Keys | XUPROGMODE | Runs |
 |---|---|---|---|---|---|---|
-| `provider` | PROFILE,MD | `PMD123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC, BMCRPC | PROVIDER, ORES, BMCZMENU, AMHZMENU | no | chart and clinical reads, notes, orders, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
+| `provider` | PROFILE,MD | `PMD123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC, BMCRPC, OR CPRS GUI CHART, XQAL GUI ALERTS | PROVIDER, ORES, BMCZMENU | no | chart and clinical reads, notes, orders, visits, problems, vitals, immunizations, referrals, sign-on and broker behaviour |
 | `nurse` | PROFILE,RN | `PRN123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC | PROVIDER, ORELSE | no | the role refusal and key specs |
 | `medical_assistant` | PROFILE,MA | `PMA123` | CIAV VUECENTRIC, BMXRPC, BSDXRPC, BSTSRPC | PROVIDER, OREMAS | no | the role refusal and key specs; the BMX context refusal |
 | `front_desk_clerk` | PROFILE,REG | `PREG123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU | no | patient registration and edits, coverage, tribal enrollment |
 | `registration_supervisor` | PROFILE,REGSUP | `PRSUP123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU, AGZMGR, AGZVIEWSSN, DGPF ASSIGNMENT | no | the role refusal and key specs |
 | `scheduler` | PROFILE,SCHED | `PSCH123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | SDZMENU, SDZREGMENU | no | clinics, availability, booking, check-in and check-out, wait list |
-| `bh_provider` | PROFILE,BH | `PBH123` | CIAV VUECENTRIC, BMXRPC, AMHGRPC (pending: no release carries the account yet) | PROVIDER, AMHZMENU, AMHZ DATA ENTRY | no | the Behavioral Health specs, skipped until a release carries the account (https://github.com/lakeraven/openrpms/issues/1299) |
+| `bh_provider` | PROFILE,BH | `PBH123` | CIAV VUECENTRIC, BMXRPC, AMHGRPC | PROVIDER, AMHZMENU, AMHZ DATA ENTRY | no | the Behavioral Health specs, and the role refusal spec (since bcer-9.0-20261124-60d39b6-ydb, https://github.com/lakeraven/openrpms/issues/1299) |
 | `billing_technician` | PROFILE,BILL | `PBIL123` | none a broker signs on with (no CIAV VUECENTRIC) | ABMZMENU, ABMDZ EDIT CLAIM AND EXPORT, BARZMENU | no | no spec yet; the CIA sign-on refusal uses its pair |
 | `operator` | MANAGER,SYSTEM | `SYS123` | every option (XUPROGMODE) | XUPROGMODE | yes | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration role holds; #814) and build setup |
 
@@ -843,11 +843,8 @@ When a release changes an account's menus, that spec fails and the row moves wit
 One guard keeps a run honest: right after sign-on it asks whether the account holds XUPROGMODE, and every spec fails when that disagrees with the role's row, so an operator pair under another role's name cannot hide a permission gap.
 
 PROV123 (PROVIDER,TEST) is not a test role; it stays a stack's staging sign-on.
-Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it:
-
-- AMHGRPC for the behavioral health provider, the Behavioral Health specs: https://github.com/lakeraven/openrpms/issues/1299. The row is `pending`: no release carries PROFILE,BH yet, so it holds no option on the build and the specs skip without signing on. When a release carries it, drop `pending:` from the row and add the role to the role refusal spec.
-- OR CPRS GUI CHART for the provider, the sensitive-record check, a note's patient, a user's roles, the stock VistA vital add, and the XWB user class: https://github.com/lakeraven/openrpms/issues/1276
-- XQAL GUI ALERTS for the provider, the notification spec: https://github.com/lakeraven/openrpms/issues/1277
+Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it.
+Since bcer-9.0-20261124-60d39b6-ydb every row holds what its specs need: AMHGRPC for the behavioral health provider (https://github.com/lakeraven/openrpms/issues/1299), and OR CPRS GUI CHART and XQAL GUI ALERTS for the provider (https://github.com/lakeraven/openrpms/issues/1276, https://github.com/lakeraven/openrpms/issues/1277). A run against an older release fails: `test/live/role_refusal_live_test.rb` names AMHGRPC or OR CPRS GUI CHART when the release does not grant it, and the notifications spec is refused XQAL GUI ALERTS.
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **Captured-reply tests** replay what a published release sent through the real broker client and assert what a host receives

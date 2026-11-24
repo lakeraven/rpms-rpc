@@ -1,0 +1,97 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb referral-diagnosis.rb.
+---
+rpc: BMC UPDATE REFERRAL
+entry_point: UPDREFRL^BMCRPC2
+release_tag: bcer-9.0-20261124-60d39b6-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-24T04:41:55Z'
+note: Run on a fresh throwaway container. Setup files referral 1 for DFN 990001.
+captures:
+- name: update/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '80'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: '5'
+    PART: 'E11.9 '
+    XREF: BA
+  context: Referral.update of referral 1 with diagnosis E11.9 and its narrative
+  raw_return: "5\0[Data]\r503126^E11.9\r"
+  sha256: 372fa1c7b64bbc9cb6decf88b7e7f32b28c1c1861a43b275c95c3774b682abf6
+- name: update/2
+  rpc: BMC UPDATE REFERRAL
+  inputs:
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - E11.9
+  - Type 2 diabetes mellitus
+  - ''
+  - ''
+  - ''
+  context: Referral.update of referral 1 with diagnosis E11.9 and its narrative
+  raw_return: "6\0~`1"
+  sha256: b5f85f07675485f41fd7ec1a4f8897ed0d52f22440acd85900dbdc85601bdba9
+- name: find/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '90001'
+    IENS: 1,
+    FIELDS: ".01;.02"
+    FLAGS: I
+  context: Referral.find of referral 1 after the update
+  raw_return: "5\0[Data]\r90001^1^.01^3261123^\r90001^1^.02^9000000000915^\r"
+  sha256: acc6c7c1898f25ae7ca43476fce6b4fb2687f56e8f023dec36bb4734af00d8d9
+- name: find/2
+  rpc: BMC GET REFERRAL
+  inputs:
+  - '1'
+  context: Referral.find of referral 1 after the update
+  raw_return: "6\0~`1^NOV 23, 2026^9000000000915^990001^ALPHA,CASEY^^^<UNKNOWN>^^^^^DIRECT
+    ONLY^^^N^O^^^^^^^^^^^^^^^^^^^^^^<UNKNOWN>^^^^^^ACTIVE^^^~`D'~DD'~D1^503126^990001^1^PROVISIONAL^PRIMARY^25^E11.9^Type
+    2 diabetes mellitus~`M'~M~`B'~B~`C'~C"
+  sha256: 88235099a3dfbed01f030927afbad26239ac10141b38731c9d9cccd7bfb30f7e
+- name: unknown_code/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '80'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: '5'
+    PART: 'ZZZ.99 '
+    XREF: BA
+  context: Referral.update of referral 1 with an ICD code not on file
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
