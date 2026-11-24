@@ -408,6 +408,7 @@
 "RpmsRpc::Scheduling.edit_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.hospital_locations": read
 "RpmsRpc::Scheduling.mark_no_show": non_idempotent_write
+"RpmsRpc::Scheduling.open_slots": non_idempotent_write
 "RpmsRpc::Scheduling.overbook_allowed": non_idempotent_write
 "RpmsRpc::Scheduling.patient_appointments": read
 "RpmsRpc::Scheduling.resources": read

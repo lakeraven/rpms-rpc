@@ -104,7 +104,8 @@ class RpcCoverageScenariosTest < Minitest::Test
       assert_predicate one, :proven?, one.why
       assert(one.calls.any? { |c| c["rpc"] == "AGG ADD NEW PATIENT" && c["outcome"] == "answered" }, one.calls.inspect)
     end
-    assert_includes r.undeclared, "S-SCH-04"
+    # S-SCH-04 is declared by test/live/scheduling_open_slots_live_test.rb (rpms-rpc#948), so it is no longer undeclared.
+    refute_includes r.undeclared, "S-SCH-04"
   end
 
   # The committed pilot list names stories and roles that exist.

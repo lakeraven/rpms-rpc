@@ -3,6 +3,8 @@
 require_relative "../mappings"
 require_relative "../context_scope"
 require_relative "agg"
+require_relative "ddr_fileman"
+require_relative "scheduling_setup"
 require_relative "../shape"
 
 module RpmsRpc
@@ -592,7 +594,141 @@ module RpmsRpc
     end
     shape :clinic_setup, resource: "appointments", verb: "GET", path: "/appointments/clinic-setup"
 
+    # Open slots of the clinic's appointment length between two dates, as
+    # Windows Scheduling's Find Appointment offers them (rpms-ux S-SCH-04).
+    # RPMS has no RPC that answers slots: SEARCH^BSDX24 answers one day per
+    # resource, and CASSCH^BSDX04's search screens are commented out
+    # (BSDX04.m:115-125), so the client computes them from stock reads, as
+    # the scheduling client does. Each rule, and the read that supplies it:
+    #
+    #   blocks, their slot counts and access types   BSDX CREATE ASGND SLOT SCHED (slot_schedule)
+    #   active appointments                           BSDX CREATE APPT SCHEDULE (appointments)
+    #   the resource's clinic                         BSDX RESOURCES (resources: hospital_location_id)
+    #   display start hour (1914), schedules on
+    #   holidays (1918.5), maximum days for future
+    #   booking (2002), inactivate and reactivate
+    #   dates (2505, 2506)                            DDR GETS ENTRY DATA on HOSPITAL LOCATION (#44)
+    #                                                 (SchedulingSetup.clinic_rules)
+    #   appointment length (1912)                     DDR GETS ENTRY DATA on #44
+    #   holidays                                      DDR LISTER on HOLIDAY (#40.5) (SchedulingSetup.holidays)
+    #   access types that prevent access (.08)        DDR LISTER on BSDX ACCESS TYPE (#9002018.35)
+    #                                                 (SchedulingSetup.access_types)
+    #
+    # A slot starts at the block's start, or at the display start hour when
+    # the block starts earlier, and steps by the appointment length; it ends
+    # within the block. It is open when fewer active appointments (not
+    # cancelled, not a no-show: scheduled, checked in or checked out) overlap
+    # it than the block's slot count. A block of an access type that prevents
+    # access has none; nor has a holiday when the clinic does not schedule on
+    # holidays, a date after today plus the maximum days for future booking,
+    # or a date in the clinic's inactive period. ampm: "AM" keeps slots that
+    # start before noon, "PM" those from noon; access_type: an access type
+    # IEN keeps only blocks of that type. today: is the day the future-booking
+    # limit counts from.
+    #
+    # Returns [{ start_time:, end_time:, access_type_id:, availability_id:,
+    # open: }] in time order; open is how many more appointments the slot
+    # takes. Seven reads per search, two more for a clinic that prohibits
+    # access (clinic_rules then reads its privileged users; open_slots does
+    # not apply that rule: booking does). A resource with no clinic, or a
+    # clinic read that fails, raises Client::RpcError.
+    def open_slots(resource:, start_date:, end_date:, ampm: nil, access_type: nil, today: Date.today)
+      name = resource.to_s
+      raise ArgumentError, "ampm must be nil, \"AM\" or \"PM\": #{ampm.inspect}" unless [ nil, "AM", "PM" ].include?(ampm)
+
+      res = resources.find { |r| r[:name] == name }
+      raise Client::RpcError, "BSDX RESOURCES: no resource named #{name.inspect}" unless res
+
+      clinic = clinic_for_slots(res[:hospital_location_id])
+      blocks = slot_schedule(resource: name, start_date: start_date, end_date: end_date)
+      booked = appointments(resource: name, start_date: start_date, end_date: end_date)
+               .reject { |a| a[:cancelled] || a[:no_show] || a[:start_time].nil? || a[:end_time].nil? }
+      holidays = SchedulingSetup.holidays(start_date: start_date, end_date: end_date).map { |h| h[:date] }
+      prevented = SchedulingSetup.access_types.select { |t| t[:prevent_access] }.map { |t| t[:id] }
+      context = { clinic: clinic, holidays: holidays, prevented: prevented,
+                  first: to_date(start_date), last: to_date(end_date), today: today }
+
+      blocks.select { |b| bookable_block?(b, context, access_type) }
+            .flat_map { |b| block_slots(b, clinic) }
+            .filter_map { |slot| with_open_count(slot, booked) }
+            .select { |slot| ampm.nil? || (slot[:start_time].hour < 12) == (ampm == "AM") }
+            .sort_by { |slot| slot[:start_time] }
+    end
+    shape :open_slots, resource: "appointments", verb: "POST", path: "/appointments/open-slots"
+
     private
+
+    # -- open_slots ------------------------------------------------------------
+
+    # The clinic's booking rules (SchedulingSetup.clinic_rules) and its
+    # LENGTH OF APP'T (#44 field 1912), which those rules do not carry.
+    def clinic_for_slots(location_ien)
+      raise Client::RpcError, "BSDX RESOURCES: the resource names no clinic" unless location_ien.to_i.positive?
+
+      rules = SchedulingSetup.clinic_rules(location_ien)
+      got = ContextScope.scoped(RpmsRpc.client, SchedulingSetup::CONTEXT) do
+        DdrFileman.gets_entry(file: "44", iens: "#{location_ien.to_i},", fields: "1912", flags: "I")
+      end
+      raise Client::RpcError, "DDR GETS ENTRY DATA could not read clinic #{location_ien.to_i}" if got.nil? || got[:error]
+
+      length = got[:fields].dig("1912", :internal).to_s.to_i
+      raise Client::RpcError, "clinic #{location_ien.to_i} has no appointment length (#44 field 1912)" unless length.positive?
+
+      rules.merge(length: length)
+    end
+
+    def bookable_block?(block, context, access_type)
+      return false unless block[:slots].positive? && block[:availability_id].positive?
+      return false if access_type && block[:access_type_id] != access_type.to_i
+      return false if context[:prevented].include?(block[:access_type_id])
+
+      bookable_day?(block[:start_time].to_date, context)
+    end
+
+    def bookable_day?(day, context)
+      clinic = context[:clinic]
+      return false if day < context[:first] || day > context[:last]
+      return false if !clinic[:schedule_on_holidays] && context[:holidays].include?(day)
+      return false if clinic[:max_future_days] && day > context[:today] + clinic[:max_future_days]
+
+      !inactive_on?(day, clinic)
+    end
+
+    # Inactive from field 2505 on, until field 2506 when it is set.
+    def inactive_on?(day, clinic)
+      from = clinic[:inactivate_date]
+      return false if from.nil? || day < from
+
+      clinic[:reactivate_date].nil? || day < clinic[:reactivate_date]
+    end
+
+    def block_slots(block, clinic)
+      step = clinic[:length] * 60
+      start = block[:start_time]
+      if clinic[:display_begins]
+        opens = Time.new(start.year, start.month, start.day, clinic[:display_begins], 0, 0, start.utc_offset)
+        start = opens if start < opens
+      end
+      slots = []
+      while start + step <= block[:end_time]
+        slots << { start_time: start, end_time: start + step, access_type_id: block[:access_type_id],
+                   availability_id: block[:availability_id], capacity: block[:slots] }
+        start += step
+      end
+      slots
+    end
+
+    def with_open_count(slot, booked)
+      taken = booked.count { |a| a[:start_time] < slot[:end_time] && a[:end_time] > slot[:start_time] }
+      free = slot.delete(:capacity) - taken
+      free.positive? ? slot.merge(open: free) : nil
+    end
+
+    def to_date(value)
+      return value.to_date if value.respond_to?(:to_date)
+
+      FilemanDateParser.parse_date(fm(value)) || raise(ArgumentError, "not a date: #{value.inspect}")
+    end
 
     # Bind BSDXRPC for the duration of the block and restore the caller's
     # option afterward (a no-op round-trip-wise when BSDXRPC is already
