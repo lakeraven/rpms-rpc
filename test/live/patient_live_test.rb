@@ -22,10 +22,10 @@ require "rpms_rpc/api/ddr_fileman"
 class PatientLiveTest < LiveSpec::Test
   runs_as :provider
   MICKEY = { dfn: 3, name: "MOUSE,MICKEY M", sex: "M", dob: Date.new(1910, 2, 14), ssn: "000009999" }.freeze
-  DEMO_ONE = { dfn: 4, name: "DEMO,PATIENT ONE", sex: "F", dob: Date.new(2001, 1, 1), mrn: "99901" }.freeze
+  DEMO_ONE = { dfn: 4, name: "DEMO,PATIENT ONE", sex: "F", dob: Date.new(2001, 1, 1), mrn: "99901", sensitive: false }.freeze
   SEED_DFNS = (990_000..990_099)
   PATIENT_FILE = "2"
-  HEADER_KEYS = %i[name dob sex mrn age allergy_flag ad_flag primary_provider].freeze
+  HEADER_KEYS = %i[name dob sex mrn age allergy_flag ad_flag primary_provider sensitive].freeze
 
   # -- search (ORWPT LIST ALL) ------------------------------------------------
 

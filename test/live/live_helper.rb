@@ -89,6 +89,16 @@ require_relative "live_env"
 require_relative "call_log"
 
 module LiveSpec
+  # The random test data the live specs draw (a past day for a refusal, a
+  # given HRN, an SSN, an appointment slot) comes from one stream for the
+  # whole run, seeded from the run's seed. Kernel#rand will not do: minitest
+  # reseeds it with that same seed at the start of every spec class
+  # (Minitest::Test.runnable_methods: srand Minitest.seed, then the shuffle),
+  # so two classes that draw at the same point in their own run drew the same
+  # value, and two specs filed the same given HRN. One stream keeps a run
+  # reproducible from its seed and its draws apart.
+  def self.random = (@random ||= Random.new(Minitest.seed))
+
   class Test < Minitest::Test
     class << self
       # Declare that this spec files data on the target.
@@ -190,6 +200,11 @@ module LiveSpec
       RpmsRpc.reset!
       super
     end
+
+    # rand in a spec (and in a helper module it includes) draws from the run's
+    # one stream, LiveSpec.random, rather than Kernel#rand.
+    def rand(*args) = LiveSpec.random.rand(*args)
+    private :rand
 
     # The run's test role, as a symbol (:provider).
     def role = ENV.fetch("ROLE").strip.to_sym

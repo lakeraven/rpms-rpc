@@ -15,7 +15,7 @@ module PilotSchedulingLive
 
   # The first open quarter hour on +day+ between 08:00 and 16:45, booked.
   def book_on(day)
-    (8..16).to_a.product([ 0, 15, 30, 45 ]).shuffle.first(40).each do |hour, minute|
+    (8..16).to_a.product([ 0, 15, 30, 45 ]).shuffle(random: LiveSpec.random).first(40).each do |hour, minute|
       start = Time.new(day.year, day.month, day.day, hour, minute)
       reply = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: CLINIC, start_time: start,
                                                   end_time: start + 900, length_minutes: 15)
@@ -182,7 +182,7 @@ class PilotCheckinLiveTest < LiveSpec::Test
     day = Date.today
     start = nil
     id = nil
-    (8..16).to_a.product([ 0, 15, 30, 45 ]).shuffle.first(40).each do |hour, minute|
+    (8..16).to_a.product([ 0, 15, 30, 45 ]).shuffle(random: LiveSpec.random).first(40).each do |hour, minute|
       at = Time.new(day.year, day.month, day.day, hour, minute)
       reply = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: VISIT_CLINIC, start_time: at,
                                                   end_time: at + 900, length_minutes: 15)

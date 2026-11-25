@@ -5,6 +5,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/lab"
 require "rpms_rpc/api/medication"
 require "rpms_rpc/api/vital"
+require "bigdecimal"
 
 # Vital.latest_by_type (BEHOVM LIST), Vital.grid (BEHOVM GRID),
 # Lab.result_date_range (ORWLRR NEWOLD), Lab.specimen and Lab.results (ORWLRR INTERIMG),
@@ -28,7 +29,7 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
     latest.each do |row|
       fields = entry("9000010.01", row[:measurement_ien], ".01;.02;.04")
       assert_equal DFN.to_s, fields.dig(".02", :internal), "V MEASUREMENT #{row[:measurement_ien]} is the patient's"
-      assert row[:value].start_with?(fields.dig(".04", :external).to_s.strip), "#{row.inspect} reads .04 #{fields['.04'].inspect}"
+      assert row[:value].start_with?(as_shown(fields.dig(".04", :external), row[:value])), "#{row.inspect} reads .04 #{fields['.04'].inspect}"
     end
     assert_equal latest.size, latest.map { |r| r[:abbreviation] }.uniq.size, "one row per vital type"
     assert_empty RpmsRpc::Vital.latest_by_type(999_999_999)
@@ -41,7 +42,7 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
     grid[:results].each do |result|
       fields = entry("9000010.01", result[:measurement_ien], ".01;.02;.04")
       assert_equal DFN.to_s, fields.dig(".02", :internal)
-      assert_equal fields.dig(".04", :external).to_s.strip, result[:value], "the grid value is V MEASUREMENT .04"
+      assert_equal as_shown(fields.dig(".04", :external), result[:value]), result[:value], "the grid value is V MEASUREMENT .04"
       assert_includes grid[:vitals].map { |v| v[:abbreviation] }, result[:abbreviation]
     end
     latest = RpmsRpc::Vital.latest_by_type(DFN).map { |r| r[:measurement_ien] }
@@ -98,6 +99,22 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
   end
 
   private
+
+  # V MEASUREMENT .04 as BEHOVM shows it: rounded to the vital type's fraction
+  # digits (ROUND^BEHOVM, +$J(VAL,0,SD), BEHOVM.m:289-291), so when the value
+  # shown has fewer fraction digits than the one filed, it is the filed one
+  # rounded to that many. A seed value has no more digits than BEHOVM shows. A
+  # BMI is filed unrounded (W/H, BMISAVE^BEHOVM4, CALCBMIW^BEHOVM5), so once a
+  # spec takes a weight for this patient its BMI is stored as
+  # 22.9572540777734616 and shown as 22.96.
+  def as_shown(stored, shown)
+    stored = stored.to_s.strip
+    filed = stored[/\A-?\d+\.(\d+)\z/, 1]
+    match = shown.to_s.match(/\A-?\d+(?:\.(\d+))?\z/)
+    return stored unless filed && match && match[1].to_s.size < filed.size
+
+    BigDecimal(stored).round(match[1].to_s.size, BigDecimal::ROUND_HALF_UP).to_s("F").delete_suffix(".0")
+  end
 
   # Lab.results over the patient's whole range: each listed specimen is a
   # #63.04 entry whose DATE REPORT COMPLETED is set, its accession and

@@ -44,8 +44,14 @@ module RpmsRpc
       query = text.to_s.strip
       return [] if query.empty?
 
-      rows = identifier_rows(query) || names_from(query)
-      rows.uniq { |row| row[:dfn] }.map { |row| with_identifiers(row) }
+      # The lookups and PTINFO run under one bind of CIAV VUECENTRIC. The
+      # lookup mappings bind it themselves; PTINFO's does not (it is in VEN RPC
+      # too), so on a session bound to another option, such as OR CPRS GUI
+      # CHART, the broker refuses it unless the search holds the bind.
+      DataMapper.patient_selection_names.in_context do
+        rows = identifier_rows(query) || names_from(query)
+        rows.uniq { |row| row[:dfn] }.map { |row| with_identifiers(row) }
+      end
     end
     shape :find, resource: "patient-selections", verb: "GET", path: "/patient-selections"
 
