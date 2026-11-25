@@ -78,6 +78,11 @@ RpmsRpc::Consult.resubmittable	GET /consults/{consult_ien}/resubmittable
 RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::Coverage.insurers	GET /coverages/insurers
 RpmsRpc::Coverage.on_file	GET /patients/{dfn}/coverages/on-file
+RpmsRpc::Crs.community_taxonomy	GET /crs/community-taxonomies/{taxonomy}
+RpmsRpc::Crs.indicators	GET /crs/indicators
+RpmsRpc::Crs.report_output	GET /crs/reports/{report_ien}/output
+RpmsRpc::Crs.site_parameters	GET /crs/site-parameters
+RpmsRpc::Crs.taxonomies	GET /crs/taxonomies
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::DdrFileman.list_all	GET /files/{file}/all
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action

@@ -2184,6 +2184,32 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # CRS NATIONAL GPRA (BGPG 25 *, context option BGPGRPC; rpms-rpc#920)
+    # ========================================================================
+    #
+    # The Visual CRS RPC interface, registered under BGPGRPC and no other
+    # option. Each is a GLOBAL ARRAY with one positional "|"-piece string and
+    # a BMX-ADO table reply (typed header, $C(30) after each node, $C(31)
+    # end). RpmsRpc::Crs sends and parses them; these mappings carry the RPC
+    # name and the option.
+    {
+      crs_site_parameters: "BGPG 25 GET SITE PARAMETERS",      # SP^BGPXGU
+      crs_community_taxonomy_check: "BGPG 25 CHK COMM TAX NTL", # COMCHK^BGPXGUA
+      crs_taxonomies: "BGPG 25 GET TAXONOMY",                  # GETTAX^BGPXGT
+      crs_indicators: "BGPG 25 GPRA INDICATORS",               # GI^BGPXGT
+      crs_national_gpra_queue: "BGPG 25 NATIONAL GPRA RPT NTL", # NTL^BGPXGR
+      crs_patient_lists_queue: "BGPG 25 NATIONAL GPRA LISTS",  # NPL^BGPXGR
+      crs_report_status: "BGPG 25 CHECK REPORT STATUS",        # CHK^BGPXGU
+      crs_report_output: "BGPG 25 GET NATIONAL GPRA"           # ONTL^BGPXGR
+    }.each do |mapping, rpc_name|
+      DataMapper.define(mapping) do |m|
+        m.rpc rpc_name
+        m.context "BGPGRPC"
+        m.text_blob :reply
+      end
+    end
+
+    # ========================================================================
     # STOCK WRAPPERS (rpms-rpc#420)
     # ========================================================================
 

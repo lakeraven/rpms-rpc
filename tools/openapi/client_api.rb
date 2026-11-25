@@ -33,6 +33,7 @@ module OpenApi
       "ChiefComplaint" => { path: "chief-complaints" },
       "ClinicalReview" => { path: "clinical-reviews" },
       "Consult" => { path: "consults", own: %w[consult_ien] },
+      "Crs" => { path: "crs" },
       "DdrFileman" => { path: "files", own: %w[file] },
       "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },
@@ -118,6 +119,18 @@ module OpenApi
     # The pinned route appends the segment, matching the declared shape. Keys only; may only grow
     # with a clash the catalog would otherwise refuse.
     PINNED_CREATE_SEGMENT = { "RpmsRpc::Encounter.save" => "pcc" }.freeze
+    # Methods whose names do not say where they live. CRS (rpms-rpc#920) queues reports and reads
+    # them back under /crs/reports; queue_patient_lists alone would infer POST /crs/queue-patient-lists.
+    # The pinned path is the declared shape's. The verb stays the one inference and the retry class
+    # give, and the path's {params} are its path parameters. Keys only; may only grow with a method
+    # whose words cannot place it.
+    PINNED_PATH = {
+      "RpmsRpc::Crs.community_taxonomy" => "/crs/community-taxonomies/{taxonomy}",
+      "RpmsRpc::Crs.queue_national_gpra" => "/crs/reports/national-gpra",
+      "RpmsRpc::Crs.queue_patient_lists" => "/crs/reports/national-gpra-patient-lists",
+      "RpmsRpc::Crs.report_status" => "/crs/reports/status-check",
+      "RpmsRpc::Crs.wait_for_report" => "/crs/reports/{report_ien}/completion"
+    }.freeze
 
     module_function
 
@@ -180,6 +193,9 @@ module OpenApi
       a = read_on_action_path(publish(place(method, c, c[:rest]), fallback), key, fallback)
       if (segment = PINNED_CREATE_SEGMENT[key]) && c[:kind] == "create"
         a = a.merge(path: "#{a[:path]}/#{segment}", rule: "pinned-create-segment")
+      end
+      if (path = PINNED_PATH[key])
+        a = a.merge(path: path, path_params: path.scan(/\{(\w+)\}/).flatten, rule: "pinned-path")
       end
       return a unless c[:kind] == "query"
 
