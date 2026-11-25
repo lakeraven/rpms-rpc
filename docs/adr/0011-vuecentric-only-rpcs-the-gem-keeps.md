@@ -101,7 +101,7 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 
 - The list is computed against the inventory of the openrpms release under test. A release whose options differ changes the list, and the test fails until this table follows.
 - On a session bound to another option, each of these calls costs a bind and a restore.
-- The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `Patient.brief_header` reads `BEHOPTCX PTINFO` (in `CIAV VUECENTRIC` and `VEN RPC`) beside `BEHOPTPC GETBDP`; `OR CPRS GUI CHART` carries neither.
+- The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `Patient.brief_header` reads `BEHOPTCX PTINFO` (in `CIAV VUECENTRIC` and `VEN RPC`) beside `BEHOPTPC GETBDP`; `OR CPRS GUI CHART` carries neither. `PatientSelection.find` reads `BEHOPTCX PTINFO` for each patient its lookup lists, so it holds the `CIAV VUECENTRIC` bind for the whole search.
 
 ### Alternatives considered
 

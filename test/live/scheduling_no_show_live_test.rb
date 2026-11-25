@@ -59,7 +59,7 @@ class SchedulingNoShowLiveTest < LiveSpec::Test
     40.times do
       day = Date.today - 3 - rand(60)
       day -= 1 while day.saturday? || day.sunday?
-      start = Time.new(day.year, day.month, day.day, 8 + rand(8), [ 0, 15, 30 ].sample)
+      start = Time.new(day.year, day.month, day.day, 8 + rand(8), [ 0, 15, 30 ].sample(random: LiveSpec.random))
       reply = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: RESOURCE_NAME, start_time: start,
                                                   end_time: start + 900, length_minutes: 15)
       return [ start, reply[:appointment_id] ] if reply && reply[:success]

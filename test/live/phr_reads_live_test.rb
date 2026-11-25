@@ -70,7 +70,7 @@ class PhrReadsLiveTest < LiveSpec::Test
     day = Date.today + 1
     start = nil
     40.times do
-      at = Time.new(day.year, day.month, day.day, 8 + rand(9), [ 0, 15, 30, 45 ].sample)
+      at = Time.new(day.year, day.month, day.day, 8 + rand(9), [ 0, 15, 30, 45 ].sample(random: LiveSpec.random))
       booked = RpmsRpc::Scheduling.add_appointment(patient_dfn: BOOKED, resource: CLINIC, start_time: at,
                                                    end_time: at + 900, length_minutes: 15)
       break start = at if booked && booked[:success]

@@ -314,7 +314,7 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
     40.times do
       day = Date.today + day_offset_base + rand(21)
       day += 1 while day.saturday? || day.sunday?
-      start = Time.new(day.year, day.month, day.day, 13 + rand(4), [ 0, 15, 30, 45 ].sample)
+      start = Time.new(day.year, day.month, day.day, 13 + rand(4), [ 0, 15, 30, 45 ].sample(random: LiveSpec.random))
       reply = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: RESOURCE_NAME, start_time: start,
                                                   end_time: start + 900, length_minutes: 15)
       next unless reply && reply[:success]
