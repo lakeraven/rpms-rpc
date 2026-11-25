@@ -20,9 +20,10 @@ Nothing is pinned in this repository (#724).
 
 It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the one reader of the build's surface (#394, #406), which refuses a `schema` it does not know.
 
-**rpcs.v1 and rpcs.v2.**
+**rpcs.v1, rpcs.v2 and rpcs.v3.**
 A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb` publishes rpcs.v1, and releases gated after openrpms#877 publish rpcs.v2.
 rpcs.v2 adds #8994's text, kept as stored (each byte is the Latin-1 code point of its value).
+rpcs.v3 (openrpms#1359) adds `reach.via`, the options that reach an RPC through a nested option; this document does not use it, so a v3 file gives the document its records would give as rpcs.v2.
 From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with openrpms#877's generator gives a document byte-identical to the one from the raw files.
 
 **What rpcs.v1 does not carry.**

@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "json"
 require "rpms_rpc"
 require_relative "features_test_helper"
+require_relative "rpcs_v3_fixture"
 
 # Declarative feature metadata resolved against the pinned build reach face (rpms-rpc#384).
 # Replaces ServerCapabilities runtime probes (#370): no broker traffic, only committed inventories.
@@ -401,5 +402,23 @@ class FeaturesTest < Minitest::Test
     end
   ensure
     feat.reset!
+  end
+  # rpcs.v3 (openrpms#1359): MWVS MEDICAL DOMAIN WEB SVCS lists none of the problem workflow's RPCs, and reaches
+  # every one through OR CPRS GUI CHART on its menu. On the real v3 file it serves the feature; on the same records
+  # as rpcs.v2 (no reach.via) it does not.
+  def test_a_context_serves_a_feature_through_a_nested_option_from_rpcs_v3
+    mwvs = "MWVS MEDICAL DOMAIN WEB SVCS"
+    { nil => true, RpcsV3Fixture.as_v2 => false }.each do |document, served|
+      Dir.mktmpdir("features-v3-") do |root|
+        dir = File.join(root, RpcsV3Fixture::TAG)
+        FileUtils.mkdir_p(dir)
+        RpcsV3Fixture.write(dir, document)
+        kw = { build: RpcsV3Fixture::TAG, inventories_dir: root }
+        assert_equal served, available?(:orqqpl_problem_workflow, **kw, context: mwvs), "served under #{mwvs}: #{served}"
+        assert available?(:orqqpl_problem_workflow, **kw, context: "OR CPRS GUI CHART"), "its own context serves it either way"
+      end
+    ensure
+      features!.reset!
+    end
   end
 end

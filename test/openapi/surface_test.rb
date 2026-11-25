@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "json"
 require "tmpdir"
 require_relative "../../tools/openapi/surface"
+require_relative "../rpms_rpc/rpcs_v3_fixture"
 
 # OpenApi::Surface (rpms-rpc#395): the pinned build's RPC surface as OpenAPI 3.1. Hermetic: four
 # hand-written rpcs.json records, each a case the generator must get right, read through BuildSurface.
@@ -212,5 +213,18 @@ class OpenApiSurfaceTest < Minitest::Test
 
   def test_the_same_inputs_give_the_same_bytes
     assert_equal OpenApi.pretty(doc), OpenApi.pretty(doc)
+  end
+
+  # rpcs.v3 (openrpms#1359) adds reach.via, which the document does not use: a real v3 file and the same records as
+  # rpcs.v2 give the same bytes (test/rpms_rpc/rpcs_v3_fixture.rb).
+  def test_an_rpcs_v3_file_gives_the_document_its_v2_records_give
+    v3 = RpcsV3Fixture
+    read = lambda do |document|
+      Dir.mktmpdir do |dir|
+        s = RpmsRpc::Conformance::BuildSurface.load(v3.write(dir, document), v3::TAG)
+        OpenApi.pretty(Surface.document(s, build: { "tag" => v3::TAG }, gem: GEM))
+      end
+    end
+    assert read.(nil) == read.(v3.as_v2), "the rpcs.v3 file's document differs from its v2 records' document"
   end
 end

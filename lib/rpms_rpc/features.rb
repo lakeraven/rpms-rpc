@@ -326,13 +326,19 @@ module RpmsRpc
     #
     # The set is openrpms' OUT_OF_ORDER field when rpcs.json carries it, and
     # otherwise the derivation (see the module comment).
+    #
+    # `context` serves the RPC when its own RPC multiple lists it, or, from
+    # rpcs.v3, when it reaches it through a nested option with no option on
+    # the chain out of order (reach.via, openrpms#1359): both brokers count a
+    # nested B-type option's RPCs as the outer option's (OPTLK^XQCS,
+    # BLDCTX^CIANBACT).
     def client_callable_under?(cached, rpc_name, context)
       return false if cached.out_of_order_options.include?(context)
 
       rpc = cached.surface[rpc_name]
       return false unless rpc&.reach == CLIENT_CALLABLE
 
-      rpc.contexts.include?(context)
+      rpc.contexts.include?(context) || rpc.reached_via?(context)
     end
 
     # The out-of-order options: every record's reach.out_of_order when the
