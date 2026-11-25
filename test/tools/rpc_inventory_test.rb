@@ -6,6 +6,7 @@ require "tmpdir"
 require "fileutils"
 require "rpms_rpc"
 require_relative "../../tools/rpc_inventory/rpc_inventory"
+require_relative "../rpms_rpc/rpcs_v3_fixture"
 
 # tools/rpc_inventory, behind `rake rpc:inventory`. The fixtures are real assets of lakeraven/openrpms as published
 # for bcer-9.0-20261116-2a9b3fe on both engines, byte for byte: <tag>-rpcs.json (gzipped with `gzip -9 -n`),
@@ -73,6 +74,21 @@ class RpcInventoryTest < Minitest::Test
       assert_empty I.load_release(dir, IRIS).cases
     end
   end
+
+  # An rpcs.v3 release (the real file test/rpms_rpc/rpcs_v3_fixture.rb describes) as the YottaDB side: contexts
+  # names the outer options that reach an RPC through a nested option, so CIAV VUECENTRIC shows on an RPC it reaches
+  # only through OR CPRS GUI CHART, and the summary says which release carries the nested reach.
+  def test_contexts_include_the_nested_reach_of_an_rpcs_v3_release
+    Dir.mktmpdir("rpc-inventory-v3") do |dir|
+      with_v3 = [ releases.first, I.load_release(RpcsV3Fixture.write(dir), RpcsV3Fixture::TAG) ]
+      rs = I.rows(with_v3, coverage, I.clients(ROOT), I.reviewed_exclusions(ROOT))
+      iris, ydb = rs.find { |r| r["rpc"] == "GMV ADD VM" }["contexts"].match(/\Airis: (.*); ydb: (.*)\z/).captures.map { |c| c.split("; ") }
+      refute_includes iris, "CIAV VUECENTRIC"
+      assert_equal (iris + [ "CIAV VUECENTRIC", "MWVS MEDICAL DOMAIN WEB SVCS" ]).sort, ydb
+      assert_includes I.markdown(rs, with_v3), "| contexts include nested options (rpcs.v3 `reach.via`) | no | yes |"
+    end
+  end
+
 
   # A known row on YottaDB: ORWRP REPORT TEXT passed on IRIS and failed on YottaDB in the same build's live run.
   def test_orwrp_report_text_fails_on_ydb_only

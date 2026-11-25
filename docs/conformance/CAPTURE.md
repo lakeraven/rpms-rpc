@@ -17,7 +17,7 @@ surface and the faces it does not carry (rpms-rpc#406):
 
 | asset | content |
 | --- | --- |
-| `<tag>-rpcs.json` | **the RPC surface** (openrpms#732; schema `rpcs.v1`, or `rpcs.v2` with #8994's text, openrpms#877): a header naming the build (`schema`, `tag`, `commit`, `engine`, `rpms_version`) and the sha256 of each raw file it was projected from (`inputs`), then one record per registered RPC in byte order of its name: entry point and formals, #8994 codes, INPUT PARAMETERs, #9.4 package, and its **reach** (class, routine/tag present, contexts, exemptions). openrpms `bin/release_rpcs_json.rb` is the format's authority. |
+| `<tag>-rpcs.json` | **the RPC surface** (openrpms#732; schema `rpcs.v1`, `rpcs.v2` with #8994's text, openrpms#877, or `rpcs.v3` with the nested reach, openrpms#1359): a header naming the build (`schema`, `tag`, `commit`, `engine`, `rpms_version`) and the sha256 of each raw file it was projected from (`inputs`), then one record per registered RPC in byte order of its name: entry point and formals, #8994 codes, INPUT PARAMETERs, #9.4 package, and its **reach** (class, routine/tag present, contexts, exemptions, and from `rpcs.v3` `via`: the outer options that reach it through a nested option). openrpms `bin/release_rpcs_json.rb` is the format's authority. |
 | `<tag>-packages_9_4.txt` | `PREFIX^NAME^VERSION`, one installed package per line (the fingerprint's packages face: rpcs.json names only the packages that own an RPC) |
 | `<tag>-contexts_19_05.txt` | which **context** (option) serves which RPC: one row per `#19.05` RPC multiple entry, tab-separated and byte-sorted under the header `OPTION TYPE LOCK RPC RPC_KEY RPC_RULES`; `LOCK` is `#19` piece 6 (openrpms#626, from `bcer-9.0-20261012-e7923a4-ydb`) |
 | `<tag>-INVENTORY-PROVENANCE.json` | engine, M backend, container, `artifact_bound`, `artifact_sha256`, per-dump sha256 + record counts, inventory tool commit; the reach face's sha256 + class counts (`rpc_reach`), the signatures' sha256 + counts (`rpc_signatures`), and for `-ydb` the image by digest (`image`, openrpms#727) |
@@ -55,8 +55,9 @@ provenance counts. A release that fails is not tested against: a gap is data, fi
 reader of the build's surface. `BuildSurface.load(dir, tag)` reads `<tag>-rpcs.json` and returns
 the build's RPCs in byte order of name, each with its registry fields (`tag`, `routine`,
 `return_type`, `availability`, `inactive`, `entry_point`), its reach (`reach`, `callable?`,
-`routine_present`, `tag_present`, `contexts`, `exempt_on`), its signature (`params` with
-name/type/required, `formals`, and with `rpcs.v2` the #8994 text: `description`, each parameter's
+`routine_present`, `tag_present`, `contexts`, `exempt_on`; with `rpcs.v3`, `via`, the chains of
+nested options that reach it, and `reaching_contexts`, the contexts plus those chains' outer options),
+its signature (`params` with name/type/required, `formals`, and from `rpcs.v2` the #8994 text: `description`, each parameter's
 description, max_length and sequence, `returns`, `word_wrap`, `version`) and its package. It refuses
 a schema it does not know, a document for another tag, an empty, repeated or unsorted list, a reach
 class it does not know, and formals-sourced parameters that disagree with the formals. Checksums

@@ -62,7 +62,8 @@ module RpcInventory
     "package_prefix, package" => "the #9.4 package openrpms assigned the RPC (longest PREFIX of its routine)",
     "registered_*" => "yes when that release's #8994 lists it",
     "reach_*" => "that release's reach class (client-callable and broker-exempt are callable)",
-    "contexts" => "the #19 broker options whose RPC multiple lists it; one value when the engines agree, else `iris: ...; ydb: ...`",
+    "contexts" => "the #19 broker options that reach it: those whose RPC multiple lists it, and, from an rpcs.v3 release, " \
+                  "those that reach it through a nested option (reach.via); one value when the engines agree, else `iris: ...; ydb: ...`",
     "entry_point" => "TAG^ROUTINE, the same way",
     "vuecentric" => "`observed` when a recorded VueCentric session called it, `named` when only the client's binaries name it",
     "vuecentric_calls" => "how many times the recorded VueCentric sessions called it, all sessions summed; blank when none did",
@@ -381,7 +382,7 @@ module RpcInventory
         "rpc" => name,
         "package_prefix" => any&.package&.dig(:prefix).to_s,
         "package" => any&.package&.dig(:name).to_s,
-        "contexts" => agree(rpc.compact.transform_values { |r| r.contexts.sort.join("; ") }),
+        "contexts" => agree(rpc.compact.transform_values { |r| r.reaching_contexts.sort.join("; ") }),
         "entry_point" => agree(rpc.compact.transform_values { |r| r.entry_point.to_s }),
         "vuecentric" => if observed[name] then "observed" elsif named[name] then "named" else "" end,
         "vuecentric_calls" => cli[:vuecentric_counts].dig(name, :calls).to_s,
@@ -426,7 +427,7 @@ module RpcInventory
       iris_only: (iris.names - ydb.names).sort_by(&:b),
       ydb_only: (ydb.names - iris.names).sort_by(&:b),
       reach: diff.call(&:reach),
-      contexts: diff.call { |r| r.contexts.sort },
+      contexts: diff.call { |r| r.reaching_contexts.sort },
       entry_point: diff.call(&:entry_point),
       formals: diff.call(&:formals)
     }
@@ -498,6 +499,7 @@ module RpcInventory
     lines << "|---|#{releases.map { '---:' }.join('|')}|"
     lines << "| registered (#8994) | #{releases.sort_by(&:engine).map { |r| s[:registered][r.engine] }.join(' | ')} |"
     lines << "| callable (client-callable or broker-exempt) | #{releases.sort_by(&:engine).map { |r| s[:callable][r.engine] }.join(' | ')} |"
+    lines << "| contexts include nested options (rpcs.v3 `reach.via`) | #{releases.sort_by(&:engine).map { |r| r.surface.via? ? 'yes' : 'no' }.join(' | ')} |"
     lines << "| live record judged by rpms-rpc | #{releases.sort_by(&:engine).map { |r| s[:harness][r.engine] }.join(' | ')} |"
     lines << ""
     unless d.empty?

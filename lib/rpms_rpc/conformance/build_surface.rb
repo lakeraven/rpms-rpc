@@ -12,7 +12,7 @@ module RpmsRpc
     # `openapi:surface` all go through it.
     #
     # The document, as openrpms writes it (bin/release_rpcs_json.rb, the format's authority; schema
-    # releases/schema/rpcs.v1.schema.json and rpcs.v2.schema.json):
+    # releases/schema/rpcs.v1.schema.json, rpcs.v2.schema.json and rpcs.v3.schema.json):
     #
     #   schema, tag, commit, engine, rpms_version   the build it describes
     #   inputs                                      sha256 of each raw file it was projected from
@@ -21,12 +21,17 @@ module RpmsRpc
     #   rpcs                                        one record per registered RPC, in byte order of its
     #                                               name: entry point and formals, #8994 codes, INPUT
     #                                               PARAMETERs, #9.4 package, and its reach (class,
-    #                                               routine/tag present, contexts, exemptions)
+    #                                               routine/tag present, contexts, exemptions, and
+    #                                               from rpcs.v3 via)
     #
     # rpcs.v1 carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN PARAMETER
     # DESCRIPTION) and no MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those fields stay
-    # empty (texts? is false); rpcs.v2 (openrpms#877) carries them all (texts? is true). Neither
-    # carries the IEN.
+    # empty (texts? is false); rpcs.v2 (openrpms#877) carries them all (texts? is true). rpcs.v3
+    # (openrpms#1359) is rpcs.v2 with reach.via on every record: the B-type options that reach the RPC
+    # through a nested option (via? is true). Both brokers count the RPCs of a B-type option on a B-type
+    # option's menu as the outer option's (OPTLK^XQCS, BLDCTX^CIANBACT); on bcer-9.0 that is 256 RPCs
+    # CIAV VUECENTRIC reaches only through OR CPRS GUI CHART. reach.contexts still lists only the options
+    # whose own RPC multiple lists the RPC; Rpc#reaching_contexts adds the outer ones. None carries the IEN.
     #
     # Beside it, <tag>-contexts_19_05.txt (one row per #19.05 RPC multiple entry, tab-separated,
     # byte-sorted, under a header row OPTION TYPE LOCK RPC RPC_KEY RPC_RULES; openrpms#626,
@@ -38,12 +43,15 @@ module RpmsRpc
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
       # "Callable is client-callable or broker-exempt" (openrpms releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
-      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (openrpms#732) and rpcs.v2, which adds
-      # #8994's text (openrpms#877). A release keeps the schema it was published with.
-      RPCS_SCHEMAS = %w[rpcs.v1 rpcs.v2].freeze
+      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (openrpms#732), rpcs.v2, which adds #8994's
+      # text (openrpms#877), and rpcs.v3, which adds reach.via (openrpms#1359). A release keeps the schema it
+      # was published with.
+      RPCS_SCHEMAS = %w[rpcs.v1 rpcs.v2 rpcs.v3].freeze
       # The schemas that carry #8994's text: DESCRIPTION, RETURN PARAMETER DESCRIPTION, WORD WRAP, VERSION,
       # and each INPUT PARAMETER's description, MAXIMUM DATA LENGTH and SEQUENCE NUMBER.
-      RPCS_TEXT_SCHEMAS = %w[rpcs.v2].freeze
+      RPCS_TEXT_SCHEMAS = %w[rpcs.v2 rpcs.v3].freeze
+      # The schemas that carry the nested reach, reach.via, on every record (openrpms#1359).
+      RPCS_VIA_SCHEMAS = %w[rpcs.v3].freeze
       RPCS_SUFFIX = "rpcs.json"
       CONTEXTS_SUFFIX = "contexts_19_05.txt"
 
@@ -64,17 +72,33 @@ module RpmsRpc
       # One registered RPC, from its rpcs.json record. package is the #9.4 package ({prefix:, name:,
       # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none. out_of_order is
       # reach.out_of_order, the options listing it that are out of order (rpc_reach.txt field 7,
-      # openrpms#1279), [] when none, and nil for an rpcs.json written before the field.
+      # openrpms#1279), [] when none, and nil for an rpcs.json written before the field. via is reach.via,
+      # the Via chains that reach it through a nested option, [] when none, and nil before rpcs.v3.
       Rpc = Struct.new(
         :name, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
         :word_wrap, :version, :formals, :description, :params, :returns, :package, :out_of_order,
-        keyword_init: true
+        :via, keyword_init: true
       ) do
         # TAG^ROUTINE as #8994 stores it; nil when neither is set. An empty TAG ("^BGUPMR") is the
         # routine's first line.
         def entry_point = tag.to_s.empty? && routine.to_s.empty? ? nil : "#{tag}^#{routine}"
         def callable? = CALLABLE.include?(reach)
+
+        # The options that reach it, usable or not: those whose RPC multiple lists it, then the outer
+        # options of its via chains, without repeats. Before rpcs.v3 it is contexts.
+        def reaching_contexts = (contexts + Array(via).map(&:context)).uniq
+
+        # Whether OPTION reaches it through a nested option, with no option on the chain out of order.
+        def reached_via?(option) = Array(via).any? { |v| v.context == option && !v.out_of_order }
+      end
+
+      # One chain of reach.via: context, the outer B-type option, reaches the RPC through `through`, the
+      # nested options from its menu down, the last one an option whose RPC multiple lists the RPC (the
+      # shortest chain). out_of_order: an option on the chain, the outer one included, is out of order.
+      Via = Struct.new(:context, :through, :out_of_order, keyword_init: true) do
+        # OUTER>NESTED[>NESTED...], as rpc_reach.txt field 8 writes it.
+        def chain = [ context, *through ].join(">")
       end
 
       def self.blank(value) = value.to_s.empty? ? nil : value
@@ -127,6 +151,8 @@ module RpmsRpc
       # Whether the #8994 text (descriptions, return description, word wrap, version, parameter max
       # length and sequence) was read: an rpcs.v2 file carries it, rpcs.v1 does not.
       def texts? = RPCS_TEXT_SCHEMAS.include?(meta["schema"])
+      # Whether the nested reach (reach.via, openrpms#1359) was read: an rpcs.v3 file carries it.
+      def via? = RPCS_VIA_SCHEMAS.include?(meta["schema"])
 
       # The reach class of NAME: nil when it is not registered.
       def reach(name) = self[name]&.reach
@@ -172,7 +198,8 @@ module RpmsRpc
       # Why NAME is refused under the bound OPTION for a user holding KEYS ($$CHK^XQCS, XWBSEC.m:22-25),
       # nil when it is not. XUS SIGNON's RPCs and broker-exempt RPCs (the reach face's broker-exempt
       # class or EXEMPT_ON, XWBSEC.m:13-15) are never refused, so sign-on is untouched. RPC_RULES (M
-      # code run by XQCS) is not modelled.
+      # code run by XQCS) is not modelled, nor a nested option's RPCs (reach.via): OPTLK^XQCS also checks each
+      # nested option's own LOCK and OUT OF ORDER MESSAGE, and the RPC KEY of the first option to list it.
       def context_refusal(option, name, keys: [])
         require_contexts!
         return nil if @contexts[SIGNON_CONTEXT]&.rpcs&.key?(name)
@@ -215,14 +242,16 @@ module RpmsRpc
         end
       end
 
-      # rpcs.v1 / rpcs.v2 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil.
+      # rpcs.v1 / rpcs.v2 / rpcs.v3 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil.
       # A record's parameters list holds #8994's INPUT PARAMETERs (source "8994") or, when there are none,
       # the formals after the reply variable (source "formals"); params holds only the first kind, and the
       # second must be exactly what the formals say. rpcs.v2 adds the text, as stored: each byte is the
-      # Latin-1 code point of the same value. With rpcs.v1 the text fields stay empty.
+      # Latin-1 code point of the same value. With rpcs.v1 the text fields stay empty. rpcs.v3 adds
+      # reach.via, which every record carries.
       def read_rpcs(doc, file)
         rpcs = []
         text = RPCS_TEXT_SCHEMAS.include?(doc["schema"])
+        nested = RPCS_VIA_SCHEMAS.include?(doc["schema"])
         Array(doc["rpcs"]).each do |r|
           ep = r["entry_point"] || {}
           reach = r["reach"] || {}
@@ -242,6 +271,7 @@ module RpmsRpc
             reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
             contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
             out_of_order: (Array(reach["out_of_order"]) if reach.key?("out_of_order")),
+            via: (read_via(r["name"], reach["via"], file) if nested),
             formals: formals, description: text ? Array(r["description"]) : [], returns: text ? Array(r["returns"]) : [],
             word_wrap: (r["word_wrap"] if text), version: (r["version"] if text),
             params: from_8994.map do |p|
@@ -262,6 +292,21 @@ module RpmsRpc
         end
 
         rpcs
+      end
+
+      # reach.via -> [Via]. Refuses a record without it, and a chain that is not an outer option, at least
+      # one nested option and a true/false out_of_order (releases/schema/rpcs.v3.schema.json).
+      def read_via(name, via, file)
+        raise Error, "#{file}: #{name.inspect} has no reach.via, which #{RPCS_VIA_SCHEMAS.join(', ')} carries on every record" unless via.is_a?(Array)
+
+        via.map do |v|
+          options = v.is_a?(Hash) ? [ v["context"], *Array(v["through"]) ] : []
+          ok = options.size > 1 && v["through"].is_a?(Array) && options.all? { |o| o.is_a?(String) && !o.empty? } &&
+               [ true, false ].include?(v["out_of_order"])
+          raise Error, "#{file}: #{name.inspect} has reach.via #{v.inspect}, not {context, through, out_of_order}" unless ok
+
+          Via.new(context: v["context"], through: v["through"], out_of_order: v["out_of_order"])
+        end
       end
     end
   end

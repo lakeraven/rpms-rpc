@@ -5,9 +5,10 @@ require "json"
 require "tmpdir"
 require "rpms_rpc/conformance/build_surface"
 require_relative "../pinned_rpcs_test_helper"
+require_relative "../rpcs_v3_fixture"
 
 # BuildSurface (rpms-rpc#394, #395, #406): the one reader of a build's <tag>-rpcs.json, on the pinned
-# build's own document, records taken from it, and a real rpcs.v2 extract.
+# build's own document, records taken from it, a real rpcs.v2 extract and a real rpcs.v3 file.
 class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
   Surface = RpmsRpc::Conformance::BuildSurface
   P = PinnedRpcsTestHelper
@@ -42,8 +43,8 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
   end
 
   def test_a_document_for_another_schema_or_another_tag_is_refused
-    e = assert_raises(Surface::Error) { from_doc(P.doc(P.records("XUS AV CODE")).merge("schema" => "rpcs.v3")) }
-    assert_match(/schema "rpcs.v3", not one of rpcs.v1, rpcs.v2/, e.message)
+    e = assert_raises(Surface::Error) { from_doc(P.doc(P.records("XUS AV CODE")).merge("schema" => "rpcs.v4")) }
+    assert_match(/schema "rpcs.v4", not one of rpcs.v1, rpcs.v2, rpcs.v3/, e.message)
     e = assert_raises(Surface::Error) { from_doc(P.doc(P.records("XUS AV CODE")).merge("tag" => "bcer-9.0-20990101-0000000-ydb")) }
     assert_match(/names tag "bcer-9.0-20990101-0000000-ydb", not #{TAG}/, e.message)
   end
@@ -86,6 +87,69 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     refute v1.texts?, "rpcs.v1 carries no text, so none is read"
     r = v1["XUS AV CODE"]
     assert_equal [ [], [], nil, nil, nil ], [ r.description, r.returns, r.word_wrap, r.params[0].seq, r.params[0].max_length ]
+  end
+
+  # --- rpcs.v3: reach.via, the nested reach (openrpms#1359), on a real v3 file (test/rpms_rpc/rpcs_v3_fixture.rb) --
+
+  V3 = RpcsV3Fixture
+  VC = "CIAV VUECENTRIC"
+  CPRS = "OR CPRS GUI CHART"
+
+  def v3_surface(document = nil) = Dir.mktmpdir { |dir| Surface.load(V3.write(dir, document), V3::TAG) }
+  def v3 = @v3 ||= v3_surface
+
+  def test_rpcs_v3_keeps_each_nested_chain
+    assert v3.via? && v3.texts?
+    assert_equal 5592, v3.rpcs.size
+    orwpt = v3["ORWPT SELECT"]
+    assert_equal [ "#{VC}>#{CPRS}", "MWVS MEDICAL DOMAIN WEB SVCS>#{CPRS}" ], orwpt.via.map(&:chain)
+    assert_equal [ [ VC, [ CPRS ], false ] ], orwpt.via.first(1).map { |v| [ v.context, v.through, v.out_of_order ] }
+    assert_equal [ [ "BQIRPC", [ "BTPWRPC" ] ] ], v3["BTPW BATCH EVENT INITIAL"].via.map { |v| [ v.context, v.through ] }
+    assert_equal [ [ "BJPNRPC", [ "BSTSRPC" ] ] ], v3["BEHUTIL CVERPAT"].via.map { |v| [ v.context, v.through ] }
+    assert_equal [], v3["XUS AV CODE"].via
+    assert_equal 1104, v3.rpcs.count { |r| r.via.any? }
+  end
+
+  # VueCentric reaches GMV ADD VM only through OR CPRS GUI CHART: contexts does not name it, reaching_contexts does.
+  # Across the release that is 256 RPCs, the count openrpms' releases/README.md gives for bcer-9.0.
+  def test_an_rpc_vuecentric_reaches_through_the_cprs_option_names_vuecentric
+    gmv = v3["GMV ADD VM"]
+    refute_includes gmv.contexts, VC
+    assert_includes gmv.reaching_contexts, VC
+    assert gmv.reached_via?(VC)
+    refute gmv.reached_via?(CPRS), "OR CPRS GUI CHART lists it itself; it is not reached through a nested option"
+    assert_equal 256, v3.rpcs.count { |r| !r.contexts.include?(VC) && r.reaching_contexts.include?(VC) }
+
+    stopped = V3.doc
+    stopped["rpcs"].find { |r| r["name"] == "GMV ADD VM" }["reach"]["via"].each { |v| v["out_of_order"] = true }
+    refute v3_surface(stopped)["GMV ADD VM"].reached_via?(VC), "a chain with an option out of order serves no one"
+  end
+
+  # The same records as rpcs.v2 (the release's published document): read as before, field for field, without via.
+  def test_the_v2_document_reads_the_same_records_without_via
+    v2 = v3_surface(V3.as_v2)
+    refute v2.via?
+    assert v2.texts?
+    assert(v2.rpcs.all? { |r| r.via.nil? })
+    assert_equal v3.rpcs.map { |r| r.to_h.except(:via) }, v2.rpcs.map { |r| r.to_h.except(:via) }
+    gmv = v2["GMV ADD VM"]
+    assert_equal gmv.contexts, gmv.reaching_contexts
+    refute gmv.reached_via?(VC)
+  end
+
+  def test_an_rpcs_v3_record_without_via_or_with_a_broken_chain_is_refused
+    bare = V3.doc
+    bare["rpcs"].find { |r| r["name"] == "ORWPT SELECT" }["reach"].delete("via")
+    e = assert_raises(Surface::Error) { v3_surface(bare) }
+    assert_match(/"ORWPT SELECT" has no reach.via, which rpcs.v3 carries on every record/, e.message)
+
+    [ { "context" => VC, "through" => [], "out_of_order" => false }, { "context" => VC, "through" => [ CPRS ] },
+      "#{VC}>#{CPRS}" ].each do |chain|
+      broken = V3.doc
+      broken["rpcs"].find { |r| r["name"] == "ORWPT SELECT" }["reach"]["via"] = [ chain ]
+      e = assert_raises(Surface::Error) { v3_surface(broken) }
+      assert_match(/"ORWPT SELECT" has reach.via .*, not \{context, through, out_of_order\}/, e.message)
+    end
   end
 
   # --- <tag>-contexts_19_05.txt (rpms-rpc#416, openrpms#626) -------------------------------------

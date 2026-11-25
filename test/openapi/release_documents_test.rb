@@ -61,9 +61,9 @@ class OpenApiReleaseDocumentsTest < Minitest::Test
     doc = JSON.parse(File.read(ReleaseUnderTest.fixture.rpcs_json))
     Dir.mktmpdir do |tmp|
       path = File.join(tmp, "x-rpcs.json")
-      File.write(path, JSON.generate(doc.merge("schema" => "rpcs.v3")))
+      File.write(path, JSON.generate(doc.merge("schema" => "rpcs.v4")))
       e = assert_raises(RpmsRpc::Conformance::BuildSurface::Error) { RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path) }
-      assert_match(/schema "rpcs.v3", not one of rpcs.v1, rpcs.v2/, e.message)
+      assert_match(/schema "rpcs.v4", not one of rpcs.v1, rpcs.v2, rpcs.v3/, e.message)
     end
   end
 

@@ -5,7 +5,7 @@ require_relative "../../lib/rpms_rpc/conformance/release_inventory"
 
 module OpenApi
   # The one openrpms file the RPC surface document is generated from (rpms-rpc#395 AC 2): the <tag>-rpcs.json
-  # of the release under test (openrpms#732; schema rpcs.v1, or rpcs.v2 with #8994's text, openrpms#877).
+  # of the release under test (openrpms#732; schema rpcs.v1, rpcs.v2 with #8994's text, openrpms#877, or rpcs.v3, openrpms#1359).
   #
   # Nothing is pinned here (rpms-rpc#724). `rake openrpms:fetch` downloads the release into tmp/openrpms/<tag>/,
   # checks every byte against the release's asset digests and the sidecar, and records it in current.json;
