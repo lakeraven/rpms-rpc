@@ -1,0 +1,28 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgovimm-forecast.rb.
+---
+rpc: BGOVIMM GET
+entry_point: GET^BGOVIMM
+release_tag: bcer-9.0-20261124-60d39b6-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-25T21:52:11Z'
+note: The build's Immunization site parameters switch forecasting off, so every patient's
+  forecast is the package's error 314.
+captures:
+- name: forecasting_disabled
+  inputs:
+  - 2^F
+  context: 'demo patient 2''s forecast: the package''s error 314, forecasting disabled
+    (BIPATUP.m:49)'
+  raw_return: "5\0F^Immunization Forecasting disabled (see Site Parameters). #314\r"
+  sha256: e69e59a24410d2f3cae6c53ae8164c8111350048662a71bc4688e0c95a26d155
+- name: forecasting_disabled_other_patient
+  inputs:
+  - 990001^F
+  context: 'demo patient 990001''s forecast: the same error, so it is the site''s
+    switch, not the patient'
+  raw_return: "6\0F^Immunization Forecasting disabled (see Site Parameters). #314\r"
+  sha256: 945a9fe91b7ae8fce2c03baa16b7e4b07718038620baea3ebda77549b74f8bec

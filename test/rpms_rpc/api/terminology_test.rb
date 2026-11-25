@@ -102,4 +102,40 @@ class TerminologyTest < Minitest::Test
     assert_raises(ArgumentError) { RpmsRpc::Terminology.concept("73211009; K ^XUSEC") }
     assert_empty @client.calls
   end
+  # TAHEAD^BSTSRPC1 (test/fixtures/captured_replies/bsts-type-ahead.yml): the
+  # header, then one word per row, sent as the routine's four parameters.
+  def type_ahead_replay(name)
+    raw = CapturedReplies.raw("bsts-type-ahead", name)
+    @client = Replay.new("BSTS SEARCH TYPE AHEAD" => [ raw ])
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
+
+  def type_ahead_inputs(name)
+    CapturedReplies.file("bsts-type-ahead").fetch("captures").find { |c| c["name"] == name }.fetch("inputs")
+  end
+
+  def test_type_ahead_offers_the_words_that_start_with_the_text
+    type_ahead_replay("words")
+
+    assert_equal [ "Diabetes", "Diabetes-deafness", "Diabetes-nephrosis", "Diabetes-pancreatic", "Diabetes-related" ],
+                 RpmsRpc::Terminology.type_ahead("diab", max: 5)
+    sent = @client.calls.reject { |c| c[:rpc] == :create_context }
+    assert_equal [ [ "BSTS SEARCH TYPE AHEAD", type_ahead_inputs("words") ] ], sent.map { |c| [ c[:rpc], c[:params] ] }
+    assert_equal [ "BSTSRPC" ], sent.map { |c| c[:context] }
+  end
+
+  def test_a_prefix_no_term_holds_offers_no_words
+    type_ahead_replay("no_words")
+
+    assert_equal [], RpmsRpc::Terminology.type_ahead("zzqxv")
+  end
+
+  def test_a_blank_or_caret_prefix_is_refused_before_the_wire
+    replay(nil)
+
+    [ "", "  ", "a^b" ].each do |text|
+      assert_raises(ArgumentError, text.inspect) { RpmsRpc::Terminology.type_ahead(text) }
+    end
+    assert_empty @client.calls
+  end
 end

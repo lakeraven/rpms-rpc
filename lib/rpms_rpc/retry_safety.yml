@@ -193,6 +193,7 @@
 "RpmsRpc::Image.exams_for_patient": read
 "RpmsRpc::Immunization.find": read
 "RpmsRpc::Immunization.for_patient": read
+"RpmsRpc::Immunization.forecast": read
 "RpmsRpc::Immunization.text_summary": read
 "RpmsRpc::ImmunizationLot.find": read
 "RpmsRpc::ImmunizationLot.list": read
@@ -456,6 +457,7 @@
 "RpmsRpc::Terminology.code_sets": read
 "RpmsRpc::Terminology.concept": read
 "RpmsRpc::Terminology.search": read
+"RpmsRpc::Terminology.type_ahead": read
 "RpmsRpc::Tribal.communities": read
 "RpmsRpc::Tribal.eligibility": read
 "RpmsRpc::Tribal.enrollment": read

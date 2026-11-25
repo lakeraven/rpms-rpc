@@ -13,6 +13,7 @@ module RpmsRpc
   #     (GET^BGOVIMM -> GET^BGOVIMM5)
   #   - DDR GETS ENTRY DATA (find): the patient a V IMMUNIZATION belongs to
   #   - BGOVIMM PROFILE (text_summary): the Immunization Profile text
+  #   - BGOVIMM GET with "F" (forecast): the vaccines the patient is due for
   #
   # `for_patient` and `find` once sent BIPC IMMLIST / IMMGET, names no
   # built image registers (#207). They are kept, rebuilt on BGOVIMM GET.
@@ -76,7 +77,58 @@ module RpmsRpc
     end
     shape :text_summary, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/text-summary"
 
+    # The Immunization package produced no forecast for the patient, and
+    # said why: +code+ is its BI TABLE ERROR CODE number (314: forecasting
+    # is disabled in the site parameters) and +package_message+ its text.
+    # Never an empty due list.
+    class ForecastError < RpmsRpc::Client::RpcError
+      attr_reader :code, :package_message
+
+      def initialize(rpc, package_message, code)
+        @package_message = package_message
+        @code = code
+        super(code ? "#{rpc}: #{package_message} ##{code}" : "#{rpc}: #{package_message}")
+      end
+    end
+
+    # The vaccines the patient is due for, as the Immunization package
+    # forecasts them: BGOVIMM GET with "F", the due list VueCentric's
+    # immunization component shows (see the :immunization_forecast mapping):
+    #
+    #   forecast("2") => [{ vaccine: "HEP B", status: "past due", risk_based: false }, ...]
+    #
+    # [] when the package answers "No immunizations due.". When it produced
+    # no forecast (forecasting disabled, the forecaster failed, a deceased
+    # patient) this raises ForecastError with the package's own text; it
+    # never returns that as a due vaccine or as none due. nil for an invalid
+    # DFN, sent nowhere.
+    def forecast(dfn)
+      return nil if invalid_id?(dfn)
+
+      rows = DataMapper.immunization_forecast.fetch_many("#{dfn}^F").select { |row| row[:record_type] == "F" }
+      rows.filter_map { |row| forecast_row(row) }
+    end
+    shape :forecast, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/forecast"
+
+    NONE_DUE = "No immunizations due."
+    RISK_BASED = "*RB*"
+
     private
+
+    # One "F" row: a due vaccine, nil for the none-due line, or the
+    # package's error (text ending " #<code>", no status piece) raised.
+    def forecast_row(row)
+      item = row[:item].to_s.strip
+      status = row[:status].to_s
+      if status.strip.empty?
+        return nil if item == NONE_DUE
+
+        text, code = item.match(/\A(.*?)\s*#(\d+)\z/)&.captures
+        raise ForecastError.new(DataMapper.immunization_forecast.rpc_name, text || item, code&.to_i)
+      end
+
+      { vaccine: item, status: status.delete(RISK_BASED).strip, risk_based: status.include?(RISK_BASED) }
+    end
 
     # The reply's lines. BmxClient#call_rpc reads $C(31) as a recordset's
     # end marker and the byte after it as a query error, so over BMX the

@@ -1,0 +1,32 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bsts-type-ahead.rb.
+---
+rpc: BSTS SEARCH TYPE AHEAD
+entry_point: TAHEAD^BSTSRPC1
+release_tag: bcer-9.0-20261124-60d39b6-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: BSTSRPC
+captured_at: '2026-11-25T21:52:11Z'
+note: Run on a throwaway container; every call reads the local BSTS cache.
+captures:
+- name: words
+  inputs:
+  - '36'
+  - '5'
+  - diab
+  - ''
+  context: SNOMED CT, five at most, the words that start with 'diab' in the IHS problem
+    subsets
+  raw_return: "5\0T04096RESULTS\x1EDiabetes\x1EDiabetes-deafness\x1EDiabetes-nephrosis\x1EDiabetes-pancreatic\x1EDiabetes-related\x1E\x1F"
+  sha256: 5fc94638d4953a162d803e710083178bd79530e41a00f692977362f8203e601c
+- name: no_words
+  inputs:
+  - '36'
+  - '10'
+  - zzqxv
+  - ''
+  context: 'a prefix no term holds: the header alone'
+  raw_return: "6\0T04096RESULTS\x1E\x1F"
+  sha256: e792b98c4cebdc74292ddcd443cc757348d96bd8f1f12fe056b4ee618e9af2be
