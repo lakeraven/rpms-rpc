@@ -5,8 +5,9 @@ require_relative "../mappings"
 
 module RpmsRpc
   # IHS Standard Terminology (BSTS) through its own broker option, BSTSRPC
-  # (rpms-rpc#916): SNOMED CT concept search, one concept's detail, and the
-  # code sets BSTS serves. Each reads the local BSTS cache: the search asks
+  # (rpms-rpc#916): SNOMED CT concept search, the type-ahead words before a
+  # search, one concept's detail, and the code sets BSTS serves. Each reads
+  # the local BSTS cache: the search asks
   # for a local listing, so no call reaches out to a terminology server.
   #
   # A user whose menu lacks BSTSRPC is refused the bind, and the refusal
@@ -72,6 +73,29 @@ module RpmsRpc
       row && split_icd(row).merge(selectable: row[:selectable] == "Y")
     end
     shape :concept, resource: "terminologies", verb: "GET", path: "/terminologies/concept"
+
+    # The words the local BSTS cache's terms hold that start with +prefix+,
+    # as TAHEAD^BSTSRPC1 answers them (BSTSRPC1.m:129-250): the picker
+    # VueCentric's problem entry offers as the user types, before a search.
+    #
+    #   type_ahead("diab", max: 3) => ["Diabetes", "Diabetes-deafness", "Diabetes-nephrosis"]
+    #
+    # [] when no term holds such a word. SNOMED CT searches the IHS problem
+    # subsets unless +subsets+ names others (:157). A blank prefix is
+    # refused before the wire: the routine answers it with no rows and an
+    # error (:153), which would read as "no such word".
+    def type_ahead(prefix, max: 10, code_set: SNOMED_CT, subsets: nil)
+      prefix = prefix.to_s.strip
+      raise ArgumentError, "type-ahead text is empty" if prefix.empty?
+      raise ArgumentError, "type-ahead text must not contain ^: #{prefix.inspect}" if prefix.include?("^")
+
+      subset = Array(subsets).join("~")
+      raise ArgumentError, "a subset must not contain ^" if subset.include?("^")
+
+      DataMapper.bsts_type_ahead.fetch_many(Integer(code_set).to_s, Integer(max).to_s, prefix, subset)
+                .map { |row| row[:word].to_s.strip }.reject(&:empty?)
+    end
+    shape :type_ahead, resource: "terminologies", verb: "GET", path: "/terminologies/type-ahead"
 
     # The code sets the local BSTS cache serves, CDSET^BSTSRPC with LOCAL
     # (BSTSRPC.m:372-437): [{ id: 36, name: "SNOMED CT US Edition" }, ...].

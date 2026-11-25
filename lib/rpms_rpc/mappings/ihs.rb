@@ -867,6 +867,17 @@ module RpmsRpc
       m.field 0, :id
       m.field 1, :name
     end
+
+    # BSTS SEARCH TYPE AHEAD — TAHEAD^BSTSRPC1(DATA,NMID,COUNT,SEARCH,SUBSETS)
+    # (BSTSRPC1.m:129-250): the words the local cache's terms hold that start
+    # with SEARCH, for a picker as the user types. A BMX typed header
+    # (T04096RESULTS), then one word per row. An empty SEARCH answers no rows
+    # and sets BMXSEC (:153), so the API refuses it before the wire.
+    DataMapper.define(:bsts_type_ahead) do |m|
+      m.rpc "BSTS SEARCH TYPE AHEAD"
+      m.context "BSTSRPC"
+      m.field 0, :word
+    end
     # ========================================================================
     # PHR / CCD (BEHOCCD*, BEHOCIR*)
     # ========================================================================
@@ -938,6 +949,27 @@ module RpmsRpc
       m.field 17, :vaccine_display
       m.field 20, :occurrence_datetime, :fileman_datetime
       m.field 25, :manufacturer
+    end
+
+    # BGOVIMM GET with "F" — the patient's immunization forecast, the due list
+    # VueCentric's immunization component shows. GET^BGOVIMM5 calls
+    # IMMFORC^BIRPC (BGOVIMM5.m:216; BIRPC.m:119-200) and files each "^" piece
+    # of its answer as an "F" row, turning "|" into "^" (ADD, :321):
+    #   F ^ VACCINE ^ STATUS   one due vaccine: "  <name>|due" or "|past due",
+    #                          "*RB*" after it when risk based (BIRPC.m:188-196)
+    #   F ^ No immunizations due.   none due (BIRPC.m:176-178)
+    #   F ^ <text>. #<code>    the package produced no forecast: its error text
+    #                          from BI TABLE ERROR CODE (ERRCD^BIUTL2), e.g.
+    #                          #314 forecasting disabled in the site parameters
+    #                          (BIPATUP.m:49)
+    # Immunization.forecast tells the three apart.
+
+    DataMapper.define(:immunization_forecast) do |m|
+      m.rpc "BGOVIMM GET"
+      m.context VUECENTRIC
+      m.field 0, :record_type
+      m.field 1, :item
+      m.field 2, :status
     end
 
     # BGOVIMM PROFILE — the patient's Immunization Profile, the text

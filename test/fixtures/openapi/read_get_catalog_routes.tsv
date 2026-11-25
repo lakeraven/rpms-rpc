@@ -99,6 +99,7 @@ RpmsRpc::HealthSummary.summary_types	GET /health-summaries/summary-types
 RpmsRpc::Image.exams_for_patient	GET /patients/{dfn}/images/exams
 RpmsRpc::Immunization.find	GET /immunizations/{ien}
 RpmsRpc::Immunization.for_patient	GET /patients/{dfn}/immunizations
+RpmsRpc::Immunization.forecast	GET /patients/{dfn}/immunizations/forecast
 RpmsRpc::Immunization.text_summary	GET /patients/{dfn}/immunizations/text-summary
 RpmsRpc::ImmunizationLot.find	GET /immunization-lots/{ien}
 RpmsRpc::ImmunizationLot.list	GET /immunization-lots
@@ -251,6 +252,7 @@ RpmsRpc::Taxonomy.members	GET /taxonomies/members
 RpmsRpc::Terminology.code_sets	GET /terminologies/code-sets
 RpmsRpc::Terminology.concept	GET /terminologies/concept
 RpmsRpc::Terminology.search	GET /terminologies
+RpmsRpc::Terminology.type_ahead	GET /terminologies/type-ahead
 RpmsRpc::Tribal.communities	GET /tribes/communities
 RpmsRpc::Tribal.eligibility	GET /patients/{dfn}/tribes/eligibility
 RpmsRpc::Tribal.enrollment	GET /patients/{dfn}/tribes/enrollment

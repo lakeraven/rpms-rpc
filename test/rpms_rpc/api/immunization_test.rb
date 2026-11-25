@@ -53,4 +53,28 @@ class ImmunizationTest < Minitest::Test
     [ nil, "", "0", "-1" ].each { |dfn| assert_nil RpmsRpc::Immunization.text_summary(dfn) }
     assert_empty client.calls
   end
+  # BGOVIMM GET with "F" (test/fixtures/captured_replies/bgovimm-forecast.yml):
+  # the demo build's forecasting is off, and the package says so in the one
+  # "F" row. Immunization.forecast raises it, never a vaccine or none due.
+  def test_a_forecast_the_package_did_not_produce_raises_its_reason
+    %w[forecasting_disabled forecasting_disabled_other_patient].each do |name|
+      client = CapturedReplies::ReplayCiaClient.new("BGOVIMM GET" => [ CapturedReplies.raw("bgovimm-forecast", name) ])
+      RpmsRpc.configure { |cfg| cfg.client = client }
+      inputs = CapturedReplies.file("bgovimm-forecast").fetch("captures").find { |c| c["name"] == name }.fetch("inputs")
+
+      error = assert_raises(RpmsRpc::Immunization::ForecastError) { RpmsRpc::Immunization.forecast(inputs.first.split("^").first) }
+      assert_equal 314, error.code
+      assert_equal "Immunization Forecasting disabled (see Site Parameters).", error.package_message
+      assert_kind_of RpmsRpc::Client::RpcError, error, "a host rescuing RpcError still sees it"
+      assert_equal [ { rpc: "BGOVIMM GET", params: inputs } ], client.calls.reject { |c| c[:rpc] == :create_context }
+    end
+  end
+
+  def test_an_invalid_dfn_sends_no_forecast_read
+    client = CapturedReplies::ReplayCiaClient.new({})
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    [ nil, "", "0", "-1" ].each { |dfn| assert_nil RpmsRpc::Immunization.forecast(dfn) }
+    assert_empty client.calls
+  end
 end

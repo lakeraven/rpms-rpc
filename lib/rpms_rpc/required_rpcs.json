@@ -516,6 +516,7 @@
     "RpmsRpc::Terminology": [
       "BSTS GET CODESETS",
       "BSTS GET CONCEPT DETAIL",
+      "BSTS SEARCH TYPE AHEAD",
       "BSTS SNOMED SEARCH"
     ],
     "RpmsRpc::Tribal": [
@@ -1664,9 +1665,12 @@
     "BGOVIMM GET": {
       "methods": {
         "RpmsRpc::Immunization.find": "read",
-        "RpmsRpc::Immunization.for_patient": "read"
+        "RpmsRpc::Immunization.for_patient": "read",
+        "RpmsRpc::Immunization.forecast": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-forecast.yml"
+      ]
     },
     "BGOVIMM GETVFC": {
       "methods": {
@@ -2184,6 +2188,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsts-terminology.yml"
+      ]
+    },
+    "BSTS SEARCH TYPE AHEAD": {
+      "methods": {
+        "RpmsRpc::Terminology.type_ahead": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-type-ahead.yml"
       ]
     },
     "BSTS SNOMED SEARCH": {

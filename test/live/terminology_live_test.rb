@@ -4,7 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/terminology"
 
 # RpmsRpc::Terminology on a real build (rpms-rpc#916): SNOMED CT search,
-# concept detail and code sets from the local BSTS cache, under BSTSRPC.
+# type-ahead, concept detail and code sets from the local BSTS cache, under BSTSRPC.
 # The provider's row holds BSTSRPC; the front desk clerk's does not, and the
 # broker refuses it the option, which raises rather than reading as no
 # concepts. Reads only.
@@ -12,7 +12,7 @@ class TerminologyLiveTest < LiveSpec::Test
   runs_as :provider, :front_desk_clerk
 
   def test_search_then_detail_then_code_sets
-    return refused_without_bstsrpc if role == :front_desk_clerk
+    return refused_without_bstsrpc { RpmsRpc::Terminology.search("diabetes") } if role == :front_desk_clerk
 
     concepts = RpmsRpc::Terminology.search("diabetes")
     refute_empty concepts
@@ -30,9 +30,22 @@ class TerminologyLiveTest < LiveSpec::Test
     assert_includes RpmsRpc::Terminology.code_sets.map { |s| s[:id] }, RpmsRpc::Terminology::SNOMED_CT
   end
 
+  # The words VueCentric's problem picker offers as the user types, before a
+  # search: each starts with what was typed, and a prefix no term holds
+  # answers none.
+  def test_type_ahead_offers_words_that_start_with_the_text
+    return refused_without_bstsrpc { RpmsRpc::Terminology.type_ahead("diab") } if role == :front_desk_clerk
+
+    words = RpmsRpc::Terminology.type_ahead("diab", max: 5)
+    refute_empty words
+    assert_operator words.size, :<=, 5
+    words.each { |w| assert w.downcase.start_with?("diab"), words.inspect }
+    assert_empty RpmsRpc::Terminology.type_ahead("zzqxv")
+  end
+
   private
 
-  def refused_without_bstsrpc
-    assert_raises(RpmsRpc::Client::RpcRefusedError) { RpmsRpc::Terminology.search("diabetes") }
+  def refused_without_bstsrpc(&)
+    assert_raises(RpmsRpc::Client::RpcRefusedError, &)
   end
 end
