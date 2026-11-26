@@ -1,0 +1,56 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgovimm-registry.rb.
+---
+rpc: BGOVIMM GETCONT
+entry_point: GETCONT^BGOVIMM2
+release_tag: bcer-9.0-20261125-9df42d6-ydb
+image: openrpms@sha256:22deb4dc6ad510ff4e0098b60c96a6c616442e4f34ddddfdc8766b728e4de247
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T06:41:47Z'
+note: Reads only.
+captures:
+- name: contraindications/1
+  rpc: BGOVIMM GETCONT
+  inputs:
+  - ''
+  context: Immunization.contraindications
+  raw_return: "5\01^Fever>104F\r3^Lethargy/Hypotonic Episode\r4^Anaphylaxis\r5^Convulsion\r6^Immune
+    Deficiency\r8^Egg Allergy\r9^Neomycin Allergy\r10^Other Allergy\r12^Hx of Chicken
+    Pox\r14^Immune\r15^Carrier\r17^Positive TB Skin Test\r19^GBS\r20^Anaphylactic
+    Egg Allergy\r21^Allergy (anaphylactic) to proteins of rodent or neural origin\r22^Allergy
+    (anaphylactic) to 2-phenoxyethanol\r23^Allergy to baker's yeast (anaphylactic)\r24^Gelatin
+    allergy (disorder)\r26^Streptomycin allergy (disorder)\r27^Allergy to thimerosal
+    (anaphylactic)\r29^Allergy to aluminum (disorder)\r30^Latex allergy (disorder)\r31^Polymyxin
+    B allergy (disorder)\r32^Previous history of intussusception\r33^Encephalopathy
+    within 7 days of previous dose of DTP or DTaP\r40^Patient currently pregnant (finding)\r"
+  sha256: 480d90862be5d68d507056fa3f77b423fe39f966d1bdd5d36b33293f51c8cfa7
+- name: state_forecaster_on/1
+  rpc: BGOVIMM5 FOREON
+  inputs: []
+  context: Immunization.state_forecaster_on?
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: state_forecast_last_run/1
+  rpc: BGOVIMM5 DTERUN
+  inputs:
+  - '990001'
+  context: Immunization.state_forecast_last_run(990001)
+  raw_return: "5\0No state data found"
+  sha256: 959e699a276276d90eccadfeeebe03677ec6722fda2005cb5ad158eaeba30863
+- name: duplicates_allowed/1
+  rpc: BGOVIMM6 DUPALLOW
+  inputs:
+  - '104'
+  context: Immunization.duplicates_allowed?(104)
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: registry_case/1
+  rpc: BGOVIMM GETCASE
+  inputs:
+  - '990001'
+  context: 'Immunization.registry_case(990001): not registered'
+  raw_return: "5\0-1083^The specified patient is not registered in the immunization
+    package.\r"
+  sha256: a314d61d72d07113a662530e5dc4918a24b86966d9b92d98b528201641948dd3

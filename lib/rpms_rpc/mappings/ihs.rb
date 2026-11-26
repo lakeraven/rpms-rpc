@@ -2314,5 +2314,20 @@ module RpmsRpc
       m.rpc "ORWU DT"
       m.scalar :fileman_datetime
     end
+    # The immunization component's registry reads (BGOVIMM;
+    # RpmsRpc::Immunization, immunization_registry.rb). The build lists them in
+    # CIAV VUECENTRIC only, so each binds it (ADR 0011). Each answers lines.
+    {
+      immunization_contraindications: "BGOVIMM GETCONT",   # GETCONT^BGOVIMM2: ien^name, active #9002084.81 only
+      immunization_state_forecaster_on: "BGOVIMM5 FOREON", # FOREON^BGOVIMM5: 1 unless BGO IMM REGISTRY ON turns it off
+      immunization_state_forecast_run: "BGOVIMM5 DTERUN",  # DTERUN^BGOVIMM5: external date, or "No state data found"
+      immunization_duplicates_allowed: "BGOVIMM6 DUPALLOW", # DUPALLOW^BGOVIMM6: $D(^BISDV(IMM,0))=1
+      immunization_registry_case: "BGOVIMM GETCASE"        # GETCASE^BGOVIMM2: GETS^DIQ of #9002084, or -1083^text
+    }.each do |name, rpc|
+      DataMapper.define(name) do |m|
+        m.rpc rpc
+        m.context VUECENTRIC
+      end
+    end
   end
 end

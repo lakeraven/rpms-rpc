@@ -155,6 +155,27 @@
     "RpmsRpc::Bgu": [
       "BGU MAILMAN MESSAGE"
     ],
+    "RpmsRpc::Bmx": [
+      "BMX DEMO",
+      "BMX FIELD LIST",
+      "BMX FIND",
+      "BMX FIND PATIENT",
+      "BMX FIND VISIT",
+      "BMX IM HERE",
+      "BMX MULT LIST",
+      "BMX PATIENT DEMOG DATA GET",
+      "BMX PDATA CHART",
+      "BMX SECURITY KEY",
+      "BMX SQL",
+      "BMX SQL COLINFO",
+      "BMX TLIST",
+      "BMX USER",
+      "BMX VERSION INFO",
+      "BMXGetFacRS",
+      "BMXPatientInfoRS",
+      "BMXPatientLookupRS",
+      "BMXUserKeyRS"
+    ],
     "RpmsRpc::Busa": [
       "BUSA LOG SECURITY AUDIT ENTRY"
     ],
@@ -266,7 +287,12 @@
     ],
     "RpmsRpc::Immunization": [
       "BGOVIMM GET",
+      "BGOVIMM GETCASE",
+      "BGOVIMM GETCONT",
       "BGOVIMM PROFILE",
+      "BGOVIMM5 DTERUN",
+      "BGOVIMM5 FOREON",
+      "BGOVIMM6 DUPALLOW",
       "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::ImmunizationLot": [
@@ -2020,6 +2046,22 @@
         "test/fixtures/captured_replies/bgovimm-forecast.yml"
       ]
     },
+    "BGOVIMM GETCASE": {
+      "methods": {
+        "RpmsRpc::Immunization.registry_case": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-registry.yml"
+      ]
+    },
+    "BGOVIMM GETCONT": {
+      "methods": {
+        "RpmsRpc::Immunization.contraindications": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-registry.yml"
+      ]
+    },
     "BGOVIMM GETVFC": {
       "methods": {
         "RpmsRpc::Eligibility.for_patient": "read"
@@ -2040,6 +2082,30 @@
         "RpmsRpc::Eligibility.for_patient": "read"
       },
       "replies": []
+    },
+    "BGOVIMM5 DTERUN": {
+      "methods": {
+        "RpmsRpc::Immunization.state_forecast_last_run": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-registry.yml"
+      ]
+    },
+    "BGOVIMM5 FOREON": {
+      "methods": {
+        "RpmsRpc::Immunization.state_forecaster_on?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-registry.yml"
+      ]
+    },
+    "BGOVIMM6 DUPALLOW": {
+      "methods": {
+        "RpmsRpc::Immunization.duplicates_allowed?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bgovimm-registry.yml"
+      ]
     },
     "BGOVMSR GET": {
       "methods": {
@@ -2302,6 +2368,158 @@
         "test/fixtures/captured_replies/referral-calls.yml",
         "test/fixtures/captured_replies/referral-diagnosis.yml",
         "test/fixtures/captured_replies/referral-follow-up.yml"
+      ]
+    },
+    "BMX DEMO": {
+      "methods": {
+        "RpmsRpc::Bmx.patients_from": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX FIELD LIST": {
+      "methods": {
+        "RpmsRpc::Bmx.fields": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX FIND": {
+      "methods": {
+        "RpmsRpc::Bmx.find": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX FIND PATIENT": {
+      "methods": {
+        "RpmsRpc::Bmx.find_patients": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX FIND VISIT": {
+      "methods": {
+        "RpmsRpc::Bmx.recent_visits": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX IM HERE": {
+      "methods": {
+        "RpmsRpc::Bmx.alive?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX MULT LIST": {
+      "methods": {
+        "RpmsRpc::Bmx.multiples": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX PATIENT DEMOG DATA GET": {
+      "methods": {
+        "RpmsRpc::Bmx.banner": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX PDATA CHART": {
+      "methods": {
+        "RpmsRpc::Bmx.chart": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX SECURITY KEY": {
+      "methods": {
+        "RpmsRpc::Bmx.holds_key?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX SQL": {
+      "methods": {
+        "RpmsRpc::Bmx.sql": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX SQL COLINFO": {
+      "methods": {
+        "RpmsRpc::Bmx.sql_columns": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX TLIST": {
+      "methods": {
+        "RpmsRpc::Bmx.files": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX USER": {
+      "methods": {
+        "RpmsRpc::Bmx.user_name": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMX VERSION INFO": {
+      "methods": {
+        "RpmsRpc::Bmx.version": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMXGetFacRS": {
+      "methods": {
+        "RpmsRpc::Bmx.facilities": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMXPatientInfoRS": {
+      "methods": {
+        "RpmsRpc::Bmx.patient_info": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMXPatientLookupRS": {
+      "methods": {
+        "RpmsRpc::Bmx.patient_lookup": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
+      ]
+    },
+    "BMXUserKeyRS": {
+      "methods": {
+        "RpmsRpc::Bmx.user_keys": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bmx-library.yml"
       ]
     },
     "BQI PATIENT INSURANCE": {

@@ -30,6 +30,7 @@ module OpenApi
       "BehavioralHealth::Reference" => { path: "behavioral-health" },
       "BehavioralHealth::Wellness" => { path: "behavioral-health/wellness" },
       "Bgu" => { path: "bgu" },
+      "Bmx" => { path: "bmx" },
       "Busa" => { path: "busa" },
       "ChiefComplaint" => { path: "chief-complaints" },
       "ClinicalReview" => { path: "clinical-reviews" },
