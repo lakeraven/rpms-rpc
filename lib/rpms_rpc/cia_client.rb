@@ -146,9 +146,7 @@ module RpmsRpc
       # read then describes the LATER clinician while this caller adopts it as
       # its own identity. (The lock is also what keeps the two send-then-read
       # pairs from interleaving on the shared socket.)
-      # CIANBRPC AUTH, never "BGU AVLOGON". BGU's is reachable on this broker
-      # family — it sits in the CIAV VUECENTRIC context — and it grants
-      # programmer access before authenticating (openrpms#655). Enforced by
+      # CIANBRPC AUTH, never "BGU AVLOGON" (openrpms#655). Enforced by
       # test/rpms_rpc/forbidden_auth_rpcs_test.rb.
       synchronize_wire do
         reply = exchange("R", pk("UID"), pk(""), pk("0"),
@@ -452,9 +450,8 @@ module RpmsRpc
     # Param encoding: DOACTION^CIANBLIS reads NAME/SUBSCRIPT/VALUE triples of
     # L()-packed fields; a numeric NAME with an empty SUBSCRIPT sets the
     # scalar P<n>, and repeated triples with a non-empty SUBSCRIPT build the
-    # list P<n>(<SUBSCRIPT>) — the subscript text is spliced RAW into the M
-    # reference ('RT=RT_"("_SB_")"' then 'S @RT=VL', CIANBLIS.m DOACTION
-    # lines 128-134), so string subscripts must cross the wire in M-quoted
+    # list P<n>(<SUBSCRIPT>) (CIANBLIS.m DOACTION), so string subscripts
+    # must cross the wire in M-quoted
     # form ("NAME", embedded quotes doubled) while numeric subscripts stay
     # bare. ACTR^CIANBACT then passes P1..Pn positionally, by reference, to
     # the RPC's tag^routine (DORPC^CIANBACT: CIANBACT.m:66-78).

@@ -506,8 +506,8 @@ end
     refute(c.instance_variable_get(:@socket).writes.any? { |w| w.include?("CIANBRPC DIVSET") })
   end
 
-  # DIVSET^CIANBRPC sets DUZ(2) to any number it is given, so the membership
-  # check is the client's: a division the user lacks is refused before any
+  # The membership check is the client's: a division the user lacks is
+  # refused before any
   # DIVSET is sent, and the client is left signed off.
   def test_authenticate_refuses_a_division_the_user_lacks_without_setting_it
     c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
@@ -1042,9 +1042,8 @@ end
   #
   # DOACTION^CIANBLIS reads each field as a NAME/SUBSCRIPT/VALUE triple of
   # L()-packed values; a numeric NAME with a non-empty SUBSCRIPT builds the
-  # list param P<n>(<SUBSCRIPT>)=<VALUE> — and the subscript text is spliced
-  # RAW into the M reference ('RT=RT_"("_SB_")"' / 'S @RT=VL', CIANBLIS.m
-  # DOACTION lines 128-134), so string subscripts must cross the wire in
+  # list param P<n>(<SUBSCRIPT>)=<VALUE> (CIANBLIS.m DOACTION), so string
+  # subscripts must cross the wire in
   # M-quoted form ("FILE") while numeric subscripts stay bare. This is what
   # the DDR FileMan family (DDR/DDRROOT/DDRIENS lists) requires.
 

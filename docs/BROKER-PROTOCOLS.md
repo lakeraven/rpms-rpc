@@ -74,17 +74,16 @@ The NAME of a #8994 entry is at most 30 characters: its input transform rejects 
 A long name in M source comments (`;EP -- SOME LONG NAME`) is a comment, not a registration; the registered name may be a shortened twin.
 Check a name against the server's registry, not against source.
 
-### List subscripts are M code
+### List subscripts
 
-On XWB and CIA a list parameter becomes an M local array on the server, and the subscript text the client sends is spliced **raw** into an M reference: `XWBPRS` does `S X=A_"("_X_")"` (`LINST`, `XWBPRS.m:153-157`) and `CIANBLIS` does `S RT=RT_"("_SB_")"` (`DOACTION`, `CIANBLIS.m:132`).
-So the client must send each subscript as an M literal:
+On XWB and CIA a list parameter becomes an M local array on the server.
+Send each subscript as an M literal:
 
 - a canonic number stays bare: `1`, `0`, `-2`, `1.5`;
 - anything else is quoted, with embedded quotes doubled: `FILE` is sent as `"FILE"`;
 - a multi-level subscript is the levels joined with commas: `"TEXT",1,0`.
 
 rpms-rpc does this in one place per client (`xwb_client.rb:242-247`, `cia_client.rb:840-845`).
-A client that sends `FILE` unquoted makes the server evaluate the variable `FILE`.
 
 ## XWB
 
@@ -136,7 +135,7 @@ Parameter types, by their type byte (`PRS5`, `XWBPRS.m:81-112`):
 | `5` | stream | not implemented by the broker |
 
 Each parameter ends with `f`.
-Inside a list, entries after the first start with `t`, and the subscript is an M literal (see [List subscripts are M code](#list-subscripts-are-m-code)):
+Inside a list, entries after the first start with `t`, and the subscript is an M literal (see [List subscripts](#list-subscripts)):
 
 ```
 DDR LISTER with { "FILE" => "200", "FIELDS" => ".01" }
@@ -506,12 +505,12 @@ Each of these has been made, by this gem or by another client, and is cited wher
 7. **Reusing a session UID on a first CIA sign-on.** Send `UID` 0, then adopt the UID from line 2 of the reply.
 8. **Calling `XUS SIGNON SETUP` on CIA before `CIANBRPC AUTH`.** It is refused (`CIANBACT.m:137`). On CIA, AUTH is the whole sign-on.
 9. **Reading the CIA DUZ with `XUS GET USER INFO` or `CIANBRPC GETVAR "DUZ"`.** Use `CIAVCXUS VIMINFO`.
-10. **Signing on with `BGU AVLOGON`.** It looks like an equivalent of `XUS AV CODE` and is not: it sets `DUZ(0)="@"` before it checks the codes and never clears it. rpms-rpc refuses to send it (`client.rb:379-381`, `test/rpms_rpc/forbidden_auth_rpcs_test.rb`).
-11. **Trusting `CIANBRPC DIVSET`.** It sets any number it is given. Check the division against DIVGET's rows first. On XWB/BMX, send the division IEN with a backtick.
+10. **Signing on with `BGU AVLOGON`.** Sign on with `XUS AV CODE` (XWB, BMX) or `CIANBRPC AUTH` (CIA). rpms-rpc refuses to send `BGU AVLOGON` (`client.rb:379-381`, `test/rpms_rpc/forbidden_auth_rpcs_test.rb`).
+11. **Setting a division without checking it.** Choose the division from DIVGET's rows before DIVSET. On XWB/BMX, send the division IEN with a backtick.
 12. **Sending `CTX` once.** CIA keeps the last `CTX` it saw; after the first bind, name the context on every frame.
 13. **Dropping a CIA socket without action `D`.** The listener holds the dead session until its retry bound, and the next connection waits (rpms-rpc#192).
 14. **More than one request in flight.** None of the three carries a request ID (CIA has only its one-byte echo). Leftover bytes from one reply, read as the next call's reply, put a whole session one call late (rpms-rpc#254, #289). Send, read the whole reply, then send again.
 15. **Over-long values.** XWB under `[XWB]1130` takes at most 999 bytes per value and 255 for the RPC name; a BMX request takes at most 512 bytes in all. Refuse a value that does not fit instead of letting the broker misread it (rpms-rpc#472).
-16. **Unquoted list subscripts.** They are spliced into M code; quote string subscripts.
-17. **Sending a reference parameter (type 1).** XWB and BMX evaluate it as M.
+16. **Unquoted list subscripts.** Send every subscript as an M literal ([List subscripts](#list-subscripts)).
+17. **Sending a reference parameter (type 1).** Send literal and list parameters only.
 18. **Treating a word-wrap-off array reply as lines on CIA.** Its nodes arrive run together; there is no separator to split on.
