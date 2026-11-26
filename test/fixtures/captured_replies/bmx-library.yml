@@ -1,0 +1,186 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bmx-library.rb.
+---
+rpc: BMX USER
+entry_point: USER^BMXRPC3
+release_tag: bcer-9.0-20261125-9df42d6-ydb
+image: openrpms@sha256:22deb4dc6ad510ff4e0098b60c96a6c616442e4f34ddddfdc8766b728e4de247
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, the front desk clerk test role's published demo
+  pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T06:27:44Z'
+note: Reads only.
+captures:
+- name: user_name/1
+  rpc: BMX USER
+  inputs:
+  - '207'
+  context: Bmx.user_name(207)
+  raw_return: "5\0PROFILE,REG"
+  sha256: 84e3886148c6e7088bdf35e3f8074d275c9c164239a05d19158674f585fe17f9
+- name: holds_key/1
+  rpc: BMX SECURITY KEY
+  inputs:
+  - AGZMENU
+  context: Bmx.holds_key?(AGZMENU)
+  raw_return: "5\0-1"
+  sha256: 32c99b62a5c79fad3400bb1766ba9c77419f5b379c3fc5a42730a7d3c713edb7
+- name: holds_key_not/1
+  rpc: BMX SECURITY KEY
+  inputs:
+  - AGZMGR
+  context: Bmx.holds_key?(AGZMGR)
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: facilities/1
+  rpc: BMXGetFacRS
+  inputs:
+  - '207'
+  context: Bmx.facilities(207)
+  raw_return: "5\0T00030FACILITY_NAME^T00030FACILITY_IEN^T00002MOST_RECENT_LOOKUP\x1EDEMO
+    IHS CLINIC^7819^1\x1E"
+  sha256: 494d47555c8641305a9fdd745a3bf397665ac0be7a6ac4aeb4009be521daac49
+- name: version/1
+  rpc: BMX VERSION INFO
+  inputs:
+  - BMX
+  - ''
+  context: Bmx.version(BMX)
+  raw_return: "5\0T00030ERROR^T00030MAJOR_VERSION^T00030MINOR_VERSION^T00030BUILD\x1E^1^0^3050613.12\x1E"
+  sha256: 85ebcad836752c261b7251fd81eb569aae7c5fa23779f7f89d7aeec9a019804f
+- name: user_keys/1
+  rpc: BMXUserKeyRS
+  inputs:
+  - '207'
+  context: Bmx.user_keys(207)
+  raw_return: "5\0T00050KEY\x1EAGZMENU\x1E\x1E"
+  sha256: d5a3cd0fa13d01d46d284add902b2744fb12a1073b0494f1daa26d76e2cff855
+- name: find_patients/1
+  rpc: BMX FIND PATIENT
+  inputs:
+  - QUEBEC,SAGE
+  context: Bmx.find_patients(QUEBEC,SAGE)
+  raw_return: "5\0T00010IEN^T00030PATIENTNAME^T00015DOB^T00001SEX^T00007CHART^T00009SSN^T00010REG^T00030LASTUPDATE^T00030CLASSBEN^T00010AGE\x1E990017^QUEBEC,SAGE^Jun
+    09, 2001^F^990017^666181017^^3261125^INDIAN/ALASKA NATIVE^25\x1E"
+  sha256: ae42efa1a885403895c3f8a37aa878257c35bbc3609551d989d2d7b5f6d714b7
+- name: recent_visits/1
+  rpc: BMX FIND VISIT
+  inputs:
+  - 990017|2
+  context: 'Bmx.recent_visits(990017, max: 2)'
+  raw_return: "5\0T00010VISIT_IEN^T00030PATIENT_IEN^T00021TIMESTAMP^T00030VISIT_TYPE^T00030LOCATION^T00010SERVICE
+    CATEGORY^T00030CLINIC^T00030PRIMARY_PROVIDER^T00030PRIMARY_POV\x1E121^990017^OCT
+    28, 2026@14:00^DEMO IHS CLINIC^AMBULATORY^MENTAL HEALTH (PSYCHIATRY)^PROFILE,BH^F32.9
+    (MAJOR DEPRESSIVE ...)\x1E120^990017^OCT 14, 2026@10:00^DEMO IHS CLINIC^AMBULATORY^MENTAL
+    HEALTH (PSYCHIATRY)^PROFILE,BH^F32.9 (MAJOR DEPRESSIVE ...)\x1E"
+  sha256: cfe146be010332be142ec07e3b19c71b16a345c9f929740067264860ae987bbc
+- name: alive/1
+  rpc: BMX IM HERE
+  inputs: []
+  context: Bmx.alive?
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: patients_from/1
+  rpc: BMX DEMO
+  inputs:
+  - QUEBEC,SAGE
+  - '1'
+  context: 'Bmx.patients_from(QUEBEC,SAGE, count: 1)'
+  raw_return: "5\0T00030NAME^T00010SEX^D00020DOB\x1EQUEBEC,SAGE^F^JUN 9,2001\x1E"
+  sha256: 51bee10ef2338e320340737b130a27e0e02c4e25bd65b1cea938085519890127
+- name: banner/1
+  rpc: BMX PATIENT DEMOG DATA GET
+  inputs:
+  - '990017'
+  context: Bmx.banner(990017)
+  raw_return: "5\009-Jun-2001^25 years^Female^99-00-17"
+  sha256: 9f4bb938e732511dbda28809bb0c0ee36c893aa4634583a1a9a4899cabe6f2f7
+- name: chart/1
+  rpc: BMX PDATA CHART
+  inputs:
+  - '990017'
+  context: Bmx.chart(990017)
+  raw_return: "5\0T00015Chart^T00012Name^D00013DateOfBirth^T00027Tribe^T00017Street^T00009City^T00008State^T00006Zip^T00013HomePhone^T00001WorkPhone\x1E990017^QUEBEC,SAGE^JUN
+    09, 2001^INDIAN - TRIBE UNSPECIFIED^219 DUNEGRASS ST^ANYWHERE^MONTANA^59000^406-555-1017^\x1E"
+  sha256: 174372afd082d06508c3eab9b200967e9e21afbb9b42074346de1fd8dc0ea79a
+- name: patient_info/1
+  rpc: BMXPatientInfoRS
+  inputs:
+  - '990017'
+  context: Bmx.patient_info(990017)
+  raw_return: "5\0T00030NAME^T00030HRN^T00030SSN^D00030DOB^T00030IEN^T00020AGE^T00080NEXT_APPT^T00010SEX\x1EQUEBEC,SAGE^990017^666181017^JUN
+    9,2001^990017^25 years^^Female\x1E"
+  sha256: e14d376d775e00b24849636c7c75b09b96c4c1bbac5ef4722a0af6b85c13d945
+- name: patient_lookup/1
+  rpc: BMXPatientLookupRS
+  inputs:
+  - QUEBEC,SAGE
+  - '10'
+  context: Bmx.patient_lookup(QUEBEC,SAGE)
+  raw_return: "5\0T00030NAME^T00030HRN^T00030SSN^D00030DOB^T00030IEN\x1EQUEBEC,SAGE^990017^666181017^JUN
+    9,2001^990017\x1E"
+  sha256: fdd60a0e0b16808f62c00b380f63f8839d7d541e790bd13822f467d8e126a8e4
+- name: fields/1
+  rpc: BMX FIELD LIST
+  inputs:
+  - '9999999.03'
+  - ''
+  - ''
+  context: Bmx.fields(9999999.03)
+  raw_return: "5\0T00030NUMBER^T00030LABEL\x1E.001^BMXIEN\x1E.02^CODE\x1E1201^KEYWORDS\x1E.03^LONG_NAME\x1E8801^MNEMONIC\x1E.01^NAME\x1E.04^OLD_TRIBE_NAME_(UNUSED)\x1E1101^SYNONYM\x1E"
+  sha256: e84e610fa3a8862d0b232b73d06de277f0fc4ca403769ac1e7c3847be77762f1
+- name: multiples/1
+  rpc: BMX MULT LIST
+  inputs:
+  - '2'
+  - ''
+  context: Bmx.multiples(2)
+  raw_return: "5\0T00030NUMBER^T00030NAME\x1E2.001^ENROLLMENT CLINIC\x1E2.01^ALIAS\x1E2.02^RACE
+    INFORMATION\x1E2.0361^PATIENT ELIGIBILITIES\x1E2.04^RATED DISABILITIES (VA)\x1E2.05^SERVICE
+    CONNECTED CONDITIONS\x1E2.0534^PH DATE/TIME UPDATED\x1E2.06^ETHNICITY INFORMATION\x1E2.0992^ICN
+    HISTORY\x1E2.0993^CMOR HISTORY\x1E2.101^DISPOSITION LOG-IN DATE/TIME\x1E2.11^DATE
+    OF DENTAL TREATMENT\x1E2.12^ARCHIVED DATA\x1E2.141^CONFIDENTIAL ADDRESS CATEGORY\x1E2.312^INSURANCE
+    TYPE\x1E2.3215^SERVICE [OEF OR OIF]\x1E2.396^CD STATUS DIAGNOSES\x1E2.397^CD STATUS
+    PROCEDURES\x1E2.398^CD STATUS CONDITIONS\x1E2.399^CD HISTORY DATE\x1E2.98^APPOINTMENT\x1E"
+  sha256: 0154a15096dfcd3b0ae2d489fa2428ebc78b0d3ddc2e4ee66d12c0bc482a3e82
+- name: sql/1
+  rpc: BMX SQL
+  inputs:
+  - SELECT NAME, SEX FROM PATIENT WHERE NAME LIKE 'QUEBEC,S%'
+  context: 'Bmx.sql: the patients named QUEBEC,S...'
+  raw_return: "5\0T00012NAME^T00007SEX\x1EQUEBEC,SAGE^FEMALE\x1E"
+  sha256: b642cb96e34733b9be466cbc1848d181171251b33fb28e3f2700839e0d622b60
+- name: sql_columns/1
+  rpc: BMX SQL COLINFO
+  inputs:
+  - SELECT NAME, SEX FROM PATIENT
+  context: Bmx.sql_columns
+  raw_return: "5\0T00050NAME^T00050SEX\x1E"
+  sha256: b649481830d5aa45e4c25619a2eff993b140adf6e951d9fcdc91e06420e6931e
+- name: files/1
+  rpc: BMX TLIST
+  inputs:
+  - PATIENT
+  - PATIENTZ
+  context: Bmx.files(PATIENT..PATIENTZ)
+  raw_return: "5\0T00030FILE^N00010NUMBER\x1EPATIENT^9000001\x1EPATIENT APPLICATION
+    TYPES^9000048\x1EPATIENT APPLICATIONS^9000045\x1EPATIENT EXPOSURES^9000098\x1EPATIENT
+    GOALS^9000093\x1EPATIENT NAME CHANGES^9000033\x1EPATIENT REFUSALS FOR SERVICE/NMI^9000022\x1EPATIENT'S
+    LEGAL DOCS^9000034\x1E"
+  sha256: b57144943904374c5fc335d9fd43aa76f5e84f4303d4fe5cc63eb0d9c16a9f24
+- name: find/1
+  rpc: BMX FIND
+  inputs:
+  - '200'
+  - ".01"
+  - ''
+  - PROFILE,
+  - '30'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'Bmx.find(200, PROFILE,, max: 30)'
+  raw_return: "5\0T00014NAME\x1EPROFILE,BH\x1EPROFILE,BHSUP\x1EPROFILE,BILL\x1EPROFILE,MA\x1EPROFILE,MD\x1EPROFILE,QM\x1EPROFILE,REG\x1EPROFILE,REGSUP\x1EPROFILE,RN\x1EPROFILE,RPH\x1EPROFILE,SCHED\x1E"
+  sha256: 0fa8d1c74932073d48408818d95151e63316752e4d047b1434e1dfd64af606ea
