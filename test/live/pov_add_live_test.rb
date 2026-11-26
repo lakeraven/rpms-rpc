@@ -69,6 +69,33 @@ class PovAddLiveTest < LiveSpec::Test
     puts "\n#{role}: V POV #{result[:ien]} on visit #{visit} filed against PROBLEM #{problem[:ien]}"
   end
 
+  # Pov.delete (BGOVPOV DEL): the V POV is gone, the problem no longer reads
+  # as used on a visit, so it can be deleted; another patient's DFN is
+  # refused before anything is sent.
+  def test_delete_removes_the_diagnosis_and_frees_its_problem
+    visit = open_visit!
+    stamp = Time.now.utc.strftime("%H%M%S")
+    problem = RpmsRpc::Problem.add(DFN, { icd_code: ICD, description: "SYNTH LIVE POV DELETE #{stamp}",
+                                          location_ien: problem_location!, status: "Chronic" })
+    assert problem[:success], "Problem.add answered #{problem.inspect}"
+    pov = RpmsRpc::Pov.add(DFN, visit, ICD, narrative: "SYNTH LIVE POV DELETE #{stamp}",
+                                            modifiers: { problem_ien: problem[:ien], snomed_ct: SNOMED })
+    assert pov[:success], "Pov.add answered #{pov.inspect}"
+    assert RpmsRpc::Problem.integrated_entry(problem[:ien])[:used_as_pov], "the problem reads as used on the visit"
+
+    assert_equal :wrong_patient, RpmsRpc::Pov.delete(DFN + 1, pov[:ien], problem_ien: problem[:ien])[:error]
+    deleted = RpmsRpc::Pov.delete(DFN, pov[:ien], problem_ien: problem[:ien])
+    assert deleted[:success], "Pov.delete answered #{deleted.inspect}"
+
+    gone = RpmsRpc::DdrFileman.gets_entry(file: POV_FILE, iens: "#{pov[:ien]},", fields: ".01", flags: "I")
+    assert gone.nil? || gone[:error] || gone[:fields].empty?, "V POV #{pov[:ien]} is still on file: #{gone.inspect}"
+    refute_includes RpmsRpc::Pov.for_visit(visit).map { |row| row[:ien] }, pov[:ien]
+    refute RpmsRpc::Problem.integrated_entry(problem[:ien])[:used_as_pov], "the problem still reads as used on a visit"
+    assert_equal :not_found, RpmsRpc::Pov.delete(DFN, pov[:ien])[:error]
+    assert RpmsRpc::Problem.delete(DFN, problem[:ien], reason: "Entered in error")[:success], "the freed problem could not be deleted"
+    puts "\n#{role}: V POV #{pov[:ien]} on visit #{visit} deleted, PROBLEM #{problem[:ien]} freed and deleted"
+  end
+
   private
 
   # A new ambulatory visit for the synthetic patient, at a time no other

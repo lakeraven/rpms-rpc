@@ -25,6 +25,23 @@ module RpmsRpc
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
 
+    # Laterality, by the names VueCentric offers, as PROB^BGOPROB3 takes it
+    # in P-line piece 13 and files it in .22 (BGOPROB3.m:128-134, :170): the
+    # BSTS laterality attribute, then the qualifier. These are the three
+    # pairs LATCHK^BGOVPOV1 offers (BGOVPOV1.m:220), and the qualifiers BSTS
+    # SNOMED MAPPING CONV (#9002318.6) converts for "LAT" on the pinned build.
+    # BGOPROB files no laterality for the unspecified qualifier (:130).
+    LATERALITY = {
+      "Left" => "272741003|7771000",
+      "Right" => "272741003|24028007",
+      "Bilateral" => "272741003|51440002"
+    }.freeze
+
+    # The pieces of a BGOPROB2 DUPCHK row, in order (DUPCHK^BGOPROB2: the
+    # new-entry row at BGOPROB2.m:129, a problem on file at SETDATA :226).
+    DUPLICATE_FIELDS = %i[ien snomed_ct laterality description_id narrative exact laterality_text
+                          icd_codes status default_status prompts_laterality lateralized].freeze
+
     # The pieces of an integrated-list "P" row after its letter, in order
     # (GET^BGOPROB's header, BGOPROB.m:40-42; built at GET2^BGOPROB).
     INTEGRATED_FIELDS = %i[ien snomed_concept snomed_description number status onset narrative
@@ -90,12 +107,21 @@ module RpmsRpc
     # Omitted, nil or "" leaves the build's own default on add
     # (BGOPROB3.m:113-114); on update it keeps the status on file (#925).
     #
+    # laterality: (add and update) is Left, Right or Bilateral, in any
+    # case, sent as its LATERALITY pair in piece 13. Any other value is
+    # refused before anything is sent. Omitted, nil or "" sends none.
+    # With :snomed_ct the build also files the concept's other ICD codes
+    # (SETICD^BGOPROB1, BGOPROB3.m:187).
+    #
     # Returns { success:, ien:, raw: }, plus error: on a refusal.
     def add(dfn, problem)
       raise ArgumentError, "problem must be a Hash" unless problem.is_a?(Hash)
       return failure if invalid_id?(dfn)
 
       problem, refused = with_status_name(problem)
+      return refused if refused
+
+      problem, refused = with_laterality(problem)
       return refused if refused
 
       in_context { write(dfn, nil, problem) }
@@ -120,6 +146,9 @@ module RpmsRpc
       return failure if invalid_id?(dfn) || invalid_id?(ien)
 
       changes, refused = with_status_name(changes)
+      return refused if refused
+
+      changes, refused = with_laterality(changes)
       return refused if refused
 
       in_context do
@@ -235,6 +264,43 @@ module RpmsRpc
       end
     end
     shape :coded_active, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/coded-active"
+
+    # Whether the patient's problem list already holds a SNOMED CT concept,
+    # the check VueCentric's problem entry runs before it adds one: BGOPROB2
+    # DUPCHK (DUPCHK^BGOPROB2). The build looks for the concept, and its
+    # equivalent lateralized concepts, among the patient's problems that are
+    # not deleted.
+    #
+    #   duplicate_check(dfn, "370143000", laterality: nil)
+    #   => { on_file: [entry, ...], new_entry: entry or nil }
+    #
+    # on_file are the problems that hold it. new_entry, when the build
+    # answers one, is the concept as a new problem: the description ID, ICD
+    # codes and default status BSTS gives it, for the laterality sent. An
+    # entry is a Hash of DUPLICATE_FIELDS: ien an Integer, icd_codes an
+    # Array, exact, prompts_laterality and lateralized booleans, an empty
+    # piece nil. status is the .12 letter of a problem on file.
+    #
+    # laterality: is a LATERALITY name, as add takes it. A SNOMED CT concept
+    # that is not digits, a laterality add does not take, or an invalid DFN
+    # raises ArgumentError before the wire; a -n^text reply, or no row at
+    # all, raises Client::RpcError: a check that did not answer is not "not
+    # on the list".
+    def duplicate_check(dfn, snomed_ct, laterality: nil)
+      raise ArgumentError, "dfn must be a positive integer: #{dfn.inspect}" if invalid_id?(dfn)
+      raise ArgumentError, "snomed_ct must be a SNOMED CT concept ID: #{snomed_ct.inspect}" unless snomed_ct.to_s.match?(/\A[1-9]\d{5,17}\z/)
+
+      fields, refused = with_laterality(laterality: laterality)
+      raise ArgumentError, refused[:error] if refused
+
+      mapping = DataMapper.problem_duplicate_check
+      lines = integrated_lines(mapping, "#{dfn}^#{snomed_ct}^#{fields[:laterality]}^")
+      raise Client::RpcError, "#{mapping.rpc_name} answered no row for #{snomed_ct}" if lines.empty?
+
+      entries = lines.map { |line| duplicate_entry(line.split("^", -1)) }
+      { on_file: entries.select { |e| e[:ien].positive? }, new_entry: entries.find { |e| e[:ien].zero? } }
+    end
+    shape :duplicate_check, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/duplicate-check"
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
     # stock-VistA lookup/audit surface rather than the IHS BGOPROB writes
@@ -508,8 +574,37 @@ module RpmsRpc
                                       "name status: to edit this problem") ]
     end
 
+    # [fields with laterality: as its LATERALITY pair, nil], or [fields,
+    # refusal] for a value add does not take. Omitted, nil or "" sends none.
+    def with_laterality(fields)
+      laterality = fields[:laterality]
+      return [ fields, nil ] if laterality.nil? || laterality == ""
+
+      name = laterality.is_a?(String) && LATERALITY.keys.find { |key| key.casecmp?(laterality) }
+      return [ fields.merge(laterality: LATERALITY.fetch(name)), nil ] if name
+
+      shown = laterality.is_a?(String) ? laterality.scrub : laterality.inspect
+      [ fields, failure.merge(error: "laterality \"#{shown}\" is not one BGOPROB SET files (#{LATERALITY.keys.join(', ')})") ]
+    end
+
+    def duplicate_entry(pieces)
+      row = DUPLICATE_FIELDS.each_with_index.to_h { |field, i| [ field, pieces[i].to_s ] }
+      row.merge(
+        ien: row[:ien].to_i,
+        icd_codes: row[:icd_codes].split(";").reject(&:empty?),
+        exact: row[:exact] == "1",
+        prompts_laterality: row[:prompts_laterality] == "Y",
+        lateralized: row[:lateralized] == "1"
+      ).transform_values { |v| v == "" ? nil : v }
+    end
+
+    # The P line. Pieces 12 (inpatient diagnosis) and 13 (laterality) are
+    # sent only when there is a laterality, so every other line is the one
+    # the build has always been sent.
     def build_p_line(fields)
-      ([ "P" ] + PROB_FIELDS.map { |k| fields[k].to_s }).join("^")
+      pieces = PROB_FIELDS.map { |k| fields[k].to_s }
+      pieces += [ "", fields[:laterality].to_s ] unless fields[:laterality].to_s.empty?
+      ([ "P" ] + pieces).join("^")
     end
 
     def failure

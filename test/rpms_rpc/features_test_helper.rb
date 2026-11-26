@@ -116,6 +116,8 @@ module FeaturesTestHelper
       "IHS integrated problem list read by Problem.integrated_entry; outside the stock-VistA ORQQPL workflow",
     "BGOPROB1 EDPROB" =>
       "IHS coded active problems read by Problem.coded_active; outside the stock-VistA ORQQPL workflow",
+    "BGOPROB2 DUPCHK" =>
+      "IHS duplicate check read by Problem.duplicate_check before an add; outside the stock-VistA ORQQPL workflow",
     "DDR GETS ENTRY DATA" =>
       "Problem.update/delete read the PROBLEM entry before writing and every write reads it back (#527)"
   }.freeze

@@ -14,11 +14,11 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
 The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the broker-option inventory of the openrpms release under test (`<tag>-contexts_19_05.txt`, fetched by `rake openrpms:fetch`, rpms-rpc#724) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
+On `bcer-9.0-20261116-2a9b3fe-ydb` that is 65 RPCs.
 
 ## Decision
 
-1. The gem keeps the 63 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
+1. The gem keeps the 65 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
@@ -64,6 +64,7 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 | `BGOPROB SET` | `RpmsRpc::Problem` | `ORQQPL ADD SAVE` / `EDIT SAVE` lose the same. Decided (#527). | None; stays. |
 | `BGOPROB1 EDPROB` | `RpmsRpc::Problem` | The active problems that carry a SNOMED CT concept, as VueCentric offers them for education and care plans. | As for `BGOPROB GET`. |
 | `BGOPROB1 GETONE` | `RpmsRpc::Problem` | One integrated-list problem, any status. | As for `BGOPROB GET`. |
+| `BGOPROB2 DUPCHK` | `RpmsRpc::Problem` | The check VueCentric runs before it adds a concept: the patient's problems that hold it or an equivalent lateralized concept (`EQUIV^BSTSAPI`), else the concept as a new entry with the description and ICD codes BSTS gives it. No stock route checks SNOMED CT or laterality. | DDR LISTER on PROBLEM (#9000011) by the APCT and ASLT cross-references, without the BSTS equivalents, unverified. |
 | `BGOREF GETREA` | `RpmsRpc::ImmunizationRefusal` | Refusals; no stock route found. | None; primary care, planned for later. |
 | `BGOREF SET` | `RpmsRpc::ImmunizationRefusal` | As above. | As above. |
 | `BGOUTL CHKSEC` | `RpmsRpc::Authentication` | Key flags and per-user parameter settings with the granting user class, in one call; how the BGO components decide editing (`BGO DISABLE ... EDITING`). Keys alone have the stock `ORWU NPHASKEY` (`held_keys`). | `ORWU NPHASKEY` for keys; for the parameter and its class grant, none found. |
@@ -83,6 +84,7 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 63 RPCs.
 | `BGOVPED2 GETPVED` | `RpmsRpc::PatientEducation` | A visit's problem-linked education (V PATIENT ED field 1103), as the problem-list education pane lists it; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16) by visit, unverified. |
 | `BGOVPOV GET` | `RpmsRpc::Encounter`, `RpmsRpc::Pov` | One visit's diagnoses with episodicity, modifiers, injury, primary/secondary and qualifiers. `ORWPCE PCE4NOTE` gives the visit's diagnoses without those. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV RECENT` | `RpmsRpc::Pov` | `RECENT^BGOVPOV` lists V POVs by patient or by visit, with SNOMED CT, asthma control and the lock flag. `ORWPCE PCE4NOTE` gives one visit's diagnoses only. | DDR LISTER on V POV (#9000010.07). |
+| `BGOVPOV DEL` | `RpmsRpc::Pov` | Removes a visit diagnosis and takes the visit off its problem's visit list (#9000011.14), so the problem no longer reads as used. | `BEHOENPC SAVE` (VueCentric-only) or DDR FILER on V POV (#9000010.07), which leaves the problem's visit list, unverified. |
 | `BGOVPOV SET` | `RpmsRpc::Pov` | Visit diagnosis outside BH. | `AMHG SAVE POV` for BH; `BEHOENPC SAVE` (VueCentric-only) otherwise. |
 | `BGOVTM GET` | `RpmsRpc::Encounter` | A provider's activity and travel time on a visit (V ACTIVITY TIME); no stock route checked. | DDR LISTER on V ACTIVITY TIME (#9000010.19) by visit, unverified. |
 | `BGOVUPD GET` | `RpmsRpc::ClinicalReview` | That a list was reviewed or updated on a visit, as VueCentric files it in V UPDATED/REVIEWED (#9000010.54); no stock route checked. | DDR LISTER on #9000010.54, unverified. |

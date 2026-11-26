@@ -175,6 +175,7 @@ RpmsRpc::Problem.clinic_search	GET /problems/clinics/{clinic_ien}/search
 RpmsRpc::Problem.coded_active	GET /patients/{dfn}/problems/coded-active
 RpmsRpc::Problem.comments	GET /problems/{ien}/comments
 RpmsRpc::Problem.details	GET /patients/{dfn}/problems/{ien}
+RpmsRpc::Problem.duplicate_check	GET /patients/{dfn}/problems/duplicate-check
 RpmsRpc::Problem.edit_load	GET /problems/{ien}/institutions/{institution_ien}/edit-load
 RpmsRpc::Problem.for_patient	GET /patients/{dfn}/problems
 RpmsRpc::Problem.integrated	GET /patients/{dfn}/problems/integrated

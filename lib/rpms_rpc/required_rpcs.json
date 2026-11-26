@@ -361,9 +361,11 @@
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [
+      "BGOVPOV DEL",
       "BGOVPOV GET",
       "BGOVPOV RECENT",
-      "BGOVPOV SET"
+      "BGOVPOV SET",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::Practitioner": [
       "DDR GETS ENTRY DATA",
@@ -377,6 +379,7 @@
       "BGOPROB SET",
       "BGOPROB1 EDPROB",
       "BGOPROB1 GETONE",
+      "BGOPROB2 DUPCHK",
       "DDR GETS ENTRY DATA",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",
@@ -1577,6 +1580,7 @@
         "RpmsRpc::Problem.delete": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/problem-duplicate-check.yml",
         "test/fixtures/captured_replies/problem-write.yml"
       ]
     },
@@ -1592,6 +1596,7 @@
         "RpmsRpc::Problem.update": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/problem-duplicate-check.yml",
         "test/fixtures/captured_replies/problem-write.yml"
       ]
     },
@@ -1606,6 +1611,14 @@
         "RpmsRpc::Problem.integrated_entry": "read"
       },
       "replies": []
+    },
+    "BGOPROB2 DUPCHK": {
+      "methods": {
+        "RpmsRpc::Problem.duplicate_check": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/problem-duplicate-check.yml"
+      ]
     },
     "BGOREF GETREA": {
       "methods": {
@@ -1732,6 +1745,14 @@
         "RpmsRpc::PatientEducation.problem_linked": "read"
       },
       "replies": []
+    },
+    "BGOVPOV DEL": {
+      "methods": {
+        "RpmsRpc::Pov.delete": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/pov-delete.yml"
+      ]
     },
     "BGOVPOV GET": {
       "methods": {
@@ -2356,6 +2377,7 @@
         "RpmsRpc::Patient.race": "non_idempotent_write",
         "RpmsRpc::PatientApplication.add": "non_idempotent_write",
         "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write",
+        "RpmsRpc::Pov.delete": "non_idempotent_write",
         "RpmsRpc::Practitioner.detail": "non_idempotent_write",
         "RpmsRpc::Practitioner.roles": "read",
         "RpmsRpc::Problem.add": "non_idempotent_write",
@@ -2420,7 +2442,9 @@
         "test/fixtures/captured_replies/patient-address-contact.yml",
         "test/fixtures/captured_replies/patient-application.yml",
         "test/fixtures/captured_replies/patient-race.yml",
+        "test/fixtures/captured_replies/pov-delete.yml",
         "test/fixtures/captured_replies/practitioner-detail.yml",
+        "test/fixtures/captured_replies/problem-duplicate-check.yml",
         "test/fixtures/captured_replies/problem-write.yml",
         "test/fixtures/captured_replies/procedure-add.yml",
         "test/fixtures/captured_replies/referral-calls.yml",

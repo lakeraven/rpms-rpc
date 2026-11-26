@@ -287,6 +287,7 @@
 "RpmsRpc::Phr.has_access?": read
 "RpmsRpc::Phr.referrals_for_visits": read
 "RpmsRpc::Pov.add": non_idempotent_write
+"RpmsRpc::Pov.delete": non_idempotent_write
 "RpmsRpc::Pov.for_patient": read
 "RpmsRpc::Pov.for_visit": read
 "RpmsRpc::Practitioner.detail": non_idempotent_write
@@ -300,6 +301,7 @@
 "RpmsRpc::Problem.comments": read
 "RpmsRpc::Problem.delete": non_idempotent_write
 "RpmsRpc::Problem.details": read
+"RpmsRpc::Problem.duplicate_check": read
 "RpmsRpc::Problem.edit_load": read
 "RpmsRpc::Problem.for_patient": read
 "RpmsRpc::Problem.init_patient": read
