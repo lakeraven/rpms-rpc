@@ -1,0 +1,65 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb pov-delete.rb.
+---
+rpc: BGOVPOV DEL
+entry_point: DEL^BGOVPOV
+release_tag: bcer-9.0-20261124-60d39b6-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair; DUZ
+  206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T02:40:51Z'
+note: Run on a fresh throwaway container. DFN 990024 and 990025 are synthetic seed
+  patients. Setup opens the visit and files the problem and its diagnosis; HOSPITAL
+  LOCATION 6, INSTITUTION 7819, F32.9 and SNOMED CT 370143000 are the build's own
+  entries.
+captures:
+- name: delete_wrong_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.07'
+    IENS: 206,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'delete: the diagnosis, named with DFN 990025, whose it is not'
+  raw_return: "5\0[Data]\r9000010.07^206^.02^990024^\r"
+  sha256: 278ccae8a72c054f353191375c8dcb7717392d2a62be7b55c2154e6ae120ccb0
+- name: delete/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.07'
+    IENS: 206,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'delete: the diagnosis, with the problem it was filed from'
+  raw_return: "5\0[Data]\r9000010.07^206^.02^990024^\r"
+  sha256: 278ccae8a72c054f353191375c8dcb7717392d2a62be7b55c2154e6ae120ccb0
+- name: delete/2
+  rpc: BGOVPOV DEL
+  inputs:
+  - '206'
+  - '149'
+  context: 'delete: the diagnosis, with the problem it was filed from'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: delete/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.07'
+    IENS: 206,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'delete: the diagnosis, with the problem it was filed from'
+  raw_return: "7\0[ERROR]\r"
+  sha256: 99bfcc86e844c1677120732d7693ad6bdda93da90ae267f5e9ec5cdcc0e3e087
+- name: delete_again/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.07'
+    IENS: 206,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'delete: the same diagnosis again, no longer on file'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b

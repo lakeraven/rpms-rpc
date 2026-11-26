@@ -1,0 +1,110 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb problem-duplicate-check.rb.
+---
+rpc: BGOPROB2 DUPCHK
+entry_point: DUPCHK^BGOPROB2
+release_tag: bcer-9.0-20261124-60d39b6-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair; DUZ
+  206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T02:40:45Z'
+note: Run on a fresh throwaway container, flows in order. DFN 990023 is a synthetic
+  seed patient. SNOMED CT 65363002 and INSTITUTION 7819 are the build's own entries.
+captures:
+- name: check_new_left/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^65363002^272741003|7771000^
+  context: 'check: otitis media, left, on DFN 990023, which holds no problem for it'
+  raw_return: "5\00^65363002^272741003|7771000^804858018^Otitis media^1^Laterality|Left^H66.90^^^Y^1\r"
+  sha256: 9f8824ee98f99e2d2d6ae883d18ae0d6455736fae796df5c33e689382b934d39
+- name: add_left/1
+  rpc: BGOPROB SET
+  inputs:
+  - '990023'
+  - ''
+  - ''
+  - - P^65363002^804858018^Otitis media^H66.90^7819^^^^^^^272741003|7771000
+  - '1'
+  context: 'add: otitis media, left, H66.90, its description 804858018, at location
+    7819'
+  raw_return: "5\0148"
+  sha256: 123678f104cc58bf046047d547132678796062af041336346019a5a955005d10
+- name: add_left/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'add: otitis media, left, H66.90, its description 804858018, at location
+    7819'
+  raw_return: "6\0[Data]\r9000011^148^.01^507557^\r9000011^148^.02^990023^\r9000011^148^.12^E^\r"
+  sha256: 63969f9a577daab181a3814a6dddc2528163bf4589a2f4638122aff5273dbabf
+- name: check_on_file_left/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^65363002^272741003|7771000^
+  context: 'check: otitis media, left, now on file'
+  raw_return: "5\0148^65363002^272741003|7771000^804858018^Otitis media (disorder),
+    Left | Otitis media^1^Laterality|Left^H66.90^E^^Y^1\r"
+  sha256: ea13a3ca39444d8cc40af5b0ef16b154c80f69aaa633530e0a8e2ad23cd1c40c
+- name: check_right/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^65363002^272741003|24028007^
+  context: 'check: otitis media, right, which the left problem does not hold'
+  raw_return: "5\00^65363002^272741003|24028007^804858018^Otitis media^1^Laterality|Right^H66.90^^^Y^1\r"
+  sha256: 1bb8ec7cf5634b9efa32573475648465356bca68eb3d7e0ae6b1bcd4eed85f10
+- name: check_unlateralized/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^65363002^^
+  context: 'check: otitis media with no laterality'
+  raw_return: "5\00^65363002^^804858018^Otitis media^1^^H66.90^^^Y^0\r148^65363002^272741003|7771000^804858018^Otitis
+    media (disorder), Left | Otitis media^0^Laterality|Left^H66.90^E^^Y^\r"
+  sha256: 85463623f7784b1741e4fc462b9637442f390da7838e5d60e4e2e909ac917490
+- name: delete/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: the left problem, reason Entered in error'
+  raw_return: "5\0[Data]\r9000011^148^.01^507557^\r9000011^148^.02^990023^\r9000011^148^.12^E^\r"
+  sha256: a255dfd00fd60ecdd8d5a727c81bd2a134f8ce7fef1290611debedc98c18ad0d
+- name: delete/2
+  rpc: BGOPROB DEL
+  inputs:
+  - 148^^Entered in error
+  context: 'delete: the left problem, reason Entered in error'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: delete/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: the left problem, reason Entered in error'
+  raw_return: "7\0[Data]\r9000011^148^.01^507557^\r9000011^148^.02^990023^\r9000011^148^.12^D^\r"
+  sha256: 7eede274f6f9de0ee994402778c56421070bb3936005b5ff3bba754b1a702ffa
+- name: check_after_delete/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^65363002^272741003|7771000^
+  context: 'check: otitis media, left, after the delete'
+  raw_return: "5\00^65363002^272741003|7771000^804858018^Otitis media^1^Laterality|Left^H66.90^^^Y^1\r"
+  sha256: 9f8824ee98f99e2d2d6ae883d18ae0d6455736fae796df5c33e689382b934d39
+- name: check_two_maps/1
+  rpc: BGOPROB2 DUPCHK
+  inputs:
+  - 990023^421986006^^
+  context: 'check: SNOMED CT 421986006, which BSTS maps to two ICD-10-CM codes'
+  raw_return: "5\00^421986006^^2615537011^Persistent proteinuria associated with type
+    2 diabetes mellitus^1^^E11.29;R80.1^^^^0\r"
+  sha256: ef9a74f71d521ae06e4f387e379f262c4c6cc1a3dc8c9f4a3015cc5621bece51

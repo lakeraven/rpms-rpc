@@ -1109,6 +1109,24 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOPROB2 DUPCHK — DUPCHK^BGOPROB2(RET,INP) (BGOPROB2.m:92), the check
+    # VueCentric's problem entry runs before it adds a concept. One param:
+    #   DFN ^ SNOMED CT ^ laterality attribute|qualifier ^ problem IEN
+    # (the routine's own header names the pieces one place off; it reads
+    # them at :94-99). One row per problem on file, not deleted, for the
+    # concept or an equivalent lateralized one (EQUIV^BSTSAPI; the APCT and
+    # ASLT cross-references), or one row with IEN 0, the concept as a new
+    # entry (:117-129, SETDATA :226):
+    #   IEN ^ SNOMED CT ^ laterality ^ description ID ^ narrative ^ exact ^
+    #   laterality text ^ ICD codes (;-joined) ^ status ^ default status ^
+    #   prompts laterality (Y) ^ lateralized (1/0)
+    # Read line by line by Problem.duplicate_check.
+    DataMapper.define(:problem_duplicate_check) do |m|
+      m.rpc "BGOPROB2 DUPCHK"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
     # ========================================================================
     # INTEGRATED PROBLEM LIST READS (BGOPROB GET, BGOPROB1 GETONE / EDPROB)
     # ========================================================================
@@ -1198,6 +1216,17 @@ module RpmsRpc
     #   First/Revisit[4]^Injury Dt[5]^Onset Date[6]
     DataMapper.define(:pov_set) do |m|
       m.rpc "BGOVPOV SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
+    # BGOVPOV DEL — DEL^BGOVPOV(RET,VPOV,PROB) (BGOVPOV.m:196-205). With
+    # PROB, the visit is first taken off that problem's visit multiple
+    # (#9000011.14); then VFDEL^BGOUTL2 checks the visit (CHKVISIT^BGOUTL)
+    # and deletes the V POV (BGOUTL2.m:208-219). "" on success, else
+    # -CODE^text.
+    DataMapper.define(:pov_remove) do |m|
+      m.rpc "BGOVPOV DEL"
       m.context VUECENTRIC
       m.scalar :result
     end

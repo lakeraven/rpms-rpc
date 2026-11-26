@@ -2,6 +2,7 @@
 
 require_relative "../mappings"
 require_relative "../shape"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for visit purpose-of-visit (POV) entry — visit-level diagnosis
@@ -11,6 +12,8 @@ module RpmsRpc
   module Pov
     extend self
     extend Shape::Declarable
+
+    POV_FILE = "9000010.07"
 
     # The diagnoses recorded on the patient's visits, in one read: { ien:,
     # visit_ien:, visit_date:, facility:, icd_code:, icd_name:, narrative:,
@@ -113,7 +116,49 @@ module RpmsRpc
     end
     shape :add, resource: "purposes-of-visit", verb: "POST", path: "/patients/{dfn}/purposes-of-visit"
 
+    # Remove a visit diagnosis: BGOVPOV DEL (DEL^BGOVPOV, BGOVPOV.m:196).
+    # With problem_ien, the build first takes the visit off that problem's
+    # visit list, so the problem no longer reads as used on it. The V POV
+    # (#9000010.07) is read first, and nothing is sent unless its .02 is
+    # this patient (:not_found, :wrong_patient); it is read again after,
+    # and an entry still on file is :not_filed. A visit the build will not
+    # change answers -n^text (CHKVISIT^BGOUTL).
+    #
+    # Returns { success:, ien:, raw: }, plus error: on a refusal.
+    def delete(dfn, pov_ien, problem_ien: nil)
+      return failure if invalid_id?(dfn) || invalid_id?(pov_ien)
+      return failure.merge(error: "problem_ien must be a positive integer") if problem_ien && invalid_id?(problem_ien)
+
+      mapping = DataMapper.pov_remove
+      mapping.in_context do
+        patient = pov_patient(pov_ien)
+        next failure.merge(error: patient) if patient.is_a?(Symbol)
+        next failure.merge(error: :wrong_patient) unless patient == dfn.to_s
+
+        # Client called directly: DEL answers "" on success, which
+        # fetch_scalar would collapse into nil (indistinguishable from broker
+        # silence, and silence must never read as a delete).
+        raw = RpmsRpc.client.call_rpc(mapping.rpc_name, pov_ien.to_s, problem_ien.to_s)
+        next { success: false, ien: pov_ien.to_i, raw: raw } unless DataMapper.write_accepted?(raw)
+        next { success: true, ien: pov_ien.to_i, raw: raw } if pov_patient(pov_ien) == :not_found
+
+        { success: false, ien: pov_ien.to_i, raw: raw, error: :not_filed }
+      end
+    end
+    shape :delete, resource: "purposes-of-visit", verb: "DELETE", path: "/patients/{dfn}/purposes-of-visit/povs/{pov_ien}"
+
     private
+
+    # The V POV's .02 PATIENT, internal; :not_found when GETS^DIQ answers
+    # an error or no field for the entry; :unreadable when the read cannot
+    # be trusted.
+    def pov_patient(ien)
+      entry = DdrFileman.gets_entry(file: POV_FILE, iens: "#{ien},", fields: ".02", flags: "I")
+      return :unreadable if entry.nil? || entry[:malformed] || entry[:stray] || entry[:altered]
+      return :not_found if entry[:error] || entry[:fields].empty?
+
+      entry[:fields].dig(".02", :internal).to_s
+    end
 
     def failure
       { success: false, ien: nil, raw: nil }
