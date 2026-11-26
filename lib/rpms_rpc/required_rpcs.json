@@ -516,7 +516,12 @@
     "RpmsRpc::Terminology": [
       "BSTS GET CODESETS",
       "BSTS GET CONCEPT DETAIL",
+      "BSTS GET SUBSET LIST",
+      "BSTS GET USER PREFS",
+      "BSTS ICD9 TO SNOMED",
+      "BSTS LOG SELECTED CONCEPT",
       "BSTS SEARCH TYPE AHEAD",
+      "BSTS SET USER PREFS",
       "BSTS SNOMED SEARCH"
     ],
     "RpmsRpc::Tribal": [
@@ -2190,12 +2195,53 @@
         "test/fixtures/captured_replies/bsts-terminology.yml"
       ]
     },
+    "BSTS GET SUBSET LIST": {
+      "methods": {
+        "RpmsRpc::Terminology.subsets": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-subsets-icd9.yml"
+      ]
+    },
+    "BSTS GET USER PREFS": {
+      "methods": {
+        "RpmsRpc::Terminology.preferences": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-user-prefs.yml"
+      ]
+    },
+    "BSTS ICD9 TO SNOMED": {
+      "methods": {
+        "RpmsRpc::Terminology.from_icd9": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-subsets-icd9.yml"
+      ]
+    },
+    "BSTS LOG SELECTED CONCEPT": {
+      "methods": {
+        "RpmsRpc::Terminology.record_selection": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-user-prefs.yml"
+      ]
+    },
     "BSTS SEARCH TYPE AHEAD": {
       "methods": {
         "RpmsRpc::Terminology.type_ahead": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsts-type-ahead.yml"
+      ]
+    },
+    "BSTS SET USER PREFS": {
+      "methods": {
+        "RpmsRpc::Terminology.delete_preferences": "non_idempotent_write",
+        "RpmsRpc::Terminology.update_preferences": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsts-user-prefs.yml"
       ]
     },
     "BSTS SNOMED SEARCH": {
