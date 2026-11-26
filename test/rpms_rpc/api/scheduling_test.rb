@@ -47,7 +47,9 @@ class SchedulingTest < Minitest::Test
   end
 
   def replay(script)
-    @client = Replay.new(script.transform_values { |names| Array(names).map { |n| CapturedReplies.raw(SLUG, n) } })
+    @client = Replay.new(script.transform_values do |names|
+      Array(names).map { |n| n.include?(":") ? CapturedReplies.raw(*n.split(":", 2)) : CapturedReplies.raw(SLUG, n) }
+    end)
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = @client }
     @client
@@ -453,6 +455,30 @@ class SchedulingTest < Minitest::Test
     variable_length?: [ [ 3 ], { "BSDX CLINIC VAR APPT" => "variable_length" } ]
   }.freeze
 
+  # The lookups beside the calendar (scheduling_lookups.rb), on the replies
+  # bsdx-lookups.yml recorded as flows ("<slug>:<flow>/<n>").
+  LOOKUP = "bsdx-lookups"
+  SLOT = Time.new(2027, 1, 13, 10, 0, 0)
+  LOOKUP_CALLS = {
+    schedule_users: [ [], { "BSDX SCHEDULE USER" => "#{LOOKUP}:schedule_users/1" } ],
+    scheduling_manager?: [ [ { duz: 208 } ], { "BSDX SCHEDULING USER INFO" => "#{LOOKUP}:scheduling_manager/1" } ],
+    user_resource_groups: [ [ { duz: 208 } ], { "BSDX RESOURCE GROUPS BY USER" => "#{LOOKUP}:resource_groups/1" } ],
+    user_resource_group_members: [ [ { duz: 208 } ], { "BSDX GROUP RESOURCE" => "#{LOOKUP}:user_resource_group_members/1" } ],
+    resource_letters: [ [ [ 1, 2 ] ], { "BSDX RESOURCE LETTERS" => "#{LOOKUP}:resource_letters/1" } ],
+    no_show_count: [ [ 990_017, 3 ], { "BSDX NOSHOW COUNT" => "#{LOOKUP}:no_show_count/1" } ],
+    patient_lookup: [ [ "QUEBEC,SAGE" ], { "BSDXPatientLookupRS" => "#{LOOKUP}:patient_lookup/1" } ],
+    appointment_events: [ [ 990_020 ], { "BSDX APPT EVENT LOG" => "#{LOOKUP}:appointment_events/1" } ],
+    appointment_letter_list: [ [ [ 1 ], { start_date: SLOT.to_date, end_date: SLOT.to_date } ],
+                               { "BSDX CLINIC LETTERS" => "#{LOOKUP}:appointment_letter_list/1" } ],
+    cancellation_letter_list: [ [ [ 1 ], { start_date: SLOT.to_date, end_date: SLOT.to_date } ],
+                                { "BSDX CANCEL CLINIC LIST" => "#{LOOKUP}:cancellation_letter_list/1" } ],
+    appointment_overlaps: [ [ { resource: "DEMO PRIMARY CARE", start_time: SLOT, end_time: SLOT + 1200 } ],
+                            { "BSDX APPT BLOCKS OVERLAP" => "#{LOOKUP}:appointment_overlaps/1" } ],
+    access_block_overlaps: [ [ { resource: "DEMO PRIMARY CARE", start_time: SLOT - 3600, end_time: SLOT } ],
+                             { "BSDX TYPE BLOCKS OVERLAP" => "#{LOOKUP}:access_block_overlaps/1" } ],
+    wellness_handout_types: [ [], { "BSDX HS PWH TYPES" => "#{LOOKUP}:wellness_handout_types/1" } ]
+  }.freeze
+
   # BEHOENCX FETCH is not a BSDX RPC. The pinned build serves it only
   # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
   FETCH_CALLS = {
@@ -467,12 +493,12 @@ class SchedulingTest < Minitest::Test
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys + COMPOSED_CALLS).sort,
-      "a new Scheduling method must be added to BSDX_CALLS or FETCH_CALLS so its context bind is proven"
+    assert_equal expected, (BSDX_CALLS.keys + LOOKUP_CALLS.keys + FETCH_CALLS.keys + COMPOSED_CALLS).sort,
+      "a new Scheduling method must be added to BSDX_CALLS, LOOKUP_CALLS or FETCH_CALLS so its context bind is proven"
   end
 
   def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context
-    BSDX_CALLS.each do |method, (args, script)|
+    BSDX_CALLS.merge(LOOKUP_CALLS).each do |method, (args, script)|
       run_scoped(method, args, script, caller: "CIAV VUECENTRIC", expect: "BSDXRPC")
     end
   end

@@ -1,0 +1,63 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb dgwpt.rb.
+---
+rpc: DGWPT SELECT
+entry_point: SELECT^DGWPT
+release_tag: bcer-9.0-20261125-9df42d6-ydb
+image: openrpms@sha256:22deb4dc6ad510ff4e0098b60c96a6c616442e4f34ddddfdc8766b728e4de247
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, the front desk clerk test role's published demo
+  pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T06:39:52Z'
+note: 'Run on a throwaway container: DGWPT SELECT records the clerk''s last-selected
+  patient.'
+captures:
+- name: date_of_death/1
+  rpc: DGWPT DIEDON
+  inputs:
+  - '990017'
+  context: DgPatientSelect.date_of_death(990017)
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: sensitivity/1
+  rpc: DGWPT SELCHK
+  inputs:
+  - '990017'
+  context: DgPatientSelect.sensitivity(990017)
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: means_test_required/1
+  rpc: DG CHK PAT MEANS TEST REQUIRED
+  inputs:
+  - '990017'
+  context: DgPatientSelect.means_test_required?(990017)
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: primary_care/1
+  rpc: DGWPT1 PRCARE
+  inputs:
+  - '990017'
+  context: DgPatientSelect.primary_care(990017)
+  raw_return: "5\0^^"
+  sha256: 62863544905feb2f06f22c1e800d89a0ac465cde8155addd96265ba2c55e55f6
+- name: clinic_date_ranges/1
+  rpc: DGWPT CLINRNG
+  inputs: []
+  context: DgPatientSelect.clinic_date_ranges
+  raw_return: "5\0T;T^Today\rT+1;T+1^Tomorrow\rT-1;T-1^Yesterday\rT-7;T^Past Week\rT-31;T^Past
+    Month\rS^Specify Date Range...\r"
+  sha256: 98e2c5deff47c2fead9e0b7d17c8767640272c6ac15efeafe4b208036b5ffc72
+- name: select/1
+  rpc: DGWPT SELECT
+  inputs:
+  - '990017'
+  context: DgPatientSelect.select(990017)
+  raw_return: "5\0QUEBEC,SAGE^F^3010609^666181017^^^^^0^^0^0^^^25^0"
+  sha256: 10d8325b7dc7a0ca3a2ec1c546db70742f31d0e42bc533890fef58698f6ca2d5
+- name: last_selected/1
+  rpc: DGWPT TOP
+  inputs: []
+  context: DgPatientSelect.last_selected after the selection
+  raw_return: "5\0990017^QUEBEC,SAGE\r"
+  sha256: bdca397f77550f09190f6fa69450de14f760ee1132328008f63e93cedf1d5c8d
