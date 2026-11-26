@@ -878,6 +878,80 @@ module RpmsRpc
       m.context "BSTSRPC"
       m.field 0, :word
     end
+
+    # BSTS GET SUBSET LIST — SUBSET^BSTSRPC(DATA,INPUT) (BSTSRPC.m:320-370 on
+    # the bcer-9.0 image): NMID | LOCAL | DEBUG | IPL. The routine forces
+    # LOCAL to 1 (:339), so it reads the local cache's subsets (the "E" index
+    # of file #9002318.4, SUBSET^BSTSAPIA). A BMX typed header
+    # (T04096SUBSET^T04096DISPLAY_SUBSETS), then SUBSET ^ DISPLAY per subset;
+    # DISPLAY drops a leading "SRCH ". IPL 1 keeps only the SRCH subsets, the
+    # problem list's.
+    DataMapper.define(:bsts_subsets) do |m|
+      m.rpc "BSTS GET SUBSET LIST"
+      m.context "BSTSRPC"
+      m.field 0, :name
+      m.field 1, :display_name
+    end
+
+    # BSTS ICD9 TO SNOMED — ICD2SMD^BSTSRPC(DATA,INPUT) (BSTSRPC.m:136-304):
+    # ICD9 | SUBSETS ("~"-joined). It asks ICD2SMD^BSTSAPID with LOCAL blank,
+    # which reads as local (BSTSAPID.m:182), so the local cache answers first
+    # (ICD2SMD^BSTSAPIF); a code it maps to nothing is then asked of the DTS
+    # seam, which answers nothing on a stack with no terminology server
+    # (cloud-rpms ADR-0018). A BMX typed header
+    # (T00050CONCID^T00050DESC_ID^T00250PREF_TRM^T04096RELATIONS^T04096SUBSETS^T04096ICD9),
+    # then CONCID ^ DESC_ID ^ PREF_TRM ^ RELATIONS ^ SUBSETS ^ ICD9 per
+    # concept (:300). RELATIONS ($C(28)-joined, each $C(29)-joined) and
+    # SUBSETS ($C(28)-joined) hold spaces, and the CIA line delivers those
+    # separators as spaces, so they are not mapped. A text input ("?" first)
+    # searches instead; Terminology.from_icd9 refuses it.
+    DataMapper.define(:bsts_icd9_to_snomed) do |m|
+      m.rpc "BSTS ICD9 TO SNOMED"
+      m.context "BSTSRPC"
+      m.field 0, :concept_id
+      m.field 1, :description_id
+      m.field 2, :preferred_term
+      m.field 5, :icd
+    end
+
+    # BSTS GET USER PREFS — GET^BSTSUPRF(DATA,NMID) (BSTSUPRF.m:90-136): the
+    # signed-on user's (DUZ) search preferences for a code set, from file
+    # #9002318.7. A BMX typed header (T00100SETTINGS), then one row,
+    # FS | CNT | PC | AC: search type (F fully specified name, S synonym),
+    # records to return (25, 50, 100, 200 or ALL), show parents and children
+    # (1/0), disable autocomplete (1/0). "|||" when the user has saved none.
+    DataMapper.define(:bsts_user_prefs) do |m|
+      m.rpc "BSTS GET USER PREFS"
+      m.context "BSTSRPC"
+      m.field 0, :settings
+    end
+
+    # BSTS SET USER PREFS — SET^BSTSUPRF(DATA,NMID,INPUT) (BSTSUPRF.m:6-88):
+    # files FS | CNT | PC | AC for the signed-on user in file #9002318.7. The
+    # routine NEWs NMID before reading it (:24), so every save files under
+    # SNOMED CT (36) whatever NMID is sent. All four blank resets: the user's
+    # SNOMED CT entry is deleted (RESET, :138-171). A BMX typed header
+    # (T00001RESULT^T00100ERROR_MESSAGE), then "1^" filed or "-1^<text>"
+    # refused ("Invalid Record Count Value", "Could not file entry", ...).
+    DataMapper.define(:bsts_set_user_prefs) do |m|
+      m.rpc "BSTS SET USER PREFS"
+      m.context "BSTSRPC"
+      m.field 0, :result
+      m.field 1, :message
+    end
+
+    # BSTS LOG SELECTED CONCEPT — SELECT^BSTSRPC1(DATA,CONCID,NMID,DESCID,SUBSET)
+    # (BSTSRPC1.m:9-57): VueCentric's call after a concept is picked, which
+    # queues the pick for DTS (LOG^BSTSAPIL, ^XTMP("BSTSPROCQ","L")) when
+    # concept-selection logging is on. A BMX typed header (T00001SUCCESS),
+    # then "1". BSTS*2.0*7 switched that logging off in CENABLE^BSTSAPIL
+    # (it quits 0), so on these builds the call answers "1" and queues
+    # nothing. A blank CONCID answers nothing and sets BMXSEC (:29).
+    DataMapper.define(:bsts_log_selected) do |m|
+      m.rpc "BSTS LOG SELECTED CONCEPT"
+      m.context "BSTSRPC"
+      m.field 0, :success
+    end
     # ========================================================================
     # PHR / CCD (BEHOCCD*, BEHOCIR*)
     # ========================================================================

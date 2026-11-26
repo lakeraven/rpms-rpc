@@ -458,8 +458,14 @@
 "RpmsRpc::Taxonomy.members": read
 "RpmsRpc::Terminology.code_sets": read
 "RpmsRpc::Terminology.concept": read
+"RpmsRpc::Terminology.delete_preferences": non_idempotent_write
+"RpmsRpc::Terminology.from_icd9": read
+"RpmsRpc::Terminology.preferences": read
+"RpmsRpc::Terminology.record_selection": non_idempotent_write
 "RpmsRpc::Terminology.search": read
+"RpmsRpc::Terminology.subsets": read
 "RpmsRpc::Terminology.type_ahead": read
+"RpmsRpc::Terminology.update_preferences": non_idempotent_write
 "RpmsRpc::Tribal.communities": read
 "RpmsRpc::Tribal.eligibility": read
 "RpmsRpc::Tribal.enrollment": read
