@@ -89,6 +89,25 @@
       "AMHG GET COMMUNITY ACTIVITIES",
       "AMHG GET COMMUNITY ACTIVITY"
     ],
+    "RpmsRpc::BehavioralHealth::Encounters": [
+      "AMHBH RECORD DISPLAY",
+      "AMHBH TIU FIELD",
+      "AMHBH TIU IEN",
+      "AMHG CHECK VISIT EXISTS",
+      "AMHG GET ESIG",
+      "AMHG GET HISTORICAL SCREENING",
+      "AMHG GET MHSS RECORD DISPLAY",
+      "AMHG GET PATIENT DEMOGRAPHICS",
+      "AMHG GET PCC PL NN",
+      "AMHG GET PCC PROBLEM LIST",
+      "AMHG GET PCC RECORD DISPLAY",
+      "AMHG GET PCC VISITS",
+      "AMHG GET SUIC FORMS ALL PATS",
+      "AMHG GET SUICIDE FORM ORI",
+      "AMHG GET VISIT BH WELLNES ACT",
+      "AMHG GET VISIT LIST",
+      "AMHG GET VISITS ALL PATS"
+    ],
     "RpmsRpc::BehavioralHealth::Groups": [
       "AMHG GET GROUP CPT",
       "AMHG GET GROUP EDU",
@@ -104,10 +123,21 @@
       "AMHG GET INTAKE DOCUMENTS"
     ],
     "RpmsRpc::BehavioralHealth::Reference": [
+      "AMHG CHECK ACTIVITY PCC",
+      "AMHG CHECK BH ICD",
+      "AMHG CHECK LOCK",
+      "AMHG GET ACTIVITY CODE",
       "AMHG GET ADMIN RECORDS",
       "AMHG GET CLINICS",
+      "AMHG GET HEALTH SUMMARY TYPES",
+      "AMHG GET KEYS",
+      "AMHG GET MEASUREMENT HELP",
       "AMHG GET PATIENT",
-      "AMHG GET SITE PARAMETERS"
+      "AMHG GET SET OF CODES",
+      "AMHG GET SITE PARAMETERS",
+      "AMHG GET TIMEOUT",
+      "AMHG GET VERSION",
+      "AMHG VALIDATE MEASUREMENT"
     ],
     "RpmsRpc::BehavioralHealth::Wellness": [
       "AMHG GET VISIT MSR DATA ENTRY",
@@ -891,12 +921,76 @@
         "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
+    "AMHBH RECORD DISPLAY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.mhss_record_summary": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHBH TIU FIELD": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.tiu_field": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHBH TIU IEN": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.tiu_document": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG CHECK ACTIVITY PCC": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.activity_passes_to_pcc?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG CHECK BH ICD": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.pov_passes_to_pcc?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG CHECK LOCK": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.locked?": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG CHECK VISIT EXISTS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.pcc_visit?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG CREATE/EDIT VISIT": {
       "methods": {
         "RpmsRpc::BehavioralHealth.save_pcc_visit": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-create-edit-visit.yml"
+      ]
+    },
+    "AMHG GET ACTIVITY CODE": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.activity_code": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET ADMIN RECORDS": {
@@ -950,6 +1044,14 @@
       "replies": [
         "test/fixtures/captured_replies/amhg-groups-cases.yml",
         "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
+    },
+    "AMHG GET ESIG": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.signature_status": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET GROUP CPT": {
@@ -1024,6 +1126,22 @@
         "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
+    "AMHG GET HEALTH SUMMARY TYPES": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.health_summary_types": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET HISTORICAL SCREENING": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.screening_history": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG GET INTAKE": {
       "methods": {
         "RpmsRpc::BehavioralHealth::Intake.intakes": "read"
@@ -1042,6 +1160,30 @@
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
+    "AMHG GET KEYS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.keys": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET MEASUREMENT HELP": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.measurement_help": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET MHSS RECORD DISPLAY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.mhss_record_display": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG GET PATIENT": {
       "methods": {
         "RpmsRpc::BehavioralHealth::Reference.patients": "read"
@@ -1051,6 +1193,54 @@
         "test/fixtures/captured_replies/amhg-reference.yml"
       ]
     },
+    "AMHG GET PATIENT DEMOGRAPHICS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.demographics": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET PCC PL NN": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.next_pcc_problem_number": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET PCC PROBLEM LIST": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.pcc_problems": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET PCC RECORD DISPLAY": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.pcc_visit_display": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET PCC VISITS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.pcc_visit_choices": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
+    "AMHG GET SET OF CODES": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.field_codes": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG GET SITE PARAMETERS": {
       "methods": {
         "RpmsRpc::BehavioralHealth::Reference.site_parameters": "read"
@@ -1058,6 +1248,14 @@
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml",
         "test/fixtures/captured_replies/amhg-reference.yml"
+      ]
+    },
+    "AMHG GET SUIC FORMS ALL PATS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.suicide_forms_all_patients": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET SUICIDE FORM": {
@@ -1084,6 +1282,14 @@
         "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
+    "AMHG GET SUICIDE FORM ORI": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.suicide_form_other_information": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG GET SUICIDE FORM SUB": {
       "methods": {
         "RpmsRpc::BehavioralHealth.suicide_form_substances": "read"
@@ -1098,6 +1304,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
+    },
+    "AMHG GET TIMEOUT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.timeout": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET TP NARRATIVE": {
@@ -1138,6 +1352,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
+    },
+    "AMHG GET VERSION": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.version_current?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET VISIT ACTIVITY": {
@@ -1188,6 +1410,14 @@
         "test/fixtures/captured_replies/amhg-reads.yml"
       ]
     },
+    "AMHG GET VISIT BH WELLNES ACT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.wellness_activities": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
+      ]
+    },
     "AMHG GET VISIT CC": {
       "methods": {
         "RpmsRpc::BehavioralHealth.visit_chief_complaint": "read"
@@ -1212,6 +1442,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
+    },
+    "AMHG GET VISIT LIST": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.visit_list": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG GET VISIT MSR DATA ENTRY": {
@@ -1246,6 +1484,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-reads.yml"
+      ]
+    },
+    "AMHG GET VISITS ALL PATS": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Encounters.visits_all_patients": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "AMHG SAVE HEALTH FACTORS": {
@@ -1294,6 +1540,14 @@
       },
       "replies": [
         "test/fixtures/captured_replies/amhg-save-visit.yml"
+      ]
+    },
+    "AMHG VALIDATE MEASUREMENT": {
+      "methods": {
+        "RpmsRpc::BehavioralHealth::Reference.measurement_validation": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/amhg-encounters.yml"
       ]
     },
     "BEHOART SIGNLIST": {

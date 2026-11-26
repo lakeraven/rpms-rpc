@@ -48,7 +48,8 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
   # RPCs the name pattern catches whose routines read only, on bcer-9.0-20261124-60d39b6-ydb.
   READ_DESPITE_NAME = {
     "ORWOR UNSIGN" => "UNSIGN^ORWOR (ORWOR.m:116-156) lists unsigned order actions into a local array; it sets no global and takes no lock",
-    "ORQQPL EDIT LOAD" => "EDLOAD^ORQQPL1 (ORQQPL1.m:70-78) loads the problem into local arrays through GETFLDS^GMPLEDT3 and EN^DIQ1"
+    "ORQQPL EDIT LOAD" => "EDLOAD^ORQQPL1 (ORQQPL1.m:70-78) loads the problem into local arrays through GETFLDS^GMPLEDT3 and EN^DIQ1",
+    "AMHG GET SET OF CODES" => "SC^AMHGT reads a field's set of codes from ^DD into ^AMHTMP($J), the reply's own scratch global; \"SET\" is the DD's set-of-codes type"
   }.freeze
 
   # Representative write RPCs shipped in required_rpcs.json — the pattern must not be vacuous.

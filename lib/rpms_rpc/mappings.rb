@@ -32,3 +32,5 @@ require_relative "mappings/amhg_case_management"
 require_relative "mappings/amhg_intake"
 # Screening and measurement writes (rpms-rpc#540).
 require_relative "mappings/amhg_wellness"
+# The record selector, record displays and visit checks (BehavioralHealth::Encounters).
+require_relative "mappings/amhg_encounters"

@@ -139,6 +139,89 @@ module RpmsRpc
         end
       end
       shape :admin_records, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/admin-records"
+      # The health summary type names the BH GUI offers (HS^AMHGT).
+      def health_summary_types
+        rows(:amhg_health_summary_types).filter_map { |row| presence(row[:name]) }
+      end
+      shape :health_summary_types, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/health-summary-types"
+
+      # The MHSS ACTIVITY CODE (#9002012.4) with this code (ACTCODE^AMHGUA):
+      # { ien:, name:, code: }, or nil when no activity has it.
+      def activity_code(code)
+        value = first_row(:amhg_activity_code, code)&.dig(:value).to_s
+        return nil if value.empty?
+
+        ien, name, found = value.split(Wire::IEN_NAME_SEPARATOR, -1)
+        { ien: presence(ien), name: presence(name), code: presence(found) }
+      end
+      shape :activity_code, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/activity-code"
+
+      # Whether a visit with this activity (its #9002012.4 IEN) passes to PCC
+      # (ACT^AMHGPCC): true when the activity's .04 is set.
+      def activity_passes_to_pcc?(activity_ien)
+        presence(first_row(:amhg_activity_pcc_check, activity_ien)&.dig(:error)).nil?
+      end
+      shape :activity_passes_to_pcc?, resource: "behavioral-health", verb: "GET",
+                                      path: "/behavioral-health/activities/{activity_ien}/passes-to-pcc"
+
+      # The package's answer to "does this client version match" (VC^AMHGUA).
+      # Stock answers true whatever version is sent: the routine's
+      # mismatch branch still writes 1, as its own comment says, for testing.
+      def version_current?(version)
+        flag?(first_row(:amhg_version_check, version)&.dig(:present))
+      end
+      shape :version_current?, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/version-current"
+
+      # The signed-on user's security keys in a namespace (KEYS^AMHGU).
+      def keys(namespace = "AMH")
+        rows(:amhg_keys, namespace).filter_map { |row| presence(row[:key]) }
+      end
+      shape :keys, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/keys"
+
+      # A user's timeout in seconds (TIME^AMHGUA): the user's own (#200
+      # 200.1), else the kernel's (#8989.3 210). nil when neither is set.
+      def timeout(user_ien, division: nil)
+        value = first_row(:amhg_timeout, user_ien, division)&.dig(:seconds).to_s
+        value.match?(/\A\d+\z/) ? Integer(value) : nil
+      end
+      shape :timeout, resource: "behavioral-health", verb: "GET", path: "/users/{user_ien}/behavioral-health/timeout"
+
+      # The help a measurement type's entry shows (HELP^AMHGMSR), as lines.
+      def measurement_help(type_code)
+        rows(:amhg_measurement_help, type_code).map { |row| row[:line].to_s.rstrip }
+      end
+      shape :measurement_help, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/measurement-help"
+
+      # Whether a value passes the measurement type's input transform
+      # (VAL^AMHGMSR): { valid: true } when it does, { valid: false, help: }
+      # with the type's help lines when it does not.
+      def measurement_validation(type_code, value)
+        lines = rows(:amhg_measurement_validation, type_code, value).map { |row| row[:line].to_s.rstrip }.reject(&:empty?)
+        lines.empty? ? { valid: true } : { valid: false, help: lines }
+      end
+      shape :measurement_validation, resource: "behavioral-health", verb: "GET",
+                                   path: "/behavioral-health/measurement-validation"
+
+      # Whether an MHSS PROBLEM/POV (#9002012.2) passes to PCC: true when the
+      # entry names the code PCC files (VALIDBH^AMHGBPL, its .05).
+      def pov_passes_to_pcc?(pov_ien)
+        flag?(first_row(:amhg_pov_pcc_check, pov_ien)&.dig(:valid))
+      end
+      shape :pov_passes_to_pcc?, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/povs/{pov_ien}/passes-to-pcc"
+
+      # Whether another session holds the lock on a FileMan entry
+      # (LOCK^AMHGUA: an incremental lock with a 1-second timeout, released
+      # at once when it is got). The BH GUI asks before it opens a record.
+      def locked?(file, ien)
+        flag?(first_row(:amhg_lock_check, file, ien)&.dig(:locked))
+      end
+      shape :locked?, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/files/{file}/{ien}/locked"
+
+      # A set-of-codes field's external values, in the DD's order (SC^AMHGT).
+      def field_codes(file, field)
+        rows(:amhg_field_codes, file, field).filter_map { |row| presence(row[:value]) }
+      end
+      shape :field_codes, resource: "behavioral-health", verb: "GET", path: "/behavioral-health/files/{file}/field-codes"
     end
   end
 end

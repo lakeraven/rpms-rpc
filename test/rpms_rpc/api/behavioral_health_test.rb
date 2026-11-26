@@ -8,6 +8,7 @@ require "rpms_rpc/api/behavioral_health/case_management"
 require "rpms_rpc/api/behavioral_health/groups"
 require "rpms_rpc/api/behavioral_health/intake"
 require "rpms_rpc/api/behavioral_health/reference"
+require "rpms_rpc/api/behavioral_health/encounters"
 require_relative "behavioral_health/amhg_replay"
 
 # Tests for RpmsRpc::BehavioralHealth — the AMHG (IHS Behavioral Health) RPC
@@ -313,9 +314,49 @@ class BehavioralHealthTest < Minitest::Test
       clinics: [],
       patients: [ "PATIENT,EXAMPLE" ],
       site_parameters: [ 1 ],
-      admin_records: [ 412, { from: "3250101", to: "3251231" } ]
+      admin_records: [ 412, { from: "3250101", to: "3251231" } ],
+      health_summary_types: [],
+      activity_code: [ "12" ],
+      activity_passes_to_pcc?: [ "2" ],
+      version_current?: [ "0.0" ],
+      keys: [],
+      timeout: [ "211" ],
+      measurement_help: [ "PHQ9" ],
+      measurement_validation: [ "PHQ9", "12" ],
+      pov_passes_to_pcc?: [ "1" ],
+      locked?: [ 9_002_011, 1 ],
+      field_codes: [ 9_002_011, ".33" ]
+    },
+    BH::Encounters => {
+      visit_list: [ "990017", { from: "3000101", to: "3271231" } ],
+      visits_all_patients: [ { from: "3000101", to: "3271231" } ],
+      suicide_forms_all_patients: [ { from: "3000101", to: "3271231" } ],
+      pcc_visit_choices: [ "1" ],
+      mhss_record_display: [ "1" ],
+      pcc_visit_display: [ "120" ],
+      mhss_record_summary: [ "1" ],
+      screening_history: [ "990017", { from: "3000101", to: "3271231" } ],
+      wellness_activities: [ "990017", { from: "3000101", to: "3271231" } ],
+      signature_status: [ "2" ],
+      pcc_visit?: [ "1" ],
+      suicide_form_other_information: [ "1" ],
+      pcc_problems: [ "990017" ],
+      demographics: [ "990017", { facility: "7819" } ],
+      next_pcc_problem_number: [ "990017", { facility: "7819" } ],
+      tiu_field: [ 3101 ],
+      tiu_document: [ "2", { tiu_field: 1108 } ]
     }
   }.freeze
+
+  # The reads added with BehavioralHealth::Encounters replay the demo image's
+  # replies in amhg-encounters.yml, each from the flow named here (the method's
+  # name unless listed), with exactly the arguments AMHG_CALLS gives it.
+  ENCOUNTERS_SLUG = "amhg-encounters"
+  ENCOUNTERS_FLOWS = Hash.new { |_, method| method.to_s.delete_suffix("?").delete_prefix("mhss_") }
+                         .merge(signature_status: "signature_signed", measurement_validation: "measurement_valid").freeze
+  def encounters_call?(mod, method)
+    mod == BH::Encounters || (mod == BH::Reference && !%i[clinics patients site_parameters admin_records].include?(method))
+  end
 
   def test_the_bind_table_names_every_public_method_of_every_cluster
     AMHG_CALLS.each do |mod, table|
@@ -344,8 +385,13 @@ class BehavioralHealthTest < Minitest::Test
       table.each_key do |method|
         next if mod == BH && SAVES.include?(method)
 
-        client = AmhgReplay.flow(SLUG, READ_FLOWS[method])
-        args = READ_ARGS.fetch(method) { table.fetch(method).map { |a| a.is_a?(Integer) ? 1 : a } }
+        slug, flow = encounters_call?(mod, method) ? [ ENCOUNTERS_SLUG, ENCOUNTERS_FLOWS[method] ] : [ SLUG, READ_FLOWS[method] ]
+        client = AmhgReplay.flow(slug, flow)
+        args = if encounters_call?(mod, method)
+          table.fetch(method)
+        else
+          READ_ARGS.fetch(method) { table.fetch(method).map { |a| a.is_a?(Integer) ? 1 : a } }
+        end
         positional = args.reject { |a| a.is_a?(Hash) }
         keywords = args.find { |a| a.is_a?(Hash) } || {}
         begin
@@ -360,7 +406,7 @@ class BehavioralHealthTest < Minitest::Test
           assert_equal "AMHGRPC", call[:context],
             "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG RPCs are registered under AMHGRPC only"
         end
-        assert_equal CapturedReplies.flow_calls(SLUG, READ_FLOWS[method]), calls.map { |c| [ c[:rpc], c[:params] ] },
+        assert_equal CapturedReplies.flow_calls(slug, flow), calls.map { |c| [ c[:rpc], c[:params] ] },
                      "#{mod}.#{method} sent what the build was sent"
         assert_equal AmhgReplay::Client::SIGNON_CONTEXT, client.current_context,
           "#{mod}.#{method} left the session on #{client.current_context.inspect}"

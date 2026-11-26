@@ -24,6 +24,7 @@ module OpenApi
       "Authentication" => { path: "users", own: %w[duz user_duz] },
       "BehavioralHealth" => { path: "behavioral-health" },
       "BehavioralHealth::CaseManagement" => { path: "behavioral-health/cases" },
+      "BehavioralHealth::Encounters" => { path: "behavioral-health" },
       "BehavioralHealth::Groups" => { path: "behavioral-health/groups" },
       "BehavioralHealth::Intake" => { path: "behavioral-health/intakes" },
       "BehavioralHealth::Reference" => { path: "behavioral-health" },
