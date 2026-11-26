@@ -3,8 +3,9 @@
 require_relative "live_helper"
 require "rpms_rpc/api/terminology"
 
-# RpmsRpc::Terminology on a real build (rpms-rpc#916): SNOMED CT search,
-# type-ahead, concept detail and code sets from the local BSTS cache, under BSTSRPC.
+# RpmsRpc::Terminology on a real build (rpms-rpc#916, #963): SNOMED CT search,
+# type-ahead, concept detail, code sets, subsets and ICD-9 maps from the local
+# BSTS cache, under BSTSRPC.
 # The provider's row holds BSTSRPC; the front desk clerk's does not, and the
 # broker refuses it the option, which raises rather than reading as no
 # concepts. Reads only.
@@ -41,6 +42,41 @@ class TerminologyLiveTest < LiveSpec::Test
     assert_operator words.size, :<=, 5
     words.each { |w| assert w.downcase.start_with?("diab"), words.inspect }
     assert_empty RpmsRpc::Terminology.type_ahead("zzqxv")
+  end
+
+  # The pick lists VueCentric's picker offers, and a search narrowed to one:
+  # the problem list's subsets are the SRCH ones, and a search in SRCH
+  # Common Terms answers fewer concepts than the default problem-list search.
+  def test_subsets_list_the_pick_lists_and_a_search_narrows_to_one
+    return refused_without_bstsrpc { RpmsRpc::Terminology.subsets } if role == :front_desk_clerk
+
+    names = RpmsRpc::Terminology.subsets.map { |s| s[:name] }
+    assert_includes names, "PICK Behavioral Health"
+    assert_includes names, "SRCH Common Terms"
+
+    problem_list = RpmsRpc::Terminology.subsets(problem_list: true)
+    refute_empty problem_list
+    assert(problem_list.all? { |s| s[:name] == "SRCH #{s[:display_name]}" }, problem_list.inspect)
+
+    narrowed = RpmsRpc::Terminology.search("depression", subsets: [ "SRCH Common Terms" ], max: 200)
+    refute_empty narrowed
+    assert_operator narrowed.size, :<, RpmsRpc::Terminology.search("depression", max: 200).size
+  end
+
+  # An ICD-9-CM code the cache maps answers its SNOMED CT concepts; one it
+  # maps to none answers [], not an error, and the stack has no
+  # terminology server to fall back to.
+  def test_from_icd9_maps_a_code_to_its_snomed_concepts
+    return refused_without_bstsrpc { RpmsRpc::Terminology.from_icd9("250.00") } if role == :front_desk_clerk
+
+    concepts = RpmsRpc::Terminology.from_icd9("250.00")
+    refute_empty concepts
+    concepts.each do |c|
+      assert_match(/\A\d+\z/, c[:concept_id], c.inspect)
+      refute_empty c[:preferred_term], c.inspect
+      assert_includes c[:icd], "250.00", c.inspect
+    end
+    assert_empty RpmsRpc::Terminology.from_icd9("296.20")
   end
 
   private

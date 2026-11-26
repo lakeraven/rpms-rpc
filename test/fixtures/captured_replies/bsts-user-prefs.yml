@@ -1,0 +1,82 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bsts-user-prefs.rb.
+---
+rpc: BSTS SET USER PREFS
+entry_point: SET^BSTSUPRF
+release_tag: bcer-9.0-20261124-60d39b6-ydb-demo
+image: ghcr.io/lakeraven/openrpms@sha256:b5608b5a40caff337eaabc1ce8d1bc8b8a9c0354488aa9557493e2ed3c2edf77
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, the provider test role's published demo pair)
+bound_context: BSTSRPC
+captured_at: '2026-11-26T02:53:31Z'
+note: Run on a throwaway container. The flows run in order and end with the user's
+  preferences reset, as they were before the run.
+captures:
+- name: log_blank_concept
+  rpc: BSTS LOG SELECTED CONCEPT
+  inputs:
+  - ''
+  - '36'
+  - ''
+  - ''
+  context: 'a blank concept id, which Terminology.record_selection refuses before
+    the wire: SELECT^BSTSRPC1 sets BMXSEC and answers nothing'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: preferences_none/1
+  rpc: BSTS GET USER PREFS
+  inputs:
+  - '36'
+  context: 'Terminology.preferences before any save: none saved'
+  raw_return: "5\0T00100SETTINGS\x1E|||\x1E\x1F"
+  sha256: 858fdd518529b6e3a4391efae396d61af686c69b5936fb0c8c8921b32606c30b
+- name: save/1
+  rpc: BSTS SET USER PREFS
+  inputs:
+  - '36'
+  - S|100|1|0
+  context: 'Terminology.update_preferences: synonyms, 100 records, parents and children
+    shown'
+  raw_return: "5\0T00001RESULT^T00100ERROR_MESSAGE\x1E1^\x1E\x1F"
+  sha256: abe1eb42fef5454b47cfa0082fad4769c666758e37c8996a182471c3bb3ba119
+- name: preferences_saved/1
+  rpc: BSTS GET USER PREFS
+  inputs:
+  - '36'
+  context: 'Terminology.preferences after the save: the row it filed'
+  raw_return: "5\0T00100SETTINGS\x1ES|100|1|0\x1E\x1F"
+  sha256: cd510f448ad4744bbe12543f11d443b76bed0ab3b92a36ab6263c8979d3d36e7
+- name: save_refused/1
+  rpc: BSTS SET USER PREFS
+  inputs:
+  - '36'
+  - F|75|0|0
+  context: 'Terminology.update_preferences(max: 75): BSTS refuses the count'
+  raw_return: "5\0T00001RESULT^T00100ERROR_MESSAGE\x1E-1^Invalid Record Count Value\x1E\x1F"
+  sha256: dddec8207b9d86f6197fb9ca09329d6de94586a5bda8d4c3c4ad5a0b9960420b
+- name: reset/1
+  rpc: BSTS SET USER PREFS
+  inputs:
+  - '36'
+  - ''
+  context: 'Terminology.delete_preferences: the user''s entry deleted'
+  raw_return: "5\0T00001RESULT^T00100ERROR_MESSAGE\x1E1^\x1E\x1F"
+  sha256: abe1eb42fef5454b47cfa0082fad4769c666758e37c8996a182471c3bb3ba119
+- name: preferences_reset/1
+  rpc: BSTS GET USER PREFS
+  inputs:
+  - '36'
+  context: 'Terminology.preferences after the reset: none saved again'
+  raw_return: "5\0T00100SETTINGS\x1E|||\x1E\x1F"
+  sha256: 858fdd518529b6e3a4391efae396d61af686c69b5936fb0c8c8921b32606c30b
+- name: record_selection/1
+  rpc: BSTS LOG SELECTED CONCEPT
+  inputs:
+  - '73211009'
+  - '36'
+  - '121589010'
+  - SRCH Diabetes
+  context: Terminology.record_selection of 73211009 (Diabetes mellitus) from SRCH
+    Diabetes
+  raw_return: "5\0T00001SUCCESS\x1E1\x1E\x1F"
+  sha256: 3f869d914f83fbb183e7fd42170a7f86d55dc7f0a26cb21796f435e64b73d9d8

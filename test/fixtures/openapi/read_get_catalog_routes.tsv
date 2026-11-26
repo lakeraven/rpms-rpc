@@ -251,7 +251,10 @@ RpmsRpc::Taxonomy.list	GET /taxonomies
 RpmsRpc::Taxonomy.members	GET /taxonomies/members
 RpmsRpc::Terminology.code_sets	GET /terminologies/code-sets
 RpmsRpc::Terminology.concept	GET /terminologies/concept
+RpmsRpc::Terminology.from_icd9	GET /terminologies/from-icd9
+RpmsRpc::Terminology.preferences	GET /terminologies/preferences
 RpmsRpc::Terminology.search	GET /terminologies
+RpmsRpc::Terminology.subsets	GET /terminologies/subsets
 RpmsRpc::Terminology.type_ahead	GET /terminologies/type-ahead
 RpmsRpc::Tribal.communities	GET /tribes/communities
 RpmsRpc::Tribal.eligibility	GET /patients/{dfn}/tribes/eligibility
