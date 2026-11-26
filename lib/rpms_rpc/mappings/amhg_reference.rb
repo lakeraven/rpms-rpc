@@ -128,5 +128,81 @@ module RpmsRpc
       m.field 8, :provider_narrative
       m.field 9, :location
     end
+    # The BH GUI's small reference reads (rpms-rpc BehavioralHealth::Reference):
+    # one column each unless noted, a GLOBAL ARRAY under AMHGRPC.
+
+    # HS^AMHGT: no actual. The health summary type names.
+    DataMapper.define(:amhg_health_summary_types) do |m|
+      m.rpc "AMHG GET HEALTH SUMMARY TYPES"
+      m.field 0, :name
+    end
+
+    # ACTCODE^AMHGUA: "code". One row "ien~name~code" for an MHSS ACTIVITY
+    # CODE (#9002012.4) by its code, none when the code is not on file.
+    DataMapper.define(:amhg_activity_code) do |m|
+      m.rpc "AMHG GET ACTIVITY CODE"
+      m.field 0, :value
+    end
+
+    # ACT^AMHGPCC: "activity ien". "" when the activity passes to PCC
+    # (#9002012.4 .04 set), "1" when it does not.
+    DataMapper.define(:amhg_activity_pcc_check) do |m|
+      m.rpc "AMHG CHECK ACTIVITY PCC"
+      m.field 0, :error
+    end
+
+    # VC^AMHGUA: "version". 1 when the client's version matches the
+    # package's; the stock routine also answers 1 when it does not (its
+    # testing branch is the live one).
+    DataMapper.define(:amhg_version_check) do |m|
+      m.rpc "AMHG GET VERSION"
+      m.field 0, :present
+    end
+
+    # KEYS^AMHGU: "namespace". The signed-on user's keys in the namespace.
+    DataMapper.define(:amhg_keys) do |m|
+      m.rpc "AMHG GET KEYS"
+      m.field 0, :key
+    end
+
+    # TIME^AMHGUA: "duz|division". The user's timeout (#200 200.1), else the
+    # kernel's (#8989.3 210), in seconds.
+    DataMapper.define(:amhg_timeout) do |m|
+      m.rpc "AMHG GET TIMEOUT"
+      m.field 0, :seconds
+    end
+
+    # HELP^AMHGMSR: "measurement type code". The type's help lines.
+    DataMapper.define(:amhg_measurement_help) do |m|
+      m.rpc "AMHG GET MEASUREMENT HELP"
+      m.field 0, :line
+    end
+
+    # VAL^AMHGMSR: "type|value". No row when the value passes the type's
+    # input transform; the type's help lines when it does not.
+    DataMapper.define(:amhg_measurement_validation) do |m|
+      m.rpc "AMHG VALIDATE MEASUREMENT"
+      m.field 0, :line
+    end
+
+    # VALIDBH^AMHGBPL: "pov ien". 1 when the MHSS PROBLEM/POV (#9002012.2)
+    # maps to a code PCC takes (.05 set), 0 when not.
+    DataMapper.define(:amhg_pov_pcc_check) do |m|
+      m.rpc "AMHG CHECK BH ICD"
+      m.field 0, :valid
+    end
+
+    # LOCK^AMHGUA: "file|ien". 1 when another session holds the entry's
+    # lock (an incremental L + with a 1-second timeout fails), else 0.
+    DataMapper.define(:amhg_lock_check) do |m|
+      m.rpc "AMHG CHECK LOCK"
+      m.field 0, :locked
+    end
+
+    # SC^AMHGT: "file|field". The set-of-codes field's external values.
+    DataMapper.define(:amhg_field_codes) do |m|
+      m.rpc "AMHG GET SET OF CODES"
+      m.field 0, :value
+    end
   end
 end
