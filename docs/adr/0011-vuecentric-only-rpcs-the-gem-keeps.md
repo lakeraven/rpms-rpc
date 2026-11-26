@@ -14,11 +14,11 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
 The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the broker-option inventory of the openrpms release under test (`<tag>-contexts_19_05.txt`, fetched by `rake openrpms:fetch`, rpms-rpc#724) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261116-2a9b3fe-ydb` that is 65 RPCs.
+On `bcer-9.0-20261124-60d39b6-ydb` that is 72 RPCs.
 
 ## Decision
 
-1. The gem keeps the 65 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
+1. The gem keeps the 72 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
@@ -82,15 +82,22 @@ On `bcer-9.0-20261116-2a9b3fe-ydb` that is 65 RPCs.
 | `BGOVMSR SET` | `RpmsRpc::Measurement` | As above. | As above. |
 | `BGOVPED GET` | `RpmsRpc::PatientEducation` | Patient education entries (V PATIENT ED) with the topic name VueCentric shows; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16), unverified. |
 | `BGOVPED2 GETPVED` | `RpmsRpc::PatientEducation` | A visit's problem-linked education (V PATIENT ED field 1103), as the problem-list education pane lists it; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16) by visit, unverified. |
+| `BGOVPOV DEL` | `RpmsRpc::Pov` | Removes a visit diagnosis and takes the visit off its problem's visit list (#9000011.14), so the problem no longer reads as used. | `BEHOENPC SAVE` (VueCentric-only) or DDR FILER on V POV (#9000010.07), which leaves the problem's visit list, unverified. |
 | `BGOVPOV GET` | `RpmsRpc::Encounter`, `RpmsRpc::Pov` | One visit's diagnoses with episodicity, modifiers, injury, primary/secondary and qualifiers. `ORWPCE PCE4NOTE` gives the visit's diagnoses without those. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV RECENT` | `RpmsRpc::Pov` | `RECENT^BGOVPOV` lists V POVs by patient or by visit, with SNOMED CT, asthma control and the lock flag. `ORWPCE PCE4NOTE` gives one visit's diagnoses only. | DDR LISTER on V POV (#9000010.07). |
-| `BGOVPOV DEL` | `RpmsRpc::Pov` | Removes a visit diagnosis and takes the visit off its problem's visit list (#9000011.14), so the problem no longer reads as used. | `BEHOENPC SAVE` (VueCentric-only) or DDR FILER on V POV (#9000010.07), which leaves the problem's visit list, unverified. |
 | `BGOVPOV SET` | `RpmsRpc::Pov` | Visit diagnosis outside BH. | `AMHG SAVE POV` for BH; `BEHOENPC SAVE` (VueCentric-only) otherwise. |
 | `BGOVTM GET` | `RpmsRpc::Encounter` | A provider's activity and travel time on a visit (V ACTIVITY TIME); no stock route checked. | DDR LISTER on V ACTIVITY TIME (#9000010.19) by visit, unverified. |
 | `BGOVUPD GET` | `RpmsRpc::ClinicalReview` | That a list was reviewed or updated on a visit, as VueCentric files it in V UPDATED/REVIEWED (#9000010.54); no stock route checked. | DDR LISTER on #9000010.54, unverified. |
 | `BGOVUPD SET` | `RpmsRpc::ClinicalReview` | As above. | DDR FILER on #9000010.54, unverified. |
 | `BGU MAILMAN MESSAGE` | `RpmsRpc::Bgu` | `EN^BGUMAIL` sends a MailMan message to a mail group (`^XMD`). The other MailMan RPCs on the build (`PSB MAIL`, `SC MAILMAN`) belong to their packages' options. | None found. |
 | `CIAVCXUS VIMINFO` | `RpmsRpc::Session` | Reads the signed-on DUZ on a CIA session. | `XUS GET USER INFO`, unverified (see docs/vuecentric-exit.md, open points). |
+| `DG CHK PAT MEANS TEST REQUIRED` | `RpmsRpc::DgPatientSelect` | Whether registration must ask for a VA means test (`GUIMT^DPTLK6`), as the patient-selection flow checks; IHS sites keep no means test, and no stock route outside `CIAV VUECENTRIC` answers it. | None needed for IHS: the answer is 0 at an IHS site; drop it when the web tier stops asking. |
+| `DGWPT CLINRNG` | `RpmsRpc::DgPatientSelect` | The date ranges a clinic patient list offers (`CLINRNG^DGWPT`), as VueCentric's patient-selection dialog shows them. Fixed text, no stock RPC outside `CIAV VUECENTRIC`. | The web tier's own list of ranges. |
+| `DGWPT DIEDON` | `RpmsRpc::DgPatientSelect` | Whether the selected patient has died (`DIEDON^DGWPT`, `^DPT(DFN,.35)`), as patient selection warns. | DDR GETS ENTRY DATA on PATIENT (#2) .351, unverified. |
+| `DGWPT SELCHK` | `RpmsRpc::DgPatientSelect` | Whether the record is sensitive or the user's own (`$$EN1^DGQPT2`), the check patient selection makes before it opens a record. | `DG SENSITIVE RECORD ACCESS` (`OR CPRS GUI CHART`), already wrapped by `RpmsRpc::DgSensitive`, which also logs the access. |
+| `DGWPT SELECT` | `RpmsRpc::DgPatientSelect` | Selects the patient for the session and answers the banner pieces (`SELECT^DGWPT`), recording the user's last-selected patient. | `ORWPT SELECT` (`OR CPRS GUI CHART`), already wrapped by `RpmsRpc::Patient`, unverified as a drop-in. |
+| `DGWPT TOP` | `RpmsRpc::DgPatientSelect` | The user's last-selected patient (`TOP^DGWPT`, `^DISV`), which patient selection offers first. | `ORWPT TOP` (`OR CPRS GUI CHART`), unverified. |
+| `DGWPT1 PRCARE` | `RpmsRpc::DgPatientSelect` | The patient's primary care team, provider and attending (`PRCARE^DGWPT1`). It reads PCMM, which IHS sites do not fill. | DDR read of IHS PATIENT (#9000001) .14, the designated provider, as `BEHOPTPC GETBDP` gives it. |
 
 ## Consequences
 

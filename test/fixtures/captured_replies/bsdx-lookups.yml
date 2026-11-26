@@ -1,0 +1,162 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bsdx-lookups.rb.
+---
+rpc: BSDX SCHEDULE USER
+entry_point: SCHUSR^BSDX17
+release_tag: bcer-9.0-20261125-9df42d6-ydb
+image: openrpms@sha256:22deb4dc6ad510ff4e0098b60c96a6c616442e4f34ddddfdc8766b728e4de247
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,SCHED (PSCH123, the scheduler test role's published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-26T07:08:53Z'
+note: Run on a throwaway container. The booking flows book one appointment and cancel
+  it; the cancelled appointment stays on file, as every cancellation does.
+captures:
+- name: schedule_users/1
+  rpc: BSDX SCHEDULE USER
+  inputs: []
+  context: Scheduling.schedule_users
+  raw_return: "5\0I00020USERID^T00030USERNAME\x1E4^MANAGER,SYSTEM\x1E"
+  sha256: 97bc5d6d063585b0c2dac8306e1f1b627fa199091387713f2894d9709723d031
+- name: scheduling_manager/1
+  rpc: BSDX SCHEDULING USER INFO
+  inputs:
+  - '208'
+  context: 'Scheduling.scheduling_manager?: the scheduler'
+  raw_return: "5\0T00010MANAGER\x1ENO\x1E"
+  sha256: 34d15ea2fd44fa22f8522c5ef5e919c28f3cd6301973fedd6e54a37c780d5a52
+- name: scheduling_manager_operator/1
+  rpc: BSDX SCHEDULING USER INFO
+  inputs:
+  - '4'
+  context: 'Scheduling.scheduling_manager?(duz: 4): the operator'
+  raw_return: "5\0T00010MANAGER\x1EYES\x1E"
+  sha256: 862b1fac093f0a5b167055c8ae85ef1dba6a8735a1a36efc1244af591d33fa96
+- name: resource_groups/1
+  rpc: BSDX RESOURCE GROUPS BY USER
+  inputs:
+  - '208'
+  context: Scheduling.user_resource_groups
+  raw_return: "5\0I00020RESOURCE_GROUPID^T00030RESOURCE_GROUP\x1E1^DEMO IHS CLINIC\x1E2^LIVE
+    GROUP 213849\x1E"
+  sha256: 4f239b4ef8ab07b15ca7222706978639533b1e727e9589aef8eac324f146f4f8
+- name: user_resource_group_members/1
+  rpc: BSDX GROUP RESOURCE
+  inputs:
+  - '208'
+  context: Scheduling.user_resource_group_members
+  raw_return: "5\0I00020RESOURCE_GROUPID^T00030RESOURCE_GROUP^I00020RESOURCE_GROUP_ITEMID^T00030RESOURCE_NAME^I00020RESOURCEID\x1E1^DEMO
+    IHS CLINIC^1^DEMO PRIMARY CARE^1\x1E2^LIVE GROUP 213849^1^DEMO PRIMARY CARE^1\x1E1^DEMO
+    IHS CLINIC^2^DEMO IHS CLINIC^2\x1E1^DEMO IHS CLINIC^3^DEMO SAME DAY^3\x1E1^DEMO
+    IHS CLINIC^4^DEMO DIABETES^4\x1E1^DEMO IHS CLINIC^5^DEMO PODIATRY^5\x1E1^DEMO
+    IHS CLINIC^6^DEMO BEHAVIORAL HEALTH^6\x1E"
+  sha256: b58b5208b586c8de6db873028cbcc0e16a2f35db82586d3025cbd7a58321adbe
+- name: resource_letters/1
+  rpc: BSDX RESOURCE LETTERS
+  inputs:
+  - 1|2|
+  context: Scheduling.resource_letters([1, 2])
+  raw_return: "5\0I00010RESOURCEID^T00030RESOURCE_NAME^T00030LETTER_TEXT^T00030NO_SHOW_LETTER^T00030CLINIC_CANCELLATION_LETTER\x1E1^DEMO
+    PRIMARY CARE^^^\x1E2^DEMO IHS CLINIC^^^\x1E"
+  sha256: fd961d4efe21c7cf38919880f4e410600c9fa2bc0ee85ae4f796d6ad0b533bc2
+- name: no_show_count/1
+  rpc: BSDX NOSHOW COUNT
+  inputs:
+  - '990017'
+  - '3'
+  context: Scheduling.no_show_count(990017, 3)
+  raw_return: "5\0I00020PATIENT_IEN^I00020CLINIC_IEN^I00020TOO_MANY^I00020ALLOWED_NO_SHOWS^I00020TOTAL_NO_SHOWS\x1E990017^3^0^1^0\x1E"
+  sha256: 2a4567851a048b1d4128102d2f00e14a5a9d0fb2742d7a36641b72962f054119
+- name: patient_lookup/1
+  rpc: BSDXPatientLookupRS
+  inputs:
+  - QUEBEC,SAGE
+  - '10'
+  context: Scheduling.patient_lookup(QUEBEC,SAGE)
+  raw_return: "5\0T00030NAME^T00030HRN^T00030SSN^D00030DOB^T00030IEN\x1EQUEBEC,SAGE^990017^666181017^JUN
+    9,2001^990017\x1E"
+  sha256: fdd60a0e0b16808f62c00b380f63f8839d7d541e790bd13822f467d8e126a8e4
+- name: access_block_overlaps/1
+  rpc: BSDX TYPE BLOCKS OVERLAP
+  inputs:
+  - 1/13/2027@09:00
+  - 1/13/2027@10:00
+  - DEMO PRIMARY CARE
+  context: Scheduling.access_block_overlaps on DEMO PRIMARY CARE, 01/13/2027 09:00-10:00
+  raw_return: "5\0D00030StartTime^D00030EndTime^I00010AppointmentTypeID^I00010AvailabilityID^T00030ResourceName\x1EJAN
+    13,2027 08:00^JAN 13,2027 17:00^1^36^DEMO PRIMARY CARE\x1E"
+  sha256: bb0b0b6cb4f6e2c4f42877ee26203c7fd4d3e67ee6d7dc89c052805fda941996
+- name: wellness_handout_types/1
+  rpc: BSDX HS PWH TYPES
+  inputs: []
+  context: Scheduling.wellness_handout_types
+  raw_return: "5\0T00020PWH_TYPE_IEN^T00020PWH_TYPE_NAME\x1E1^ADULT REGULAR\x1E2^MEDICATION
+    RECONCILIATION\x1E3^LORI\x1E4^CHR PWH\x1E"
+  sha256: 6d3a873cbcb60806d83d696a2069fb9b1753d5ae9dec3657ec03273da2fb7b05
+- name: book/1
+  rpc: BSDX ADD NEW APPOINTMENT
+  inputs:
+  - '3270113.1000'
+  - '3270113.1020'
+  - '990020'
+  - DEMO PRIMARY CARE
+  - '20'
+  - ''
+  - ''
+  - ''
+  context: 'Scheduling.add_appointment: DFN 990020 at DEMO PRIMARY CARE, 01/13/2027
+    10:00, 20 minutes'
+  raw_return: "5\0I00020APPOINTMENTID^T00020ERRORID\x1E32^\x1E\x1F"
+  sha256: 81b58dbe92033ec22545c6b6c7250bf9b0e53c3a3cff8a3c55b15a4021239740
+- name: appointment_events/1
+  rpc: BSDX APPT EVENT LOG
+  inputs:
+  - '990020'
+  context: Scheduling.appointment_events(990020)
+  raw_return: "5\0T00020PATIENT_IEN^T00020PATIENT_NAME^T00020CLINIC_IEN^T00020WARD_IEN^T00020APPT_TIME^T00020APPT_NUMBER^T00020APPT_MADE_TIME^T00020APPT_MADE_USER^T00020APPT_MADE_USER_NAME^T00020ROUT_SLIP_DATE^T00020CHECKIN_TIME^T00020CHECKIN_USER^T00020CHECKIN_USER_NAME^T00020CHECKOUT_TIME^T00020CHECKOUT_USER^T00020CHECKOUT_USER_NAME^T00020CHECKOUT_FILED_TIME^T00020NO_SHO_CANCEL_TIME^T00020NO_SHO_CANCEL_USER^T00020NO_SHO_CANCEL_USER_NAME^T00020CHECKED_OUT^T00020REBOOK_DATE^T00100CANCEL_REASON^T00100CANCEL_REMARK\x1E990020^TANGO,MARLOWE^10^Outpatient^Jan
+    13, 2027 10:00^1^Nov 26, 2026 07:08:52^^^^^^^^^^^^^^^^^\x1E"
+  sha256: 59776faf7e26d4adc842d509f00e00c90b48b3d99bdf7ce547b005db078310d8
+- name: appointment_letter_list/1
+  rpc: BSDX CLINIC LETTERS
+  inputs:
+  - 1|
+  - 1/13/2027
+  - 1/13/2027
+  - '0'
+  context: Scheduling.appointment_letter_list([1]) on 01/13/2027
+  raw_return: "5\0T00030Name^D00020DOB^T00030Sex^T00030HRN^D00030ApptDate^T00030Clinic^T00030TypeStatus^I00010RESOURCEID^T00030APPT_MADE_BY^D00020DATE_APPT_MADE^T00250NOTE^T00030STREET^T00030CITY^T00030STATE^T00030ZIP^T00030HOMEPHONE\x1ETANGO,MARLOWE^OCT
+    20,1962^MALE^990020^JAN 13,2027 10:00^DEMO PRIMARY CARE^^1^PROFILE,SCHED^NOV 26,2026
+    07:08:52^^240 GRANITE ST^ANYWHERE^MT^59000^406-555-1020\x1E"
+  sha256: d690976f4b3cf684da51a63be954a28e7cc9bb99ee58def87b02fbae3510ada3
+- name: appointment_overlaps/1
+  rpc: BSDX APPT BLOCKS OVERLAP
+  inputs:
+  - 1/13/2027@10:00
+  - 1/13/2027@10:20
+  - DEMO PRIMARY CARE
+  - '0'
+  context: Scheduling.appointment_overlaps on DEMO PRIMARY CARE at the booking
+  raw_return: "5\0D00030START_TIME^D00030END_TIME^I00010PAT_ID\x1EJAN 13,2027 10:00^JAN
+    13,2027 10:20^990020\x1E"
+  sha256: 610a1444a7a58765c7a40c5e2d3b72e2caeddf9b8eba99d81c9ce78b64a6248d
+- name: cancel/1
+  rpc: BSDX CANCEL APPOINTMENT
+  inputs:
+  - '32'
+  - C
+  - '13'
+  - capture
+  context: 'Scheduling.cancel_appointment: cancelled by the clinic (reason 13)'
+  raw_return: "5\0T00020ERRORID\x1E\x1E\x1F"
+  sha256: 298d352330d29ff24086eaffb155c7137082e0fa4b1dbcea67ed35efe67ebdf8
+- name: cancellation_letter_list/1
+  rpc: BSDX CANCEL CLINIC LIST
+  inputs:
+  - 1|
+  - 1/13/2027
+  - 1/13/2027
+  context: Scheduling.cancellation_letter_list([1]) on 01/13/2027
+  raw_return: "5\0T00030Name^D00020DOB^T00030Sex^T00030HRN^D00030NewApptDate^T00030Clinic^T00030TypeStatus^I00010RESOURCEID^T00030APPT_MADE_BY^D00020DATE_APPT_MADE^T00250NOTE^T00030STREET^T00030CITY^T00030STATE^T00030ZIP^T00030HOMEPHONE^D00030OldApptDate\x1ETANGO,MARLOWE^OCT
+    20,1962^MALE^990020^^DEMO PRIMARY CARE^^1^PROFILE,SCHED^NOV 26,2026 07:08:52^^240
+    GRANITE ST^ANYWHERE^MT^59000^406-555-1020^JAN 13,2027 10:00\x1E"
+  sha256: 6fdcc609869cd6fa8448471c881f9421171f623bdaadc1a86a59b0570b549a50

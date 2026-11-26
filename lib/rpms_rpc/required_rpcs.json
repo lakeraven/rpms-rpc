@@ -11,14 +11,18 @@
       "AGG ADD NEW PATIENT",
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",
+      "AGG CHECK DIVISION",
       "AGG CHECK SENSITIVE PATIENT",
       "AGG ERROR SCREEN",
       "AGG GET TEMP PAT HRN",
+      "AGG GET WINDOW DEF TABLE",
+      "AGG GET WINDOW DEFINITION",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
       "AGG PATIENT LANGUAGES",
       "AGG QUANTUM VALIDATION",
+      "AGG REPORT LIST",
       "AGG SEND SENSITIVE NOTIFY",
       "AGG UNLOCK PATIENT",
       "AGG UPDATE A MULTIPLE RECORD",
@@ -26,6 +30,8 @@
       "AGG UPDATE LEGAL NAMES",
       "AGG UPDATE PATIENT",
       "AGG UPDATE SPECIAL MULTIPLES",
+      "AGG VALIDATE KEY",
+      "AGG VERSION INFO",
       "AGG WINDOW DATA VALIDATION",
       "AGG WINDOW TABLE LOOKUP",
       "CIANBRPC CANRUN",
@@ -199,6 +205,15 @@
       "DDR LISTER",
       "DDR LOCK/UNLOCK NODE",
       "DDR VALIDATOR"
+    ],
+    "RpmsRpc::DgPatientSelect": [
+      "DG CHK PAT MEANS TEST REQUIRED",
+      "DGWPT CLINRNG",
+      "DGWPT DIEDON",
+      "DGWPT SELCHK",
+      "DGWPT SELECT",
+      "DGWPT TOP",
+      "DGWPT1 PRCARE"
     ],
     "RpmsRpc::DgSensitive": [
       "DG SENSITIVE RECORD ACCESS",
@@ -496,24 +511,37 @@
       "BSDX ADD NEW APPOINTMENT",
       "BSDX ADD NEW AVAILABILITY",
       "BSDX ALL APPOINTMENTS",
+      "BSDX APPT BLOCKS OVERLAP",
+      "BSDX APPT EVENT LOG",
       "BSDX CANCEL APPOINTMENT",
       "BSDX CANCEL AV BY DATE",
       "BSDX CANCEL CHECKOUT APPT",
+      "BSDX CANCEL CLINIC LIST",
       "BSDX CHECKIN APPOINTMENT",
       "BSDX CHECKOUT APPOINTMENT",
+      "BSDX CLINIC LETTERS",
       "BSDX CLINIC SETUP",
       "BSDX CLINIC VAR APPT",
       "BSDX CREATE APPT SCHEDULE",
       "BSDX CREATE ASGND SLOT SCHED",
       "BSDX EDIT APPOINTMENT",
+      "BSDX GROUP RESOURCE",
       "BSDX HOSPITAL LOCATION",
+      "BSDX HS PWH TYPES",
       "BSDX NOSHOW",
+      "BSDX NOSHOW COUNT",
       "BSDX OVERBOOK",
       "BSDX PATIENT APPT DISPLAY",
+      "BSDX RESOURCE GROUPS BY USER",
+      "BSDX RESOURCE LETTERS",
       "BSDX RESOURCES",
       "BSDX RESOURCES BY USER",
+      "BSDX SCHEDULE USER",
+      "BSDX SCHEDULING USER INFO",
       "BSDX SEARCH AVAILABILITY",
+      "BSDX TYPE BLOCKS OVERLAP",
       "BSDX UNCANCEL APPT",
+      "BSDXPatientLookupRS",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
@@ -644,6 +672,14 @@
         "test/fixtures/captured_replies/patient-profile.yml"
       ]
     },
+    "AGG CHECK DIVISION": {
+      "methods": {
+        "RpmsRpc::Agg.division_parameters": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
+      ]
+    },
     "AGG CHECK SENSITIVE PATIENT": {
       "methods": {
         "RpmsRpc::Agg.check_sensitive_patient": "non_idempotent_write"
@@ -681,6 +717,22 @@
         "test/fixtures/captured_replies/agg-registration.yml",
         "test/fixtures/captured_replies/registration-create.yml",
         "test/fixtures/captured_replies/registration-hrn-readback.yml"
+      ]
+    },
+    "AGG GET WINDOW DEF TABLE": {
+      "methods": {
+        "RpmsRpc::Agg.table_entries": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
+      ]
+    },
+    "AGG GET WINDOW DEFINITION": {
+      "methods": {
+        "RpmsRpc::Agg.window_definition": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
       ]
     },
     "AGG LOCK PATIENT": {
@@ -757,6 +809,14 @@
         "RpmsRpc::PatientProfile.add_other_tribe": "non_idempotent_write"
       },
       "replies": []
+    },
+    "AGG REPORT LIST": {
+      "methods": {
+        "RpmsRpc::Agg.reports": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
+      ]
     },
     "AGG SEND SENSITIVE NOTIFY": {
       "methods": {
@@ -885,6 +945,22 @@
       },
       "replies": [
         "test/fixtures/captured_replies/patient-profile.yml"
+      ]
+    },
+    "AGG VALIDATE KEY": {
+      "methods": {
+        "RpmsRpc::Agg.key_held": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
+      ]
+    },
+    "AGG VERSION INFO": {
+      "methods": {
+        "RpmsRpc::Agg.version_info": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/agg-lookups.yml"
       ]
     },
     "AGG WINDOW DATA VALIDATION": {
@@ -2241,6 +2317,7 @@
         "RpmsRpc::Scheduling.add_appointment": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml",
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
         "test/fixtures/wire_captures/bsdx-add-new-appointment.yml"
       ]
@@ -2285,11 +2362,28 @@
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
+    "BSDX APPT BLOCKS OVERLAP": {
+      "methods": {
+        "RpmsRpc::Scheduling.appointment_overlaps": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
+    "BSDX APPT EVENT LOG": {
+      "methods": {
+        "RpmsRpc::Scheduling.appointment_events": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
     "BSDX CANCEL APPOINTMENT": {
       "methods": {
         "RpmsRpc::Scheduling.cancel_appointment": "non_idempotent_write"
       },
       "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml",
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
         "test/fixtures/wire_captures/bsdx-cancel-appointment.yml"
       ]
@@ -2310,6 +2404,14 @@
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
+    "BSDX CANCEL CLINIC LIST": {
+      "methods": {
+        "RpmsRpc::Scheduling.cancellation_letter_list": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
     "BSDX CHECKIN APPOINTMENT": {
       "methods": {
         "RpmsRpc::Scheduling.cancel_checkin": "non_idempotent_write",
@@ -2328,6 +2430,14 @@
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
         "test/fixtures/captured_replies/scheduling-stock-rpcs.yml"
+      ]
+    },
+    "BSDX CLINIC LETTERS": {
+      "methods": {
+        "RpmsRpc::Scheduling.appointment_letter_list": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
       ]
     },
     "BSDX CLINIC SETUP": {
@@ -2386,12 +2496,28 @@
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
+    "BSDX GROUP RESOURCE": {
+      "methods": {
+        "RpmsRpc::Scheduling.user_resource_group_members": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
     "BSDX HOSPITAL LOCATION": {
       "methods": {
         "RpmsRpc::Scheduling.hospital_locations": "read"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX HS PWH TYPES": {
+      "methods": {
+        "RpmsRpc::Scheduling.wellness_handout_types": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
       ]
     },
     "BSDX NOSHOW": {
@@ -2401,6 +2527,14 @@
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml",
         "test/fixtures/wire_captures/bsdx-noshow.yml"
+      ]
+    },
+    "BSDX NOSHOW COUNT": {
+      "methods": {
+        "RpmsRpc::Scheduling.no_show_count": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
       ]
     },
     "BSDX OVERBOOK": {
@@ -2417,6 +2551,22 @@
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDX RESOURCE GROUPS BY USER": {
+      "methods": {
+        "RpmsRpc::Scheduling.user_resource_groups": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
+    "BSDX RESOURCE LETTERS": {
+      "methods": {
+        "RpmsRpc::Scheduling.resource_letters": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
       ]
     },
     "BSDX RESOURCES": {
@@ -2438,6 +2588,22 @@
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
+    "BSDX SCHEDULE USER": {
+      "methods": {
+        "RpmsRpc::Scheduling.schedule_users": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
+    "BSDX SCHEDULING USER INFO": {
+      "methods": {
+        "RpmsRpc::Scheduling.scheduling_manager?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
     "BSDX SEARCH AVAILABILITY": {
       "methods": {
         "RpmsRpc::Scheduling.availability": "read"
@@ -2446,12 +2612,28 @@
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
       ]
     },
+    "BSDX TYPE BLOCKS OVERLAP": {
+      "methods": {
+        "RpmsRpc::Scheduling.access_block_overlaps": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
+      ]
+    },
     "BSDX UNCANCEL APPT": {
       "methods": {
         "RpmsRpc::Scheduling.uncancel_appointment": "non_idempotent_write"
       },
       "replies": [
         "test/fixtures/captured_replies/bsdx-scheduling.yml"
+      ]
+    },
+    "BSDXPatientLookupRS": {
+      "methods": {
+        "RpmsRpc::Scheduling.patient_lookup": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/bsdx-lookups.yml"
       ]
     },
     "BSTS GET CODESETS": {
@@ -2865,6 +3047,14 @@
         "test/fixtures/captured_replies/tribal.yml"
       ]
     },
+    "DG CHK PAT MEANS TEST REQUIRED": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.means_test_required?": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
     "DG SENSITIVE RECORD ACCESS": {
       "methods": {
         "RpmsRpc::DgSensitive.check_access": "non_idempotent_write"
@@ -2879,6 +3069,54 @@
       },
       "replies": [
         "test/fixtures/captured_replies/dg-sensitive.yml"
+      ]
+    },
+    "DGWPT CLINRNG": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.clinic_date_ranges": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
+    "DGWPT DIEDON": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.date_of_death": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
+    "DGWPT SELCHK": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.sensitivity": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
+    "DGWPT SELECT": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.select": "non_idempotent_write"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
+    "DGWPT TOP": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.last_selected": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
+      ]
+    },
+    "DGWPT1 PRCARE": {
+      "methods": {
+        "RpmsRpc::DgPatientSelect.primary_care": "read"
+      },
+      "replies": [
+        "test/fixtures/captured_replies/dgwpt.yml"
       ]
     },
     "GMV ADD VM": {

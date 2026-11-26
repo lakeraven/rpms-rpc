@@ -1567,5 +1567,23 @@ module RpmsRpc
       m.field 2, :category
       m.field 3, :category_ien, :integer
     end
+    # The ADT patient-selection RPCs a VueCentric session sends (DGWPT,
+    # DGWPT1, DPTLK6; RpmsRpc::DgPatientSelect). The build lists them in CIAV
+    # VUECENTRIC only, so each binds it (ADR 0011). Each answers a single
+    # value or a short list, read as lines.
+    {
+      dgwpt_died_on: "DGWPT DIEDON",                    # DIEDON^DGWPT: +^DPT(DFN,.35)
+      dgwpt_sensitive_check: "DGWPT SELCHK",            # SELCHK^DGWPT: $$EN1^DGQPT2
+      dgwpt_select: "DGWPT SELECT",                     # SELECT^DGWPT: the banner pieces; sets ^DISV
+      dgwpt_last_selected: "DGWPT TOP",                 # TOP^DGWPT: ^DISV(DUZ,"^DPT(")
+      dgwpt_clinic_ranges: "DGWPT CLINRNG",             # CLINRNG^DGWPT: six fixed ranges
+      dgwpt_primary_care: "DGWPT1 PRCARE",              # PRCARE^DGWPT1: team^provider^attending
+      dg_means_test_required: "DG CHK PAT MEANS TEST REQUIRED" # GUIMT^DPTLK6
+    }.each do |name, rpc|
+      DataMapper.define(name) do |m|
+        m.rpc rpc
+        m.context "CIAV VUECENTRIC"
+      end
+    end
   end
 end

@@ -35,6 +35,7 @@ module OpenApi
       "ClinicalReview" => { path: "clinical-reviews" },
       "Consult" => { path: "consults", own: %w[consult_ien] },
       "DdrFileman" => { path: "files", own: %w[file] },
+      "DgPatientSelect" => { path: "patients" },
       "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },
       "Eligibility" => { path: "eligibility" },
