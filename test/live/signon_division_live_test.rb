@@ -62,9 +62,8 @@ class SignonDivisionChoiceLiveTest < LiveSpec::Test
     assert_equal ien, server_division(client)
   end
 
-  # CIANBRPC DIVSET accepts any number (DIVSET^CIANBRPC sets DUZ(2)=+DIV and
-  # checks nothing), so naming a division the user may not act in must be
-  # refused by the client, and leave it signed off.
+  # Naming a division the user may not act in must be refused by the client,
+  # and leave it signed off.
   def test_naming_a_division_the_user_lacks_fails_closed
     sign_on_as_persona
     foreign = client.divisions.map { |d| d[:ien] }.max + 1
