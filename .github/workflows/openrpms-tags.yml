@@ -35,11 +35,11 @@ jobs:
     outputs:
       todo: ${{ steps.plan.outputs.todo }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # merge-base --is-ancestor needs main's history.
           fetch-depth: 0
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@145243922b4465b78e04dd66294782c7de45901f # v1.345.0
         with:
           ruby-version: "4.0"
       - name: Which releases to tag
@@ -67,10 +67,10 @@ jobs:
       COMMIT: ${{ matrix.release.commit }}
       ACTION: ${{ matrix.release.action }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ matrix.release.commit }}
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@145243922b4465b78e04dd66294782c7de45901f # v1.345.0
         with:
           ruby-version: "4.0"
           bundler-cache: true

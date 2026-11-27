@@ -754,7 +754,9 @@ The gates (every RPC name registered, every RPC callable, every feature served) 
 The first `rake test` fetches it if needed, and `OPENRPMS_RELEASE=<tag>` names a specific release.
 That needs `gh` with read access to lakeraven/openrpms.
 `OPENRPMS_OFFLINE=1` keeps the run hermetic: those gate tests skip, each saying so, and the rest read a small fixture inventory cut from a real release.
-CI runs both: the hermetic `Test` job, and `.github/workflows/openrpms-release.yml`, which runs the gates and the live specs (once per test role) against the latest release and uploads `tested-against.json`.
+CI runs both: the hermetic `Test` job on every pull request and push, and `.github/workflows/openrpms-release.yml`, which runs the gates and the live specs (once per test role) against the latest release and uploads `tested-against.json`.
+That workflow runs on pushes to main, daily and by hand, never on a pull request: it holds a token that reads the private openrpms repository, and only code already on main gets it.
+So before pushing a branch, run the gates yourself with `bundle exec rake openrpms:fetch test`, which reads the release with your own `gh` login.
 
 ### Test results, quickly
 
