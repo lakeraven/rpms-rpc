@@ -6,6 +6,7 @@ require "rpms_rpc/api/scheduling"
 require "rpms_rpc/api/referral"
 require "rpms_rpc/api/behavioral_health/reference"
 require "rpms_rpc/api/practitioner"
+require "rpms_rpc/api/coverage"
 
 # Least privilege, proven by refusal (#452). Every other live spec runs as the
 # test role whose work it proves; this one runs as every role a broker signs
@@ -23,7 +24,8 @@ class RoleRefusalLiveTest < LiveSpec::Test
 
   # One read per option: registration's own field check, scheduling's clinic
   # list, a patient's referrals, Behavioral Health's clinic list, and a user's
-  # divisions and classes (TIU DIV AND CLASS INFO, in OR CPRS GUI CHART only).
+  # divisions and classes (TIU DIV AND CLASS INFO, in OR CPRS GUI CHART only),
+  # and iCare's insurance read (BQI PATIENT INSURANCE, in BQIRPC only).
   # A release older than a row's grant fails here, naming the option.
   PROFILE_MD = 206 # the provider's account, a user every build seeds
 
@@ -32,7 +34,8 @@ class RoleRefusalLiveTest < LiveSpec::Test
     "BSDXRPC" => -> { RpmsRpc::Scheduling.hospital_locations },
     "BMCRPC" => -> { RpmsRpc::Referral.for_patient(2) },
     "AMHGRPC" => -> { RpmsRpc::BehavioralHealth::Reference.clinics },
-    "OR CPRS GUI CHART" => -> { RpmsRpc::Practitioner.roles(PROFILE_MD) }
+    "OR CPRS GUI CHART" => -> { RpmsRpc::Practitioner.roles(PROFILE_MD) },
+    "BQIRPC" => -> { RpmsRpc::Coverage.for_patient(2) }
   }.freeze
 
   READS.each do |option, read|

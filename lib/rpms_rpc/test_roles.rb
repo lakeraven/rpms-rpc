@@ -84,6 +84,17 @@ module RpmsRpc
                access: "PBH123", verify: "PBH123!!", esig: "123456",
                contexts: [ "CIAV VUECENTRIC", "BMXRPC", "AMHGRPC" ].freeze,
                keys: [ "PROVIDER", "AMHZMENU", "AMHZ DATA ENTRY" ].freeze, xuprogmode: false),
+      # The care manager, who works patient lists in iCare: BQIRPC, the one
+      # option that registers iCare's BQI RPCs, BMXRPC (iCare signs on over
+      # BMX) and CIAV VUECENTRIC (a CIA sign-on); primary menu XUSERTOOLS and
+      # no keys (which of iCare's optional role keys a care manager holds is
+      # the analyst's to decide). openrpms#1401 seeds it (SEEDPERS PROFILE,CM,
+      # openrpms 4f82f270); no release carries it yet, so the row is pending.
+      # When one does, drop pending and add the role to role_refusal_live_test.rb.
+      Role.new(name: :care_manager, persona: "care_manager", account: "PROFILE,CM",
+               access: "PCM123", verify: "PCM123!!", esig: nil,
+               contexts: [ "CIAV VUECENTRIC", "BMXRPC", "BQIRPC" ].freeze,
+               keys: [].freeze, xuprogmode: false, pending: "openrpms#1401"),
       # Roll-and-scroll only: no CIAV VUECENTRIC, so no broker signs it on.
       Role.new(name: :billing_technician, persona: "billing_technician", account: "PROFILE,BILL",
                access: "PBIL123", verify: "PBIL123!!", esig: nil,

@@ -125,6 +125,13 @@ class LiveSpecGuardTest < Minitest::Test
     def test_reaches_the_broker = assert(client)
   end
 
+  # A spec whose role's account no release carries yet (a pending row).
+  class PendingProbe < LiveSpec::Test
+    runs_as :care_manager
+    needs "BQIRPC", tracked: "openrpms#1401"
+    def test_reaches_the_broker = assert(client)
+  end
+
   # The harness's sign-on and its XUPROGMODE probe, without a broker: the
   # probe answers what HELD says the account holds.
   class GuardProbe < LiveSpec::Test
@@ -161,6 +168,7 @@ class LiveSpecGuardTest < Minitest::Test
   Minitest::Runnable.runnables.delete(UndeclaredProbe)
   Minitest::Runnable.runnables.delete(SchedulingProbe)
   Minitest::Runnable.runnables.delete(NeedsProbe)
+  Minitest::Runnable.runnables.delete(PendingProbe)
   Minitest::Runnable.runnables.delete(GuardProbe)
 
   # -- test roles: each spec runs as the role whose work it proves (#452) -----
@@ -292,6 +300,20 @@ class LiveSpecGuardTest < Minitest::Test
     row = RpmsRpc::TestRoles.fetch(:bh_provider)
     assert_nil row.pending
     assert row.holds?("AMHGRPC")
+  end
+
+  # No release carries PROFILE,CM yet (openrpms#1401), so the care manager's
+  # row is pending: it holds no option on the build, and a spec needing BQIRPC
+  # skips by that issue before any sign-on, saying why.
+  def test_a_pending_role_holds_nothing_until_a_release_carries_its_account
+    row = RpmsRpc::TestRoles.fetch(:care_manager)
+    assert_equal [ "PROFILE,CM", "openrpms#1401" ], [ row.account, row.pending ]
+    assert_includes row.contexts, "BQIRPC"
+    refute row.holds?("BQIRPC"), "no release carries PROFILE,CM, so the build answers it under no option"
+    result = with_env(FULL.merge("ROLE" => "care_manager")) { PendingProbe.new(:test_reaches_the_broker).run }
+
+    assert result.skipped?, "the spec skips rather than sign on as an account the build lacks (#{result.failure&.message})"
+    assert_match(/\Aopenrpms#1401: no openrpms release carries care_manager's account \(PROFILE,CM\) yet/, result.failure.message)
   end
 
   def test_a_spec_needing_an_option_the_row_holds_runs
