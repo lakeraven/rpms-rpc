@@ -834,17 +834,19 @@ The accounts are the openrpms build's published demo users (SEEDPERS) on synthet
 | `registration_supervisor` | PROFILE,REGSUP | `PRSUP123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | AGZMENU, AGZMGR, AGZVIEWSSN, DGPF ASSIGNMENT | no | the role refusal and key specs |
 | `scheduler` | PROFILE,SCHED | `PSCH123` | CIAV VUECENTRIC, AGGRPC, BMXRPC, BSDXRPC | SDZMENU, SDZREGMENU | no | clinics, availability, booking, check-in and check-out, wait list |
 | `bh_provider` | PROFILE,BH | `PBH123` | CIAV VUECENTRIC, BMXRPC, AMHGRPC | PROVIDER, AMHZMENU, AMHZ DATA ENTRY | no | the Behavioral Health specs, and the role refusal spec (since bcer-9.0-20261124-60d39b6-ydb, https://github.com/lakeraven/openrpms/issues/1299) |
+| `care_manager` | PROFILE,CM | `PCM123` | CIAV VUECENTRIC, BMXRPC, BQIRPC (pending: no release carries the account yet) | none | no | the iCare (BQI) reads, skipped until a release carries the account (https://github.com/lakeraven/openrpms/issues/1401) |
 | `billing_technician` | PROFILE,BILL | `PBIL123` | none a broker signs on with (no CIAV VUECENTRIC) | ABMZMENU, ABMDZ EDIT CLAIM AND EXPORT, BARZMENU | no | no spec yet; the CIA sign-on refusal uses its pair |
 | `operator` | MANAGER,SYSTEM | `SYS123` | every option (XUPROGMODE) | XUPROGMODE | yes | coverage writes (`BQI PATIENT INSURANCE` needs BQIRPC, which no registration role holds; #814) and build setup |
 
 Least privilege means each row is minimal: the role holds what its persona's work needs and no more.
-`test/live/role_refusal_live_test.rb` proves every row: it runs as every role a broker signs on, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC and the BMX broker's BMXRPC) answers the roles whose row holds it and refuses the rest.
+`test/live/role_refusal_live_test.rb` proves every row: it runs as every role a broker signs on, and each option (AGGRPC, BSDXRPC, BMCRPC, AMHGRPC, OR CPRS GUI CHART, BQIRPC and the BMX broker's BMXRPC) answers the roles whose row holds it and refuses the rest.
 When a release changes an account's menus, that spec fails and the row moves with the build.
 One guard keeps a run honest: right after sign-on it asks whether the account holds XUPROGMODE, and every spec fails when that disagrees with the role's row, so an operator pair under another role's name cannot hide a permission gap.
 
 PROV123 (PROVIDER,TEST) is not a test role; it stays a stack's staging sign-on.
 Where a spec needs an option its role's row does not give yet, it says so with `needs "<option>", tracked: "openrpms#NNN"` and is skipped by that issue until the row holds it.
 Since bcer-9.0-20261124-60d39b6-ydb every row holds what its specs need: AMHGRPC for the behavioral health provider (https://github.com/lakeraven/openrpms/issues/1299), and OR CPRS GUI CHART and XQAL GUI ALERTS for the provider (https://github.com/lakeraven/openrpms/issues/1276, https://github.com/lakeraven/openrpms/issues/1277). A run against an older release fails: `test/live/role_refusal_live_test.rb` names AMHGRPC or OR CPRS GUI CHART when the release does not grant it, and the notifications spec is refused XQAL GUI ALERTS.
+The care manager's row is `pending` (https://github.com/lakeraven/openrpms/issues/1401): openrpms main seeds PROFILE,CM since 4f82f270, and no release carries it yet, so the row holds no option on the build and the iCare specs skip by that issue without signing on. When a release carries it, drop `pending:` from the row and add the role to the role refusal spec.
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **Captured-reply tests** replay what a published release sent through the real broker client and assert what a host receives

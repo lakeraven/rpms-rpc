@@ -103,7 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         # Every role a live spec declares (LiveSpec.roles_in_use; live_spec_guard_test.rb checks the two agree).
-        role: [provider, nurse, medical_assistant, front_desk_clerk, registration_supervisor, scheduler, bh_provider, operator]
+        role: [provider, nurse, medical_assistant, front_desk_clerk, registration_supervisor, scheduler, bh_provider, care_manager, operator]
     env:
       GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
       OPENRPMS_RELEASE: ${{ needs.release.outputs.tag }}
