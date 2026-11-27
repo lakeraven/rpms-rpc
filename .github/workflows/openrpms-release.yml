@@ -16,14 +16,15 @@ name: openrpms release
 #                              read access ("Manage Actions access" in the package settings)
 # A missing one fails its job with an error naming it; nothing is skipped quietly.
 #
-# The Release gate runs on every push to main and every pull request, daily (a new release moves "latest"
-# with no commit here), and by hand with a release tag to test a specific one. Live runs on the same events
-# except pull requests: the image is private and this repository is public, so a run must not hand a fork
-# code that can pull it (the rule lakeraven-ehr's live job states too).
+# Both jobs run on every push to main, daily (a new release moves "latest" with no commit here), and by hand
+# with a release tag to test a specific one. Neither runs on a pull request: both hold OPENRPMS_READ_TOKEN,
+# which reads the private openrpms repository, and a pull request run executes the branch's own code
+# (rake openrpms:fetch, rake test) in a public repository with public logs. Only code already on main gets
+# the token. Before pushing a branch, its author runs the Release gate locally with their own gh login:
+# `bundle exec rake openrpms:fetch test` (README, Testing); the hermetic Test
+# job in ci.yml still runs on every pull request.
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   schedule:
     - cron: "17 14 * * *"
@@ -48,11 +49,11 @@ jobs:
       GH_TOKEN: ${{ secrets.OPENRPMS_READ_TOKEN }}
       OPENRPMS_RELEASE: ${{ inputs.openrpms_release }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # rpc_tiers_test diffs data/rpc_tiers/grandfathered.yml against the base branch.
           fetch-depth: 0
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@145243922b4465b78e04dd66294782c7de45901f # v1.345.0
         with:
           ruby-version: "4.0"
           bundler-cache: true
@@ -60,7 +61,7 @@ jobs:
         id: fetch
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::error title=No access to openrpms releases::OPENRPMS_READ_TOKEN is not set (or this is a fork's pull request, which gets no secrets). lakeraven/openrpms is private and GITHUB_TOKEN reaches only this repository, so this job cannot read the release to test against. An organization admin adds a token with Contents: read on lakeraven/openrpms as the OPENRPMS_READ_TOKEN secret."
+            echo "::error title=No access to openrpms releases::OPENRPMS_READ_TOKEN is not set. lakeraven/openrpms is private and GITHUB_TOKEN reaches only this repository, so this job cannot read the release to test against. An organization admin adds a token with Contents: read on lakeraven/openrpms as the OPENRPMS_READ_TOKEN secret."
             exit 1
           fi
           bundle exec rake openrpms:fetch
@@ -86,7 +87,7 @@ jobs:
           cat tested-against.json
       - name: Upload tested-against.json
         if: always() && steps.fetch.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tested-against
           path: tested-against.json
@@ -94,7 +95,6 @@ jobs:
   live:
     name: Live (${{ matrix.role }})
     needs: release
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -114,14 +114,14 @@ jobs:
       BMX_PORT: "9101"
       LIVE_DISPOSABLE: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@145243922b4465b78e04dd66294782c7de45901f # v1.345.0
         with:
           ruby-version: "4.0"
           bundler-cache: true
       - name: Record the release under test
         run: bundle exec rake openrpms:fetch
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -166,7 +166,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the live summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: live-${{ matrix.role }}
           path: |
